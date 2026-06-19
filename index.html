@@ -1323,21 +1323,25 @@
     reader.readAsDataURL(file);
   }
 
-  function openEvidenceModal(ds, id){
+    function openEvidenceModal(ds, id){
     pendingEvidence = { ds: ds, id: id };
+    
     /* Limpiar campos */
     document.getElementById("evidenceNote").value = "";
-    document.getElementById("evidenceFile").value = "";
     document.getElementById("evidencePreview").innerHTML = "";
-    document.getElementById("evidenceFileLabel").textContent = "📷 Seleccionar foto";
+    
+    /* Modificar solo el texto, sin borrar el <input> interno */
     var lbl = document.getElementById("evidenceFileLabel");
-    /* Re-crear el input para limpiar el archivo seleccionado */
-    var oldInput = document.getElementById("evidenceFile");
-    var newInput = document.createElement("input");
-    newInput.type = "file"; newInput.id = "evidenceFile"; newInput.accept = "image/*";
-    newInput.addEventListener("change", onEvidenceFileChange);
-    oldInput.parentNode.replaceChild(newInput, oldInput);
-    lbl.appendChild(newInput);
+    lbl.childNodes[0].textContent = "📷 Seleccionar foto ";
+    
+    /* Limpiar el input de archivo y los datos comprimidos anteriores */
+    var fileInput = document.getElementById("evidenceFile");
+    if (fileInput) {
+      fileInput.value = "";
+      fileInput.removeAttribute("data-compressed");
+    }
+    
+    /* Abrir el modal */
     document.getElementById("evidenceModal").classList.add("open");
     setTimeout(function(){ document.getElementById("evidenceNote").focus(); }, 100);
   }
