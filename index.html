@@ -884,17 +884,25 @@
     var day = pad(d.getDate());
     var dates;
 
+    var ctz = "America/La_Paz"; // UTC-4, sin horario de verano
     if (timeStr){
       var tp = timeStr.split(":");
       var h = pad(+tp[0]), m = pad(+tp[1]);
-      // Inicio: hora elegida en UTC (se muestra tal cual en GCal)
-      var dtStart = y + mo + day + "T" + h + m + "00Z";
-      // Fin: 30 minutos después
-      var endD = new Date(Date.UTC(y, +mo-1, +day, +tp[0], +tp[1]+30, 0));
-      var dtEnd = endD.getUTCFullYear()
-        + pad(endD.getUTCMonth()+1)
-        + pad(endD.getUTCDate())
-        + "T" + pad(endD.getUTCHours()) + pad(endD.getUTCMinutes()) + "00Z";
+      // Sin Z: hora local de Bolivia; Google Calendar la interpreta con ctz
+      var dtStart = y + mo + day + "T" + h + m + "00";
+      // Fin: 30 minutos después (aritmética simple en minutos)
+      var totalMin = +tp[0] * 60 + +tp[1] + 30;
+      var endH = pad(Math.floor(totalMin / 60) % 24);
+      var endM = pad(totalMin % 60);
+      // Si pasa medianoche, avanzamos un día
+      var endDay = day, endMo = mo, endY = y;
+      if (totalMin >= 1440){
+        var nextD = new Date(y, +mo-1, +day + 1);
+        endY = nextD.getFullYear();
+        endMo = pad(nextD.getMonth()+1);
+        endDay = pad(nextD.getDate());
+      }
+      var dtEnd = endY + endMo + endDay + "T" + endH + endM + "00";
       dates = dtStart + "/" + dtEnd;
     } else {
       // Evento de todo el día: formato YYYYMMDD/YYYYMMDD
@@ -904,7 +912,8 @@
 
     var url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
       + "&text=" + encodeURIComponent(taskText)
-      + "&dates=" + encodeURIComponent(dates);
+      + "&dates=" + encodeURIComponent(dates)
+      + "&ctz=" + encodeURIComponent(ctz);
 
     window.open(url, "_blank");
     showToast("Abriendo Google Calendar…");
