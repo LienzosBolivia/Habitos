@@ -399,6 +399,72 @@
   @media (min-width:560px){
     .masthead h1{font-size:34px;}
   }
+
+  /* ---------- Recordatorios ---------- */
+  .reminder-card{
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    border-radius:var(--radius-md);
+    padding:14px 16px;
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px;
+    margin-bottom:16px;
+  }
+  .reminder-card .rc-label{
+    flex:1;
+    min-width:160px;
+    font-size:13px;
+    color:var(--text-muted);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .reminder-card .rc-label svg{width:15px;height:15px;flex-shrink:0;color:var(--brass-500);}
+  .reminder-card .rc-label strong{color:var(--text-light);}
+  .reminder-card input[type="time"]{
+    background:var(--ink-700);
+    border:1px solid var(--ink-650);
+    color:var(--text-light);
+    font-family:var(--font-mono);
+    font-size:13px;
+    padding:8px 10px;
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    color-scheme: dark;
+  }
+  .reminder-card .rc-actions{display:flex;gap:6px;align-items:center;}
+  .btn-sm{
+    font-size:12px;
+    padding:8px 12px;
+    border-radius:var(--radius-sm);
+    border:none;
+    cursor:pointer;
+    font-weight:600;
+    font-family:inherit;
+    transition:background .15s;
+  }
+  .btn-sm.save{background:var(--brass-500);color:var(--ink-900);}
+  .btn-sm.save:hover{background:var(--brass-300);}
+  .btn-sm.clear{background:var(--ink-700);color:var(--text-muted);}
+  .btn-sm.clear:hover{color:var(--missed);}
+  .notif-denied{font-size:11.5px;color:var(--missed);margin-top:4px;width:100%;}
+
+  /* ---------- Botón calendario en tarea ---------- */
+  .task-cal-btn{
+    flex:0 0 auto;
+    background:none;
+    border:none;
+    color:var(--text-faint);
+    cursor:pointer;
+    padding:0 2px;
+    display:flex;
+    align-items:center;
+    transition:color .15s;
+  }
+  .task-cal-btn:hover{color:var(--brass-300);}
+  .task-cal-btn svg{width:15px;height:15px;}
 </style>
 </head>
 <body>
@@ -521,7 +587,7 @@
   }
 
   function defaultState(){
-    return { firstUseDate: todayStr(), habits: [], oneoff: [], log: {} };
+    return { firstUseDate: todayStr(), habits: [], oneoff: [], log: {}, reminderTime: null };
   }
 
   function persist(){ return storageSet(STORAGE_KEY, JSON.stringify(state)); }
@@ -537,8 +603,10 @@
       state.oneoff = state.oneoff || [];
       state.log = state.log || {};
       state.firstUseDate = state.firstUseDate || todayStr();
+      state.reminderTime = state.reminderTime || null;
       selectedCalendarDate = todayStr();
       persist();
+      scheduleReminders();
       render();
     });
   }
@@ -702,6 +770,129 @@
     toastTimer = setTimeout(function(){ el.classList.remove("show"); }, 2400);
   }
 
+  /* ===================== Recordatorios / Notificaciones ===================== */
+  var reminderTimeout = null;
+  function scheduleReminders(){
+    if (reminderTimeout) clearTimeout(reminderTimeout);
+    if (!state.reminderTime) return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    var now = new Date();
+    var parts = state.reminderTime.split(":");
+    var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), +parts[0], +parts[1], 0);
+    var delay = target - now;
+    if (delay < 0) return;
+    reminderTimeout = setTimeout(function(){
+      var today = todayStr();
+      var tasks = getTasksForDate(today).filter(function(t){ return getStatus(today, t.id) !== "done"; });
+      if (tasks.length > 0){
+        try {
+          new Notification("Bitácora — Recordatorio", {
+            body: "Tenés " + tasks.length + " tarea" + (tasks.length > 1 ? "s" : "") + " pendiente" + (tasks.length > 1 ? "s" : "") + " hoy.",
+            tag: "bitacora-daily"
+          });
+        } catch(e){}
+      }
+    }, delay);
+  }
+  function saveReminderTime(time){
+    state.reminderTime = time || null;
+    persist();
+    scheduleReminders();
+  }
+  function requestNotifPermission(callback){
+    if (!("Notification" in window)){ callback("unsupported"); return; }
+    if (Notification.permission === "granted"){ callback("granted"); return; }
+    if (Notification.permission === "denied"){ callback("denied"); return; }
+    Notification.requestPermission().then(function(p){ callback(p); });
+  }
+
+  /* ===================== Exportar a calendario (.ics) ===================== */
+  var ICON_CALENDAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>';
+  function exportToIcs(taskText, ds, reminderTime){
+    var d = strToDate(ds);
+    var y = d.getFullYear();
+    var m = pad(d.getMonth()+1);
+    var day = pad(d.getDate());
+    var uid_str = "bitacora-" + Date.now() + "@app";
+    var nowStamp = (function(){
+      var n = new Date();
+      return n.getFullYear()+pad(n.getMonth()+1)+pad(n.getDate())+"T"+pad(n.getHours())+pad(n.getMinutes())+pad(n.getSeconds())+"Z";
+    })();
+
+    var dtStart, dtEnd, alarmBlock = "";
+    if (reminderTime){
+      var rp = reminderTime.split(":");
+      var hour = pad(+rp[0]), min = pad(+rp[1]);
+      dtStart = y+""+m+""+day+"T"+hour+""+min+"00";
+      var endH = rp[0], endM = rp[1];
+      var endDate = new Date(y, +m-1, +day, +rp[0], +rp[1]+30, 0);
+      dtEnd = endDate.getFullYear()+pad(endDate.getMonth()+1)+pad(endDate.getDate())+"T"+pad(endDate.getHours())+pad(endDate.getMinutes())+"00";
+      alarmBlock = "BEGIN:VALARM\r\nTRIGGER:-PT0M\r\nACTION:DISPLAY\r\nDESCRIPTION:"+taskText+"\r\nEND:VALARM\r\n";
+    } else {
+      dtStart = y+""+m+""+day;
+      dtEnd = y+""+m+""+day;
+    }
+
+    var isAllDay = !reminderTime;
+    var dtStartLine = isAllDay ? "DTSTART;VALUE=DATE:"+dtStart : "DTSTART:"+dtStart;
+    var dtEndLine = isAllDay ? "DTEND;VALUE=DATE:"+dtEnd : "DTEND:"+dtEnd;
+
+    var ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Bitácora//ES",
+      "BEGIN:VEVENT",
+      "UID:"+uid_str,
+      "DTSTAMP:"+nowStamp,
+      dtStartLine,
+      dtEndLine,
+      "SUMMARY:"+taskText,
+      alarmBlock.replace(/\r\n$/, ""),
+      "END:VEVENT",
+      "END:VCALENDAR"
+    ].filter(Boolean).join("\r\n");
+
+    var blob = new Blob([ics], {type:"text/calendar;charset=utf-8"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = taskText.slice(0,40).replace(/[^\w\s-]/g,"").replace(/\s+/g,"_")+".ics";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("Evento descargado. Abrilo para agregarlo a tu calendario.");
+  }
+
+  /* ===================== Render: Recordatorios ===================== */
+  function renderReminderCard(){
+    var notifSupported = ("Notification" in window);
+    var permission = notifSupported ? Notification.permission : "unsupported";
+    var currentTime = state.reminderTime || "";
+    var deniedMsg = permission === "denied"
+      ? '<div class="notif-denied">⚠ Las notificaciones están bloqueadas en este navegador. Habilitálas desde la configuración del sitio.</div>'
+      : "";
+    var iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+    return (
+      '<div class="reminder-card">' +
+        '<div class="rc-label">' + iconSvg +
+          '<span>' +
+            (currentTime
+              ? 'Recordatorio diario a las <strong>' + currentTime + '</strong>'
+              : '<strong>Recordatorio diario</strong> — elegí una hora') +
+          '</span>' +
+        '</div>' +
+        '<div class="rc-actions">' +
+          '<input type="time" id="reminderTimeInput" value="' + escapeHtml(currentTime) + '" />' +
+          '<button class="btn-sm save" data-action="save-reminder">Guardar</button>' +
+          (currentTime ? '<button class="btn-sm clear" data-action="clear-reminder">✕</button>' : '') +
+        '</div>' +
+        deniedMsg +
+      '</div>'
+    );
+  }
+
   /* ===================== Render: cabecera ===================== */
   function renderVoyageLine(){
     var today = todayStr();
@@ -722,11 +913,12 @@
     var del = (t.type === "oneoff" && opts.allowDelete !== false)
       ? '<button class="task-delete-btn" data-action="delete-task" data-id="' + t.id + '" aria-label="Eliminar tarea">&times;</button>'
       : "";
+    var calBtn = '<button class="task-cal-btn" data-action="export-ics" data-id="' + t.id + '" data-date="' + ds + '" title="Agregar al calendario">' + ICON_CALENDAR + '</button>';
     return (
       '<div class="task-item">' +
         '<button class="' + btnClass + '" ' + disabled + ' data-action="toggle-task" data-date="' + ds + '" data-id="' + t.id + '" aria-pressed="' + (status === "done") + '" aria-label="Marcar tarea como cumplida" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>' +
         '<span class="task-text' + (status === "done" ? " is-done" : "") + '">' + escapeHtml(t.text) + '</span>' +
-        badge + del +
+        badge + calBtn + del +
       '</div>'
     );
   }
@@ -776,6 +968,10 @@
           '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
           stampHtml +
         '</div>' +
+      '</section>' +
+      '<section class="block">' +
+        '<div class="block-title">Recordatorio diario</div>' +
+        renderReminderCard() +
       '</section>' +
       '<section class="block">' +
         '<div class="block-title">Agregar tarea de hoy</div>' +
@@ -982,6 +1178,32 @@
       archiveHabit(el.getAttribute("data-id"));
     } else if (action === "reset-all"){
       resetAll();
+    } else if (action === "save-reminder"){
+      var timeInput = document.getElementById("reminderTimeInput");
+      var timeVal = timeInput ? timeInput.value : "";
+      if (!timeVal){ showToast("Elegí una hora primero."); return; }
+      requestNotifPermission(function(perm){
+        if (perm === "granted"){
+          saveReminderTime(timeVal);
+          showToast("Recordatorio guardado para las " + timeVal + ".");
+          renderActiveTab();
+        } else if (perm === "denied"){
+          showToast("Permisos bloqueados. Habilitá las notificaciones en tu navegador.");
+          renderActiveTab();
+        } else {
+          showToast("Permiso de notificaciones denegado.");
+        }
+      });
+    } else if (action === "clear-reminder"){
+      saveReminderTime(null);
+      showToast("Recordatorio eliminado.");
+      renderActiveTab();
+    } else if (action === "export-ics"){
+      var icsDate = el.getAttribute("data-date");
+      var icsId = el.getAttribute("data-id");
+      var allTasks = getTasksForDate(icsDate);
+      var icsTask = allTasks.find(function(t){ return t.id === icsId; });
+      if (icsTask) exportToIcs(icsTask.text, icsDate, state.reminderTime || null);
     } else if (action === "cal-select"){
       selectedCalendarDate = el.getAttribute("data-date");
       renderActiveTab();
