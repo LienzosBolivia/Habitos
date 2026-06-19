@@ -52,7 +52,7 @@
   button{font-family:inherit;}
   ::selection{background:var(--brass-500); color:var(--ink-900);}
 
-  button:focus-visible, input:focus-visible, [tabindex]:focus-visible{
+  button:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
     outline:2px solid var(--brass-300);
     outline-offset:2px;
   }
@@ -155,14 +155,16 @@
 
   /* ---------- Forms ---------- */
   .add-form{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; align-items:center;}
-  .add-form input[type="text"]{
-    flex:1; min-width:160px;
+  .add-form input[type="text"],
+  .add-form input[type="date"]{
+    flex:1; min-width:140px;
     background:var(--ink-800-solid);
     border:1px solid var(--ink-700);
     color:var(--text-light);
     padding:11px 13px;
     border-radius:var(--radius-sm);
     font-size:14px;
+    color-scheme:dark;
   }
   .add-form input[type="text"]::placeholder{color:var(--text-faint);}
   .repeat-toggle{
@@ -184,6 +186,17 @@
     transition:background .15s ease;
   }
   button.primary:hover{background:var(--brass-300);}
+  button.btn-secondary{
+    background:transparent;
+    color:var(--text-muted);
+    border:1px solid var(--ink-650);
+    padding:10px 16px;
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    font-size:14px;
+    transition:border-color .15s, color .15s;
+  }
+  button.btn-secondary:hover{border-color:var(--brass-500); color:var(--text-light);}
 
   /* ---------- Task items ---------- */
   .task-list{display:flex; flex-direction:column; gap:8px;}
@@ -222,6 +235,7 @@
     padding:2px 6px;
     white-space:nowrap;
   }
+  .badge.badge-routine{color:var(--done); border-color:var(--done-dim);}
   .task-delete-btn{
     flex:0 0 auto;
     background:none; border:none;
@@ -232,6 +246,20 @@
     padding:0 2px;
   }
   .task-delete-btn:hover{color:var(--missed);}
+
+  /* Evidence eye button */
+  .task-eye-btn{
+    flex:0 0 auto;
+    background:none; border:none;
+    color:var(--done);
+    cursor:pointer;
+    padding:0 2px;
+    display:flex; align-items:center;
+    opacity:.8;
+    transition:opacity .15s;
+  }
+  .task-eye-btn:hover{opacity:1;}
+  .task-eye-btn svg{width:15px; height:15px;}
 
   .empty-state{
     text-align:center;
@@ -310,6 +338,130 @@
   }
   .habit-row .hr-stats b{color:var(--brass-300); font-weight:600;}
 
+  /* ---------- Rutinas Semanales ---------- */
+  .day-picker{
+    display:flex; gap:5px; flex-wrap:wrap;
+    margin:8px 0 12px;
+  }
+  .day-btn-label{
+    display:flex; flex-direction:column; align-items:center; cursor:pointer;
+  }
+  .day-btn-label input[type="checkbox"]{display:none;}
+  .day-btn-chip{
+    width:34px; height:34px;
+    border-radius:50%;
+    border:1px solid var(--ink-650);
+    background:var(--ink-800-solid);
+    color:var(--text-faint);
+    font-family:var(--font-mono);
+    font-size:11px; font-weight:600;
+    display:flex; align-items:center; justify-content:center;
+    transition:background .15s, border-color .15s, color .15s;
+    user-select:none;
+  }
+  .day-btn-label input:checked + .day-btn-chip{
+    background:var(--done-dim);
+    border-color:var(--done);
+    color:var(--done);
+  }
+  .day-btn-label:hover .day-btn-chip{border-color:var(--brass-500);}
+
+  .routine-item{
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    border-radius:var(--radius-md);
+    padding:12px 14px;
+    margin-bottom:8px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .routine-item-body{flex:1; min-width:0;}
+  .routine-item-text{font-size:14px; color:var(--text-light); font-weight:500;}
+  .routine-item-meta{
+    display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; align-items:center;
+  }
+  .routine-day-chip{
+    font-family:var(--font-mono); font-size:10px;
+    background:var(--done-dim); color:var(--done);
+    border-radius:20px; padding:2px 8px;
+  }
+  .routine-time-chip{
+    font-family:var(--font-mono); font-size:10px;
+    color:var(--brass-300); background:rgba(168,123,60,0.12);
+    border-radius:20px; padding:2px 8px;
+  }
+  .routine-delete-btn{
+    background:none; border:none;
+    color:var(--text-faint); font-size:18px; cursor:pointer; padding:0 2px;
+  }
+  .routine-delete-btn:hover{color:var(--missed);}
+  .add-form input[type="time"]{
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    color:var(--text-light);
+    padding:11px 10px;
+    border-radius:var(--radius-sm);
+    font-size:14px;
+    font-family:var(--font-mono);
+    color-scheme:dark;
+  }
+
+  /* ---------- Proyectos ---------- */
+  .project-item{
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    border-radius:var(--radius-md);
+    padding:14px 16px;
+    margin-bottom:10px;
+  }
+  .project-item.is-completed{opacity:.6;}
+  .project-header{display:flex; align-items:flex-start; justify-content:space-between; gap:10px;}
+  .project-name{
+    font-size:15px; font-weight:600; color:var(--text-light);
+    font-family:var(--font-display);
+    flex:1;
+  }
+  .project-item.is-completed .project-name{
+    text-decoration:line-through; color:var(--text-muted);
+  }
+  .project-meta{
+    display:flex; gap:12px; margin-top:8px; flex-wrap:wrap;
+    font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted);
+    align-items:center;
+  }
+  .project-deadline-badge{
+    display:inline-flex; align-items:center; gap:4px;
+    font-family:var(--font-mono); font-size:11px;
+    padding:3px 9px; border-radius:20px;
+    border:1px solid var(--ink-650);
+  }
+  .project-deadline-badge.urgent{border-color:var(--missed); color:var(--missed);}
+  .project-deadline-badge.soon{border-color:var(--brass-500); color:var(--brass-300);}
+  .project-deadline-badge.ok{border-color:var(--done); color:var(--done);}
+  .project-deadline-badge.done-badge{border-color:var(--ink-650); color:var(--text-faint);}
+  .project-actions{display:flex; gap:6px; flex-shrink:0;}
+  .btn-complete-project{
+    background:none; border:1px solid var(--done);
+    color:var(--done); font-size:11px; padding:5px 10px;
+    border-radius:6px; cursor:pointer; white-space:nowrap; font-family:inherit;
+  }
+  .btn-complete-project:hover{background:var(--done-dim);}
+  .btn-delete-project{
+    background:none; border:1px solid var(--ink-650);
+    color:var(--text-faint); font-size:11px; padding:5px 10px;
+    border-radius:6px; cursor:pointer; white-space:nowrap; font-family:inherit;
+  }
+  .btn-delete-project:hover{border-color:var(--missed); color:var(--missed);}
+  .section-divider{
+    margin:20px 0 16px;
+    padding-top:16px;
+    border-top:1px solid var(--ink-700);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    color:var(--text-faint);
+    font-weight:600;
+  }
+
   /* ---------- Stats ---------- */
   .stat-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(125px,1fr)); gap:10px;}
   .stat-card{
@@ -369,9 +521,9 @@
     display:flex; flex-direction:column; align-items:center; gap:3px;
     background:none; border:none;
     color:var(--text-faint);
-    font-size:10.5px;
+    font-size:9.5px;
     cursor:pointer;
-    padding:7px 4px;
+    padding:7px 2px;
     border-radius:8px;
   }
   .nav-btn svg{width:20px; height:20px;}
@@ -482,7 +634,6 @@
   .notif-denied-msg{
     font-size:11px;color:var(--missed);width:100%;margin-top:4px;
   }
-  /* Bell icon on task */
   .task-bell-btn{
     flex:0 0 auto;background:none;border:none;
     color:var(--text-faint);cursor:pointer;padding:0 2px;
@@ -491,7 +642,6 @@
   .task-bell-btn:hover{color:var(--brass-300);}
   .task-bell-btn.has-reminder{color:var(--brass-400,#c9974a);}
   .task-bell-btn svg{width:15px;height:15px;}
-  /* Add-form time row */
   .form-reminder-row{
     width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
     margin-top:4px;
@@ -501,6 +651,104 @@
     background:var(--ink-800-solid);border:1px solid var(--ink-700);
     color:var(--text-light);font-family:var(--font-mono);font-size:12px;
     padding:8px 10px;border-radius:var(--radius-sm);color-scheme:dark;
+  }
+
+  /* ---------- Evidence Modal ---------- */
+  .modal-overlay{
+    position:fixed; inset:0;
+    background:rgba(10,27,39,0.85);
+    display:none;
+    align-items:center; justify-content:center;
+    z-index:200;
+    padding:16px;
+    backdrop-filter:blur(4px);
+  }
+  .modal-overlay.open{display:flex; animation:fadeIn .2s ease;}
+  .modal-box{
+    background:var(--ink-850);
+    border:1px solid var(--ink-700);
+    border-radius:var(--radius-lg);
+    padding:24px 22px;
+    width:100%; max-width:440px;
+    max-height:90vh; overflow-y:auto;
+  }
+  .modal-box h3{
+    font-size:17px; color:var(--brass-300);
+    margin-bottom:6px;
+  }
+  .modal-hint{font-size:12.5px; color:var(--text-muted); margin:0 0 14px;}
+  .modal-textarea{
+    width:100%; min-height:90px;
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    border-radius:var(--radius-sm);
+    color:var(--text-light);
+    font-family:var(--font-body);
+    font-size:14px;
+    padding:11px 13px;
+    resize:vertical;
+    margin-bottom:12px;
+  }
+  .modal-textarea::placeholder{color:var(--text-faint);}
+  .modal-or{
+    text-align:center; font-size:11px; color:var(--text-faint);
+    letter-spacing:0.08em; margin:4px 0 12px;
+  }
+  .modal-file-label{
+    display:block;
+    border:1px dashed var(--ink-650);
+    border-radius:var(--radius-md);
+    padding:14px;
+    text-align:center;
+    color:var(--text-muted);
+    font-size:13px;
+    cursor:pointer;
+    transition:border-color .15s, color .15s;
+    margin-bottom:12px;
+  }
+  .modal-file-label:hover{border-color:var(--brass-500); color:var(--text-light);}
+  .modal-file-label input[type="file"]{display:none;}
+  #evidencePreview{
+    margin-bottom:12px; text-align:center;
+  }
+  #evidencePreview img{
+    max-width:100%; max-height:200px;
+    border-radius:var(--radius-md);
+    border:1px solid var(--ink-700);
+  }
+  #evidencePreview .preview-note{
+    font-size:11px; color:var(--done); margin-top:5px;
+  }
+  .modal-actions{
+    display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;
+  }
+  .modal-actions button{flex:1;}
+
+  /* View evidence modal content */
+  #viewEvidenceContent{
+    margin-bottom:16px;
+  }
+  #viewEvidenceContent img{
+    max-width:100%; border-radius:var(--radius-md);
+    border:1px solid var(--ink-700); margin-bottom:10px;
+    display:block;
+  }
+  #viewEvidenceContent .ev-note{
+    font-size:14px; color:var(--text-light);
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    border-radius:var(--radius-sm);
+    padding:11px 13px;
+    white-space:pre-wrap;
+    line-height:1.55;
+  }
+  #viewEvidenceContent .ev-meta{
+    font-family:var(--font-mono); font-size:11px; color:var(--text-faint);
+    margin-top:10px;
+  }
+  #viewEvidenceContent .ev-empty{
+    text-align:center; padding:24px; color:var(--text-muted); font-size:13px;
+    border:1px dashed var(--ink-700); border-radius:var(--radius-md);
   }
 </style>
 </head>
@@ -516,21 +764,55 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ===== Modal: Captura de evidencia ===== -->
+<div id="evidenceModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="evidModalTitle">
+  <div class="modal-box">
+    <h3 id="evidModalTitle">📋 Evidencia de cumplimiento</h3>
+    <p class="modal-hint">Agrega una nota <strong>o</strong> una foto como evidencia (al menos uno es requerido).</p>
+    <textarea id="evidenceNote" class="modal-textarea" placeholder="¿Cómo lo cumpliste? Escribe una nota..." rows="4"></textarea>
+    <div class="modal-or">— o adjunta una imagen —</div>
+    <label class="modal-file-label" id="evidenceFileLabel">
+      📷 Seleccionar foto
+      <input type="file" id="evidenceFile" accept="image/*" />
+    </label>
+    <div id="evidencePreview"></div>
+    <div class="modal-actions">
+      <button class="primary" id="evidenceSaveBtn">Guardar y marcar cumplida</button>
+      <button class="btn-secondary" id="evidenceCancelBtn">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: Ver evidencia (solo lectura) ===== -->
+<div id="viewEvidenceModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="viewEvidModalTitle">
+  <div class="modal-box">
+    <h3 id="viewEvidModalTitle">🔍 Evidencia registrada</h3>
+    <div id="viewEvidenceContent"></div>
+    <div class="modal-actions">
+      <button class="primary" id="viewEvidenceCloseBtn">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <nav class="bottom-nav">
   <div class="bottom-nav-inner">
-    <button class="nav-btn" data-action="set-tab" data-tab="hoy" aria-label="Hoy">
+    <button class="nav-btn active" data-tab="hoy" aria-label="Hoy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="21"/><path d="M5 14a7 7 0 0 0 14 0"/><line x1="4" y1="14" x2="7" y2="14"/><line x1="17" y1="14" x2="20" y2="14"/></svg>
       <span>Hoy</span>
     </button>
-    <button class="nav-btn" data-action="set-tab" data-tab="calendario" aria-label="Calendario">
+    <button class="nav-btn" data-tab="calendario" aria-label="Calendario">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>
       <span>Calendario</span>
     </button>
-    <button class="nav-btn" data-action="set-tab" data-tab="habitos" aria-label="Hábitos">
+    <button class="nav-btn" data-tab="habitos" aria-label="Hábitos">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg>
       <span>Hábitos</span>
     </button>
-    <button class="nav-btn" data-action="set-tab" data-tab="estadisticas" aria-label="Estadísticas">
+    <button class="nav-btn" data-tab="proyectos" aria-label="Proyectos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      <span>Proyectos</span>
+    </button>
+    <button class="nav-btn" data-tab="estadisticas" aria-label="Estadísticas">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="19" y1="20" x2="19" y2="4"/></svg>
       <span>Estadísticas</span>
     </button>
@@ -546,45 +828,97 @@
   var WD_SHORT = ["dom","lun","mar","mié","jue","vie","sáb"];
   var WD_MON_FIRST = ["lun","mar","mié","jue","vie","sáb","dom"];
   var MONTHS = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  /* Días de la semana en UI (orden lunes-primero) label => JS day index */
+  var DAY_UI = [
+    { label:"L", day:1 },
+    { label:"M", day:2 },
+    { label:"X", day:3 },
+    { label:"J", day:4 },
+    { label:"V", day:5 },
+    { label:"S", day:6 },
+    { label:"D", day:0 }
+  ];
 
   var ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 13 10 18 19 7"/></svg>';
-  var ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
+  var ICON_X     = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
+  var ICON_EYE   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var ICON_CALENDAR_SM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+  var ICON_BELL  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
 
-  /* ===================== Estado ===================== */
+  /* ===================== Estado global ===================== */
   var state = null;
   var activeTab = "hoy";
   var selectedCalendarDate = null;
   var calendarViewDate = new Date();
+  var openReminderPanel = null;
+  /* Evidencia pendiente de guardar: { ds, id } */
+  var pendingEvidence = null;
+
+  /* ===================== IndexedDB ===================== */
+  var db = null;
+
+  function initDB(){
+    return new Promise(function(resolve, reject){
+      if (!window.indexedDB){ reject(new Error("No IndexedDB")); return; }
+      var req = window.indexedDB.open("BitacoraDB", 1);
+      req.onupgradeneeded = function(e){
+        e.target.result.createObjectStore("evidence");
+      };
+      req.onsuccess = function(e){ db = e.target.result; resolve(db); };
+      req.onerror   = function(){ reject(req.error); };
+    });
+  }
+
+  function dbSet(key, value){
+    return new Promise(function(resolve, reject){
+      if (!db){ resolve(false); return; }
+      try {
+        var tx  = db.transaction("evidence", "readwrite");
+        var store = tx.objectStore("evidence");
+        store.put(value, key);
+        tx.oncomplete = function(){ resolve(true); };
+        tx.onerror    = function(){ reject(tx.error); };
+      } catch(e){ reject(e); }
+    });
+  }
+
+  function dbGet(key){
+    return new Promise(function(resolve){
+      if (!db){ resolve(null); return; }
+      try {
+        var tx  = db.transaction("evidence", "readonly");
+        var req = tx.objectStore("evidence").get(key);
+        req.onsuccess = function(){ resolve(req.result != null ? req.result : null); };
+        req.onerror   = function(){ resolve(null); };
+      } catch(e){ resolve(null); }
+    });
+  }
 
   /* ===================== Utilidades de fecha ===================== */
   function pad(n){ return n < 10 ? "0" + n : "" + n; }
   function dateToStr(d){ return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()); }
   function strToDate(s){
-    var parts = s.split("-");
-    return new Date(parseInt(parts[0],10), parseInt(parts[1],10)-1, parseInt(parts[2],10));
+    var p = s.split("-");
+    return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
   }
   function todayStr(){ return dateToStr(new Date()); }
   function addDays(ds, n){ var d = strToDate(ds); d.setDate(d.getDate()+n); return dateToStr(d); }
   function formatDateLong(ds){
     var d = strToDate(ds);
-    var wd = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"][d.getDay()];
-    return wd + " " + d.getDate() + " de " + MONTHS[d.getMonth()] + " de " + d.getFullYear();
+    return ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"][d.getDay()] +
+           " " + d.getDate() + " de " + MONTHS[d.getMonth()] + " de " + d.getFullYear();
   }
   function formatDateShort(ds){
     var d = strToDate(ds);
     return d.getDate() + " " + MONTHS[d.getMonth()].slice(0,3);
   }
   function dateRangeArray(startStr, endStr){
-    var arr = [];
-    var d = strToDate(startStr);
-    var end = strToDate(endStr);
-    var guard = 0;
-    while (d <= end && guard < 5000){
-      arr.push(dateToStr(d));
-      d.setDate(d.getDate()+1);
-      guard++;
-    }
+    var arr = [], d = strToDate(startStr), end = strToDate(endStr), guard = 0;
+    while (d <= end && guard < 5000){ arr.push(dateToStr(d)); d.setDate(d.getDate()+1); guard++; }
     return arr;
+  }
+  function daysUntil(ds){
+    return Math.round((strToDate(ds) - strToDate(todayStr())) / 86400000);
   }
 
   function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -602,12 +936,9 @@
   function storageGet(key){
     return new Promise(function(resolve){
       if (hasCloudStorage()){
-        window.storage.get(key, false).then(function(r){
-          resolve(r ? r.value : null);
-        }).catch(function(){ resolve(null); });
+        window.storage.get(key, false).then(function(r){ resolve(r ? r.value : null); }).catch(function(){ resolve(null); });
       } else {
-        try{ resolve(window.localStorage.getItem(key)); }
-        catch(e){ resolve(null); }
+        try{ resolve(window.localStorage.getItem(key)); } catch(e){ resolve(null); }
       }
     });
   }
@@ -624,23 +955,37 @@
   }
 
   function defaultState(){
-    return { firstUseDate: todayStr(), habits: [], oneoff: [], log: {}, reminders: {} };
+    return {
+      firstUseDate: todayStr(),
+      habits: [],
+      oneoff: [],
+      log: {},
+      reminders: {},
+      projects: [],
+      routines: []
+    };
   }
 
   function persist(){ return storageSet(STORAGE_KEY, JSON.stringify(state)); }
 
   function init(){
-    storageGet(STORAGE_KEY).then(function(raw){
+    var dbPromise = initDB().catch(function(){ db = null; return null; });
+    var statePromise = storageGet(STORAGE_KEY);
+    Promise.all([statePromise, dbPromise]).then(function(results){
+      var raw = results[0];
       if (raw){
-        try{ state = JSON.parse(raw); }catch(e){ state = defaultState(); }
+        try{ state = JSON.parse(raw); } catch(e){ state = defaultState(); }
       } else {
         state = defaultState();
       }
-      state.habits = state.habits || [];
-      state.oneoff = state.oneoff || [];
-      state.log = state.log || {};
+      /* Normalizar campos */
+      state.habits       = state.habits       || [];
+      state.oneoff       = state.oneoff       || [];
+      state.log          = state.log          || {};
       state.firstUseDate = state.firstUseDate || todayStr();
-      state.reminders = state.reminders || {};
+      state.reminders    = state.reminders    || {};
+      state.projects     = state.projects     || [];
+      state.routines     = state.routines     || [];
       selectedCalendarDate = todayStr();
       persist();
       scheduleTodayReminders();
@@ -651,52 +996,79 @@
   /* ===================== Lógica de tareas ===================== */
   function getTasksForDate(ds){
     var tasks = [];
+    /* Hábitos diarios */
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
       if (ds >= h.createdAt) tasks.push({ id:h.id, text:h.text, type:"habit" });
     });
+    /* Tareas one-off */
     state.oneoff.forEach(function(o){
       if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff" });
     });
+    /* Rutinas semanales: inyección por día */
+    var dayOfWeek = strToDate(ds).getDay(); // 0=Dom ... 6=Sáb
+    state.routines.forEach(function(r){
+      if (r.days && r.days.indexOf(dayOfWeek) !== -1){
+        tasks.push({ id:r.id, text:r.text, type:"routine", routineTime: r.time || null });
+      }
+    });
     return tasks;
   }
+
   function getStatus(ds, id){
     if (state.log[ds] && state.log[ds][id]) return "done";
     if (ds < todayStr()) return "missed";
     return "pending";
   }
+
   function dayStats(ds){
     var tasks = getTasksForDate(ds);
     var done = 0;
     tasks.forEach(function(t){ if (getStatus(ds, t.id) === "done") done++; });
     return { total: tasks.length, done: done };
   }
-  function toggleDone(ds, id){
+
+  /**
+   * Marcar como hecha (sin modal de evidencia).
+   * Llamado SOLO desde saveEvidence() después de guardar en IDB.
+   */
+  function markDone(ds, id){
     if (!state.log[ds]) state.log[ds] = {};
-    if (state.log[ds][id]) delete state.log[ds][id];
-    else state.log[ds][id] = true;
-    if (Object.keys(state.log[ds]).length === 0) delete state.log[ds];
+    state.log[ds][id] = true;
     persist();
     renderActiveTab();
   }
+
+  /**
+   * Desmarcar (toggle off). Directo, sin evidencia.
+   */
+  function unmarkDone(ds, id){
+    if (state.log[ds]) delete state.log[ds][id];
+    if (state.log[ds] && Object.keys(state.log[ds]).length === 0) delete state.log[ds];
+    persist();
+    renderActiveTab();
+  }
+
   function addTask(text, date, repeat){
     text = (text || "").trim();
     if (!text) return;
     if (repeat){
-      state.habits.push({ id: uid(), text: text, createdAt: date });
+      state.habits.push({ id:uid(), text:text, createdAt:date });
     } else {
-      state.oneoff.push({ id: uid(), text: text, date: date });
+      state.oneoff.push({ id:uid(), text:text, date:date });
     }
     persist();
     renderActiveTab();
     showToast(repeat ? "Hábito agregado." : "Tarea agregada.");
   }
+
   function deleteOneoff(id){
     state.oneoff = state.oneoff.filter(function(o){ return o.id !== id; });
     persist();
     renderActiveTab();
     showToast("Tarea eliminada.");
   }
+
   function archiveHabit(id){
     if (!window.confirm("¿Archivar este hábito? Dejará de aparecer desde hoy, pero conservarás su historial.")) return;
     var h = state.habits.find(function(x){ return x.id === id; });
@@ -705,13 +1077,66 @@
     renderActiveTab();
     showToast("Hábito archivado.");
   }
+
   function resetAll(){
-    if (!window.confirm("Esto borrará toda la bitácora: tareas, hábitos e historial. ¿Continuar?")) return;
+    if (!window.confirm("Esto borrará toda la bitácora: tareas, hábitos, proyectos, rutinas e historial. ¿Continuar?")) return;
     state = defaultState();
     selectedCalendarDate = todayStr();
     persist();
     renderActiveTab();
     showToast("Bitácora reiniciada.");
+  }
+
+  /* ===================== Proyectos ===================== */
+  function addProject(text, deadline){
+    text = (text || "").trim();
+    if (!text || !deadline) return;
+    state.projects.push({
+      id: uid(),
+      text: text,
+      deadline: deadline,
+      status: "active",
+      createdAt: todayStr()
+    });
+    persist();
+    renderActiveTab();
+    showToast("Proyecto agregado.");
+  }
+
+  function completeProject(id){
+    var p = state.projects.find(function(x){ return x.id === id; });
+    if (p){ p.status = "completed"; p.completedAt = todayStr(); }
+    persist();
+    renderActiveTab();
+    showToast("¡Proyecto completado!");
+  }
+
+  function deleteProject(id){
+    if (!window.confirm("¿Eliminar este proyecto?")) return;
+    state.projects = state.projects.filter(function(p){ return p.id !== id; });
+    persist();
+    renderActiveTab();
+    showToast("Proyecto eliminado.");
+  }
+
+  /* ===================== Rutinas ===================== */
+  function addRoutine(text, days, time){
+    text = (text || "").trim();
+    if (!text || !days || days.length === 0){
+      showToast("Escribe un nombre y elige al menos un día.");
+      return;
+    }
+    state.routines.push({ id: uid(), text: text, days: days, time: time || "" });
+    persist();
+    renderActiveTab();
+    showToast("Rutina agregada.");
+  }
+
+  function deleteRoutine(id){
+    state.routines = state.routines.filter(function(r){ return r.id !== id; });
+    persist();
+    renderActiveTab();
+    showToast("Rutina eliminada.");
   }
 
   /* ===================== Estadísticas ===================== */
@@ -742,11 +1167,8 @@
     var today = todayStr();
     var ts = dayStats(today);
     var cursor = strToDate(today);
-    if (!(ts.total > 0 && ts.done === ts.total)){
-      cursor.setDate(cursor.getDate()-1);
-    }
-    var streak = 0;
-    var guard = 0;
+    if (!(ts.total > 0 && ts.done === ts.total)) cursor.setDate(cursor.getDate()-1);
+    var streak = 0, guard = 0;
     while (guard < 5000){
       var ds = dateToStr(cursor);
       if (ds < state.firstUseDate) break;
@@ -788,8 +1210,8 @@
   }
   function habitCompletionRate(habit){
     var today = todayStr();
-    var endExclusiveToday = addDays(today, -1);
-    var dates = habit.createdAt <= endExclusiveToday ? dateRangeArray(habit.createdAt, endExclusiveToday) : [];
+    var endEx = addDays(today, -1);
+    var dates = habit.createdAt <= endEx ? dateRangeArray(habit.createdAt, endEx) : [];
     if (getStatus(today, habit.id) === "done") dates.push(today);
     if (dates.length === 0) return null;
     var done = 0;
@@ -808,64 +1230,41 @@
   }
 
   /* ===================== Recordatorios por tarea ===================== */
-  /* state.reminders = { "YYYY-MM-DD|taskId": "HH:MM" } */
-
   var reminderTimers = {};
 
   function reminderKey(ds, taskId){ return ds + "|" + taskId; }
-
   function getReminder(ds, taskId){
     return (state.reminders && state.reminders[reminderKey(ds, taskId)]) || null;
   }
-
   function setReminder(ds, taskId, time){
     if (!state.reminders) state.reminders = {};
-    if (time){
-      state.reminders[reminderKey(ds, taskId)] = time;
-    } else {
-      delete state.reminders[reminderKey(ds, taskId)];
-    }
+    if (time){ state.reminders[reminderKey(ds, taskId)] = time; }
+    else { delete state.reminders[reminderKey(ds, taskId)]; }
     persist();
     scheduleTodayReminders();
   }
-
   function scheduleTodayReminders(){
-    // Clear existing timers
     Object.keys(reminderTimers).forEach(function(k){ clearTimeout(reminderTimers[k]); });
     reminderTimers = {};
-    if (!state.reminders) return;
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-
-    var today = todayStr();
-    var now = new Date();
-
+    if (!state.reminders || !("Notification" in window) || Notification.permission !== "granted") return;
+    var today = todayStr(), now = new Date();
     Object.keys(state.reminders).forEach(function(key){
-      var parts = key.split("|");
-      var ds = parts[0], taskId = parts[1];
-      if (ds !== today) return; // solo programamos los de hoy
+      var parts = key.split("|"), ds = parts[0], taskId = parts[1];
+      if (ds !== today) return;
       var timeStr = state.reminders[key];
       if (!timeStr) return;
       var tp = timeStr.split(":");
       var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), +tp[0], +tp[1], 0);
       var delay = target - now;
-      if (delay < 0) return; // ya pasó hoy
-
+      if (delay < 0) return;
       reminderTimers[key] = setTimeout(function(){
         var tasks = getTasksForDate(today);
         var task = tasks.find(function(t){ return t.id === taskId; });
-        if (!task) return;
-        if (getStatus(today, taskId) === "done") return; // ya cumplida
-        try {
-          new Notification("⏰ Bitácora — Recordatorio", {
-            body: task.text,
-            tag: "bitacora-" + key
-          });
-        } catch(e){}
+        if (!task || getStatus(today, taskId) === "done") return;
+        try { new Notification("⏰ Bitácora — Recordatorio", { body: task.text, tag: "bitacora-" + key }); } catch(e){}
       }, delay);
     });
   }
-
   function requestNotifPermission(callback){
     if (!("Notification" in window)){ callback("unsupported"); return; }
     if (Notification.permission === "granted"){ callback("granted"); return; }
@@ -873,106 +1272,238 @@
     Notification.requestPermission().then(function(p){ callback(p); });
   }
 
-  /* ===================== Agendar en Google Calendar ===================== */
-  var ICON_CALENDAR_SM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-  var ICON_BELL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
-
+  /* ===================== ICS / Google Calendar ===================== */
   function exportToIcs(taskText, ds, timeStr){
     var d = strToDate(ds);
-    var y = d.getFullYear();
-    var mo = pad(d.getMonth()+1);
-    var day = pad(d.getDate());
+    var y = d.getFullYear(), mo = pad(d.getMonth()+1), day = pad(d.getDate());
     var dates;
-
-    var ctz = "America/La_Paz"; // UTC-4, sin horario de verano
+    var ctz = "America/La_Paz";
     if (timeStr){
       var tp = timeStr.split(":");
       var h = pad(+tp[0]), m = pad(+tp[1]);
-      // Sin Z: hora local de Bolivia; Google Calendar la interpreta con ctz
       var dtStart = y + mo + day + "T" + h + m + "00";
-      // Fin: 30 minutos después (aritmética simple en minutos)
-      var totalMin = +tp[0] * 60 + +tp[1] + 30;
-      var endH = pad(Math.floor(totalMin / 60) % 24);
-      var endM = pad(totalMin % 60);
-      // Si pasa medianoche, avanzamos un día
+      var totalMin = +tp[0]*60 + +tp[1] + 30;
+      var endH = pad(Math.floor(totalMin/60)%24), endM = pad(totalMin%60);
       var endDay = day, endMo = mo, endY = y;
       if (totalMin >= 1440){
-        var nextD = new Date(y, +mo-1, +day + 1);
-        endY = nextD.getFullYear();
-        endMo = pad(nextD.getMonth()+1);
-        endDay = pad(nextD.getDate());
+        var nextD = new Date(y, +mo-1, +day+1);
+        endY = nextD.getFullYear(); endMo = pad(nextD.getMonth()+1); endDay = pad(nextD.getDate());
       }
-      var dtEnd = endY + endMo + endDay + "T" + endH + endM + "00";
-      dates = dtStart + "/" + dtEnd;
+      dates = dtStart + "/" + (endY + endMo + endDay + "T" + endH + endM + "00");
     } else {
-      // Evento de todo el día: formato YYYYMMDD/YYYYMMDD
       var dateStr = y + mo + day;
       dates = dateStr + "/" + dateStr;
     }
-
     var url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
       + "&text=" + encodeURIComponent(taskText)
       + "&dates=" + encodeURIComponent(dates)
-      + "&ctz=" + encodeURIComponent(ctz);
-
+      + "&ctz="   + encodeURIComponent(ctz);
     window.open(url, "_blank");
     showToast("Abriendo Google Calendar…");
   }
 
-  /* Panel de recordatorio expandible por tarea (estado UI local) */
-  var openReminderPanel = null; /* "date|taskId" o null */
+  /* ===================== Evidencia (modal) ===================== */
+  function compressImage(file, callback){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var maxSize = 800, w = img.width, h = img.height;
+        if (w > maxSize || h > maxSize){
+          if (w > h){ h = Math.round(h * maxSize / w); w = maxSize; }
+          else { w = Math.round(w * maxSize / h); h = maxSize; }
+        }
+        var canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL("image/webp", 0.7));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function openEvidenceModal(ds, id){
+    pendingEvidence = { ds: ds, id: id };
+    /* Limpiar campos */
+    document.getElementById("evidenceNote").value = "";
+    document.getElementById("evidenceFile").value = "";
+    document.getElementById("evidencePreview").innerHTML = "";
+    document.getElementById("evidenceFileLabel").textContent = "📷 Seleccionar foto";
+    var lbl = document.getElementById("evidenceFileLabel");
+    /* Re-crear el input para limpiar el archivo seleccionado */
+    var oldInput = document.getElementById("evidenceFile");
+    var newInput = document.createElement("input");
+    newInput.type = "file"; newInput.id = "evidenceFile"; newInput.accept = "image/*";
+    newInput.addEventListener("change", onEvidenceFileChange);
+    oldInput.parentNode.replaceChild(newInput, oldInput);
+    lbl.appendChild(newInput);
+    document.getElementById("evidenceModal").classList.add("open");
+    setTimeout(function(){ document.getElementById("evidenceNote").focus(); }, 100);
+  }
+
+  function closeEvidenceModal(){
+    document.getElementById("evidenceModal").classList.remove("open");
+    pendingEvidence = null;
+  }
+
+  function onEvidenceFileChange(){
+    var file = this.files && this.files[0];
+    if (!file) return;
+    var preview = document.getElementById("evidencePreview");
+    preview.innerHTML = "<p style='font-size:11px;color:var(--text-faint);'>Comprimiendo imagen…</p>";
+    document.getElementById("evidenceFileLabel").childNodes[0].textContent = "✅ " + file.name.slice(0,30);
+    /* Mostrar preview */
+    compressImage(file, function(dataUrl){
+      preview.innerHTML = '<img src="' + dataUrl + '" alt="Preview" /><p class="preview-note">✔ Imagen lista (comprimida WebP)</p>';
+      /* Guardar dataUrl en el input como atributo para usarlo al guardar */
+      document.getElementById("evidenceFile").setAttribute("data-compressed", dataUrl);
+    });
+  }
+
+  function saveEvidence(){
+    if (!pendingEvidence) return;
+    var note       = document.getElementById("evidenceNote").value.trim();
+    var compressed = document.getElementById("evidenceFile").getAttribute("data-compressed") || null;
+
+    if (!note && !compressed){
+      showToast("Escribe una nota o adjunta una foto.");
+      return;
+    }
+
+    var key      = pendingEvidence.ds + "_" + pendingEvidence.id;
+    var ds       = pendingEvidence.ds;
+    var id       = pendingEvidence.id;
+    var evidence = JSON.stringify({
+      note:    note || null,
+      image:   compressed || null,
+      savedAt: new Date().toISOString()
+    });
+
+    dbSet(key, evidence).catch(function(){/* silently ignore IDB errors */}).then(function(){
+      markDone(ds, id);
+      closeEvidenceModal();
+      showToast("¡Tarea cumplida y evidencia guardada!");
+    });
+  }
+
+  function openViewEvidenceModal(ds, id){
+    var key = ds + "_" + id;
+    var content = document.getElementById("viewEvidenceContent");
+    content.innerHTML = "<p style='color:var(--text-faint);font-size:13px;'>Cargando evidencia…</p>";
+    document.getElementById("viewEvidenceModal").classList.add("open");
+
+    dbGet(key).then(function(raw){
+      if (!raw){
+        content.innerHTML = '<div class="ev-empty">No hay evidencia registrada para esta tarea.<br><small>Es posible que fue marcada antes de activar esta función.</small></div>';
+        return;
+      }
+      var ev;
+      try { ev = JSON.parse(raw); } catch(e){ ev = null; }
+      if (!ev){ content.innerHTML = '<div class="ev-empty">No se pudo leer la evidencia.</div>'; return; }
+      var html = "";
+      if (ev.image) html += '<img src="' + escapeHtml(ev.image) + '" alt="Evidencia fotográfica" />';
+      if (ev.note)  html += '<div class="ev-note">' + escapeHtml(ev.note) + '</div>';
+      if (ev.savedAt){
+        var d = new Date(ev.savedAt);
+        html += '<div class="ev-meta">Guardado el ' + d.toLocaleDateString("es-BO") + ' a las ' + d.toLocaleTimeString("es-BO", {hour:"2-digit",minute:"2-digit"}) + '</div>';
+      }
+      if (!html) html = '<div class="ev-empty">La evidencia guardada está vacía.</div>';
+      content.innerHTML = html;
+    }).catch(function(){
+      content.innerHTML = '<div class="ev-empty">Error al leer la evidencia.</div>';
+    });
+  }
+
+  function closeViewEvidenceModal(){
+    document.getElementById("viewEvidenceModal").classList.remove("open");
+  }
+
+  /* Bindear botones del modal de evidencia */
+  document.getElementById("evidenceSaveBtn").addEventListener("click", saveEvidence);
+  document.getElementById("evidenceCancelBtn").addEventListener("click", closeEvidenceModal);
+  document.getElementById("viewEvidenceCloseBtn").addEventListener("click", closeViewEvidenceModal);
+
+  /* Cerrar modales al hacer clic en el overlay (fuera del box) */
+  document.getElementById("evidenceModal").addEventListener("click", function(e){
+    if (e.target === this) closeEvidenceModal();
+  });
+  document.getElementById("viewEvidenceModal").addEventListener("click", function(e){
+    if (e.target === this) closeViewEvidenceModal();
+  });
+
+  /* Bind del change del file input (inicial) */
+  document.getElementById("evidenceFile").addEventListener("change", onEvidenceFileChange);
 
   /* ===================== Render: cabecera ===================== */
   function renderVoyageLine(){
     var today = todayStr();
     var dayNum = Math.round((strToDate(today) - strToDate(state.firstUseDate)) / 86400000) + 1;
-    var el = document.getElementById("voyageLine");
-    el.innerHTML = "TRAVESÍA · DÍA <strong>" + dayNum + "</strong> · " + capitalize(formatDateLong(today)).toUpperCase();
+    document.getElementById("voyageLine").innerHTML =
+      "TRAVESÍA · DÍA <strong>" + dayNum + "</strong> · " + capitalize(formatDateLong(today)).toUpperCase();
   }
 
   /* ===================== Render: tarea (componente) ===================== */
   function renderTaskItem(t, ds, opts){
     opts = opts || {};
-    var status = getStatus(ds, t.id);
+    var status   = getStatus(ds, t.id);
     var isFuture = ds > todayStr();
     var btnClass = "task-stamp-btn" + (status === "done" ? " is-done" : "") + (status === "missed" ? " is-missed" : "");
-    var icon = status === "done" ? ICON_CHECK : (status === "missed" ? ICON_X : "");
+    var icon     = status === "done" ? ICON_CHECK : (status === "missed" ? ICON_X : "");
     var disabled = isFuture ? "disabled" : "";
-    var badge = t.type === "habit" ? '<span class="badge">hábito</span>' : "";
+
+    /* Badge por tipo */
+    var badgeHtml = "";
+    if (t.type === "habit")   badgeHtml = '<span class="badge">hábito</span>';
+    if (t.type === "routine") badgeHtml = '<span class="badge badge-routine">rutina</span>';
+
+    /* Ojo de evidencia (solo si done) */
+    var eyeBtn = status === "done"
+      ? '<button class="task-eye-btn" data-action="view-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Ver evidencia">' + ICON_EYE + '</button>'
+      : "";
+
+    /* Botón de borrar (solo oneoff) */
     var del = (t.type === "oneoff" && opts.allowDelete !== false)
       ? '<button class="task-delete-btn" data-action="delete-task" data-id="' + t.id + '" aria-label="Eliminar tarea">&times;</button>'
       : "";
 
+    /* Recordatorio */
     var rkey = reminderKey(ds, t.id);
     var existingReminder = getReminder(ds, t.id);
     var bellClass = "task-bell-btn" + (existingReminder ? " has-reminder" : "");
-    var bellBtn = '<button class="' + bellClass + '" data-action="toggle-reminder-panel" data-rkey="' + rkey + '" data-date="' + ds + '" data-id="' + t.id + '" title="' + (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
+    var bellBtn = '<button class="' + bellClass + '" data-action="toggle-reminder-panel" data-rkey="' + rkey +
+                  '" data-date="' + ds + '" data-id="' + t.id + '" title="' +
+                  (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
 
     var mainRow = (
       '<div class="task-main-row">' +
-        '<button class="' + btnClass + '" ' + disabled + ' data-action="toggle-task" data-date="' + ds + '" data-id="' + t.id + '" aria-pressed="' + (status === "done") + '" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>' +
-        '<span class="task-text' + (status === "done" ? " is-done" : "") + '">' + escapeHtml(t.text) + '</span>' +
-        badge +
+        '<button class="' + btnClass + '" ' + disabled +
+          ' data-action="toggle-task" data-date="' + ds + '" data-id="' + t.id +
+          '" aria-pressed="' + (status === "done") +
+          '" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>' +
+        '<span class="task-text' + (status === "done" ? " is-done" : "") + '">' + escapeHtml(t.text) +
+          (t.routineTime ? ' <small style="font-size:11px;color:var(--brass-300);font-family:var(--font-mono);">(' + escapeHtml(t.routineTime) + ')</small>' : '') +
+        '</span>' +
+        badgeHtml +
+        eyeBtn +
         bellBtn +
         del +
       '</div>'
     );
 
-    // Badge de hora si tiene recordatorio y el panel no está abierto
     var panelOpen = (openReminderPanel === rkey);
     var reminderBadge = (existingReminder && !panelOpen)
       ? '<div class="task-reminder-row"><span class="reminder-time-badge">' + ICON_BELL + existingReminder + '</span>' +
-          '<button class="btn-remind-export" data-action="export-ics" data-date="' + ds + '" data-id="' + t.id + '">' + ICON_CALENDAR_SM + 'Agendar en Google Calendar</button>' +
-        '</div>'
+          '<button class="btn-remind-export" data-action="export-ics" data-date="' + ds + '" data-id="' + t.id + '">' +
+            ICON_CALENDAR_SM + 'Agendar en Google Calendar' +
+          '</button></div>'
       : "";
 
-    // Panel inline de edición de recordatorio
     var panelHtml = "";
     if (panelOpen){
       var notifStatus = ("Notification" in window) ? Notification.permission : "unsupported";
       var deniedMsg = notifStatus === "denied"
-        ? '<div class="notif-denied-msg">⚠ Notificaciones bloqueadas en el navegador — igual podés exportar al calendario.</div>'
-        : "";
+        ? '<div class="notif-denied-msg">⚠ Notificaciones bloqueadas en el navegador — igual podés exportar al calendario.</div>' : "";
       panelHtml = (
         '<div class="reminder-inline-form">' +
           '<label>⏰ Hora:</label>' +
@@ -988,12 +1519,11 @@
     var hasExtra = reminderBadge || panelHtml;
     return (
       '<div class="task-item' + (hasExtra ? " has-reminder" : "") + '">' +
-        mainRow +
-        reminderBadge +
-        panelHtml +
+        mainRow + reminderBadge + panelHtml +
       '</div>'
     );
   }
+
   function renderTaskList(ds, opts){
     var tasks = getTasksForDate(ds);
     if (tasks.length === 0){
@@ -1001,6 +1531,7 @@
     }
     return '<div class="task-list">' + tasks.map(function(t){ return renderTaskItem(t, ds, opts); }).join("") + '</div>';
   }
+
   function addFormHtml(date, withRepeat){
     var repeatField = withRepeat
       ? '<label class="repeat-toggle"><input type="checkbox" name="repeat" /> Repetir cada día</label>'
@@ -1018,18 +1549,12 @@
   function renderHoy(){
     var today = todayStr();
     var tasks = getTasksForDate(today);
-    var done = tasks.filter(function(t){ return getStatus(today, t.id) === "done"; }).length;
-    var pct = tasks.length ? Math.round((done/tasks.length)*100) : 0;
-
+    var done  = tasks.filter(function(t){ return getStatus(today, t.id) === "done"; }).length;
+    var pct   = tasks.length ? Math.round((done/tasks.length)*100) : 0;
     var stampHtml = "";
     if (tasks.length > 0 && done === tasks.length){
-      stampHtml =
-        '<div class="stamp-wrap"><div class="stamp stamp-enter">' +
-          '<div class="stamp-main">CUMPLIDO</div>' +
-          '<div class="stamp-sub">Jornada completa</div>' +
-        '</div></div>';
+      stampHtml = '<div class="stamp-wrap"><div class="stamp stamp-enter"><div class="stamp-main">CUMPLIDO</div><div class="stamp-sub">Jornada completa</div></div></div>';
     }
-
     return (
       '<section class="block">' +
         '<div class="progress-hero">' +
@@ -1064,7 +1589,6 @@
     var cells = buildMonthGrid(calendarViewDate);
     var monthLabel = MONTHS[calendarViewDate.getMonth()] + " de " + calendarViewDate.getFullYear();
     var today = todayStr();
-
     var gridHtml = cells.map(function(ds){
       if (!ds) return '<button class="cal-day empty" disabled></button>';
       var lvl = heatLevel(ds);
@@ -1101,6 +1625,7 @@
 
   /* ===================== Render: pestaña Hábitos ===================== */
   function renderHabitos(){
+    /* --- Hábitos diarios --- */
     var active = state.habits.filter(function(h){ return !h.archivedAt; });
     var listHtml;
     if (active.length === 0){
@@ -1108,7 +1633,7 @@
     } else {
       listHtml = active.map(function(h){
         var streak = habitStreak(h);
-        var rate = habitCompletionRate(h);
+        var rate   = habitCompletionRate(h);
         return (
           '<div class="habit-row">' +
             '<div class="hr-top">' +
@@ -1124,6 +1649,53 @@
         );
       }).join("");
     }
+
+    /* --- Rutinas semanales --- */
+    var routineFormHtml = (
+      '<form class="add-form" style="flex-direction:column;align-items:flex-start;gap:10px;" data-action="add-routine">' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;width:100%;">' +
+          '<input type="text" name="routineText" placeholder="Nombre de la rutina" maxlength="100" required style="flex:1;min-width:160px;" />' +
+          '<input type="time" name="routineTime" title="Hora opcional" style="width:120px;" />' +
+        '</div>' +
+        '<div style="width:100%;">' +
+          '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px;">Días de la semana:</div>' +
+          '<div class="day-picker">' +
+            DAY_UI.map(function(d){
+              return (
+                '<label class="day-btn-label">' +
+                  '<input type="checkbox" name="days" value="' + d.day + '" />' +
+                  '<span class="day-btn-chip">' + d.label + '</span>' +
+                '</label>'
+              );
+            }).join("") +
+          '</div>' +
+        '</div>' +
+        '<button type="submit" class="primary" style="align-self:flex-start;">Agregar rutina</button>' +
+      '</form>'
+    );
+
+    var routineListHtml;
+    if (state.routines.length === 0){
+      routineListHtml = '<div class="empty-state"><strong>Sin rutinas configuradas.</strong>Crea una para que aparezca automáticamente en los días que elijas.</div>';
+    } else {
+      routineListHtml = state.routines.map(function(r){
+        var dayChips = r.days.map(function(d){
+          var lbl = DAY_UI.find(function(x){ return x.day === d; });
+          return '<span class="routine-day-chip">' + (lbl ? lbl.label : d) + '</span>';
+        }).join("");
+        var timeChip = r.time ? '<span class="routine-time-chip">⏱ ' + escapeHtml(r.time) + '</span>' : "";
+        return (
+          '<div class="routine-item">' +
+            '<div class="routine-item-body">' +
+              '<div class="routine-item-text">' + escapeHtml(r.text) + '</div>' +
+              '<div class="routine-item-meta">' + dayChips + timeChip + '</div>' +
+            '</div>' +
+            '<button class="routine-delete-btn" data-action="delete-routine" data-id="' + r.id + '" title="Eliminar rutina">&times;</button>' +
+          '</div>'
+        );
+      }).join("");
+    }
+
     return (
       '<section class="block">' +
         '<div class="block-title">Nuevo hábito</div>' +
@@ -1135,65 +1707,148 @@
       '<section class="block">' +
         '<div class="block-title">En seguimiento</div>' +
         listHtml +
+      '</section>' +
+      '<section class="block">' +
+        '<div class="block-title">Rutinas semanales</div>' +
+        routineFormHtml +
+        routineListHtml +
+      '</section>'
+    );
+  }
+
+  /* ===================== Render: pestaña Proyectos ===================== */
+  function renderProyectos(){
+    var active    = state.projects.filter(function(p){ return p.status === "active"; });
+    var completed = state.projects.filter(function(p){ return p.status === "completed"; });
+
+    /* Ordenar activos por fecha límite */
+    active.sort(function(a,b){ return a.deadline < b.deadline ? -1 : a.deadline > b.deadline ? 1 : 0; });
+
+    function projectCard(p){
+      var isCompleted = p.status === "completed";
+      var deadlineBadge = "";
+      if (!isCompleted){
+        var diff = daysUntil(p.deadline);
+        var cls  = diff < 0 ? "urgent" : diff <= 7 ? "soon" : "ok";
+        var txt  = diff < 0 ? "Venció hace " + Math.abs(diff) + "d"
+                 : diff === 0 ? "¡Vence hoy!"
+                 : "Vence en " + diff + " día" + (diff===1?"":"s");
+        deadlineBadge = '<span class="project-deadline-badge ' + cls + '">📅 ' + txt + ' · ' + formatDateShort(p.deadline) + '</span>';
+      } else {
+        deadlineBadge = '<span class="project-deadline-badge done-badge">✔ Completado el ' + (p.completedAt ? formatDateShort(p.completedAt) : "—") + '</span>';
+      }
+      var actions = isCompleted
+        ? '<button class="btn-delete-project" data-action="delete-project" data-id="' + p.id + '">Eliminar</button>'
+        : (
+            '<button class="btn-complete-project" data-action="complete-project" data-id="' + p.id + '">✔ Completar</button>' +
+            '<button class="btn-delete-project" data-action="delete-project" data-id="' + p.id + '">Eliminar</button>'
+          );
+      return (
+        '<div class="project-item' + (isCompleted ? " is-completed" : "") + '">' +
+          '<div class="project-header">' +
+            '<div class="project-name">' + escapeHtml(p.text) + '</div>' +
+            '<div class="project-actions">' + actions + '</div>' +
+          '</div>' +
+          '<div class="project-meta">' +
+            deadlineBadge +
+            '<span style="font-size:11px;color:var(--text-faint);">Creado: ' + formatDateShort(p.createdAt) + '</span>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    var activeHtml = active.length
+      ? active.map(projectCard).join("")
+      : '<div class="empty-state"><strong>No hay proyectos activos.</strong>Crea uno para empezar a seguirlo.</div>';
+
+    var completedHtml = completed.length
+      ? '<div class="section-divider">Proyectos completados (' + completed.length + ')</div>' + completed.map(projectCard).join("")
+      : "";
+
+    return (
+      '<section class="block">' +
+        '<div class="block-title">Nuevo proyecto</div>' +
+        '<form class="add-form" style="flex-direction:column;align-items:flex-start;gap:8px;" data-action="add-project">' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;width:100%;">' +
+            '<input type="text" name="projectText" placeholder="Nombre del proyecto u objetivo" maxlength="150" required style="flex:1;min-width:180px;" />' +
+            '<input type="date" name="projectDeadline" title="Fecha límite" required style="width:150px;" />' +
+          '</div>' +
+          '<button type="submit" class="primary" style="align-self:flex-start;">Agregar proyecto</button>' +
+        '</form>' +
+      '</section>' +
+      '<section class="block">' +
+        '<div class="block-title">Proyectos activos (' + active.length + ')</div>' +
+        activeHtml +
+        completedHtml +
       '</section>'
     );
   }
 
   /* ===================== Render: pestaña Estadísticas ===================== */
   function renderEstadisticas(){
-    var g = computeGlobalStats();
-    var curStreak = computeCurrentStreak();
+    var g          = computeGlobalStats();
+    var curStreak  = computeCurrentStreak();
     var bestStreak = computeBestStreak();
+
+    /* Proyectos */
+    var activeProjects    = state.projects.filter(function(p){ return p.status === "active"; }).length;
+    var completedProjects = state.projects.filter(function(p){ return p.status === "completed"; }).length;
 
     var statCards =
       '<div class="stat-grid">' +
-        '<div class="stat-card"><div class="sc-value">' + g.total + '</div><div class="sc-label">Propuestas</div></div>' +
-        '<div class="stat-card"><div class="sc-value">' + g.done + '</div><div class="sc-label">Cumplidas</div></div>' +
-        '<div class="stat-card"><div class="sc-value">' + g.missed + '</div><div class="sc-label">No cumplidas</div></div>' +
+        '<div class="stat-card"><div class="sc-value">' + g.total    + '</div><div class="sc-label">Propuestas</div></div>' +
+        '<div class="stat-card"><div class="sc-value">' + g.done     + '</div><div class="sc-label">Cumplidas</div></div>' +
+        '<div class="stat-card"><div class="sc-value">' + g.missed   + '</div><div class="sc-label">No cumplidas</div></div>' +
         '<div class="stat-card"><div class="sc-value">' + g.pct + '%</div><div class="sc-label">Cumplimiento</div></div>' +
       '</div>';
 
     var streakCards =
       '<div class="stat-grid">' +
-        '<div class="stat-card"><div class="sc-value">' + curStreak + '</div><div class="sc-label">Racha actual</div></div>' +
+        '<div class="stat-card"><div class="sc-value">' + curStreak  + '</div><div class="sc-label">Racha actual</div></div>' +
         '<div class="stat-card"><div class="sc-value">' + bestStreak + '</div><div class="sc-label">Mejor racha</div></div>' +
       '</div>';
 
-    var today = todayStr();
-    var last7 = [];
-    for (var i=6;i>=0;i--) last7.push(addDays(today, -i));
+    var projectCards =
+      '<div class="stat-grid">' +
+        '<div class="stat-card"><div class="sc-value" style="color:var(--brass-300)">' + activeProjects    + '</div><div class="sc-label">Proyectos activos</div></div>' +
+        '<div class="stat-card"><div class="sc-value" style="color:var(--done)">'      + completedProjects + '</div><div class="sc-label">Proyectos completados</div></div>' +
+        '<div class="stat-card"><div class="sc-value">' + state.routines.length        + '</div><div class="sc-label">Rutinas configuradas</div></div>' +
+      '</div>';
+
+    var today  = todayStr();
+    var last7  = [];
+    for (var i=6;i>=0;i--) last7.push(addDays(today,-i));
     var barHtml = '<div class="bar-chart">' + last7.map(function(ds){
-      var s = dayStats(ds);
+      var s   = dayStats(ds);
       var pct = s.total ? Math.round((s.done/s.total)*100) : 0;
-      var d = strToDate(ds);
-      var label = WD_SHORT[d.getDay()];
+      var d   = strToDate(ds);
       return (
         '<div class="bar-col" title="' + formatDateShort(ds) + ": " + s.done + "/" + s.total + '">' +
           '<div class="bar-fill-wrap"><div class="bar-fill" style="height:' + (s.total? Math.max(pct,4):0) + '%"></div></div>' +
-          '<div class="bar-label">' + label + '</div>' +
+          '<div class="bar-label">' + WD_SHORT[d.getDay()] + '</div>' +
         '</div>'
       );
     }).join("") + '</div>';
 
-    var heatDays = dateRangeArray(addDays(today, -83), today);
+    var heatDays  = dateRangeArray(addDays(today,-83), today);
     var heatCells = heatDays.map(function(ds){
-      var s = dayStats(ds);
+      var s   = dayStats(ds);
       var lvl = heatLevel(ds);
       return '<div class="heat-cell level-' + lvl + '" title="' + formatDateShort(ds) + ": " + s.done + "/" + s.total + '"></div>';
     }).join("");
 
     return (
       '<section class="block">' +
-        '<div class="block-title">Resumen general</div>' +
-        statCards +
+        '<div class="block-title">Resumen general</div>' + statCards +
       '</section>' +
       '<section class="block">' +
-        '<div class="block-title">Constancia</div>' +
-        streakCards +
+        '<div class="block-title">Constancia</div>' + streakCards +
       '</section>' +
       '<section class="block">' +
-        '<div class="block-title">Últimos 7 días</div>' +
-        barHtml +
+        '<div class="block-title">Proyectos &amp; rutinas</div>' + projectCards +
+      '</section>' +
+      '<section class="block">' +
+        '<div class="block-title">Últimos 7 días</div>' + barHtml +
       '</section>' +
       '<section class="block">' +
         '<div class="block-title">Bitácora de los últimos 12 semanas</div>' +
@@ -1214,107 +1869,166 @@
     });
     renderActiveTab();
   }
+
   function renderActiveTab(){
-    var app = document.getElementById("app");
+    var app  = document.getElementById("app");
     var html = "";
-    if (activeTab === "hoy") html = renderHoy();
-    else if (activeTab === "calendario") html = renderCalendario();
-    else if (activeTab === "habitos") html = renderHabitos();
+    if      (activeTab === "hoy")          html = renderHoy();
+    else if (activeTab === "calendario")   html = renderCalendario();
+    else if (activeTab === "habitos")      html = renderHabitos();
+    else if (activeTab === "proyectos")    html = renderProyectos();
     else if (activeTab === "estadisticas") html = renderEstadisticas();
     app.innerHTML = html;
   }
 
-  /* ===================== Eventos ===================== */
+  /* ===================== Eventos: clicks ===================== */
   document.addEventListener("click", function(e){
+    /* Nav tabs */
     var navBtn = e.target.closest(".nav-btn");
-    if (navBtn){
+    if (navBtn && navBtn.hasAttribute("data-tab")){
       activeTab = navBtn.getAttribute("data-tab");
       openReminderPanel = null;
-      document.querySelectorAll(".nav-btn").forEach(function(b){ b.classList.toggle("active", b===navBtn); });
+      document.querySelectorAll(".nav-btn").forEach(function(b){ b.classList.toggle("active", b === navBtn); });
       renderActiveTab();
       return;
     }
+
     var el = e.target.closest("[data-action]");
     if (!el) return;
     var action = el.getAttribute("data-action");
 
     if (action === "toggle-task"){
       if (el.disabled) return;
-      toggleDone(el.getAttribute("data-date"), el.getAttribute("data-id"));
+      var ds = el.getAttribute("data-date");
+      var id = el.getAttribute("data-id");
+      var status = getStatus(ds, id);
+      if (status === "done"){
+        /* Desmarcar directo */
+        unmarkDone(ds, id);
+      } else {
+        /* Pedir evidencia antes de marcar */
+        openEvidenceModal(ds, id);
+      }
+
+    } else if (action === "view-evidence"){
+      openViewEvidenceModal(el.getAttribute("data-date"), el.getAttribute("data-id"));
+
     } else if (action === "delete-task"){
       deleteOneoff(el.getAttribute("data-id"));
+
     } else if (action === "archive-habit"){
       archiveHabit(el.getAttribute("data-id"));
+
+    } else if (action === "delete-routine"){
+      deleteRoutine(el.getAttribute("data-id"));
+
+    } else if (action === "complete-project"){
+      completeProject(el.getAttribute("data-id"));
+
+    } else if (action === "delete-project"){
+      deleteProject(el.getAttribute("data-id"));
+
     } else if (action === "reset-all"){
       resetAll();
+
     } else if (action === "toggle-reminder-panel"){
       var rk = el.getAttribute("data-rkey");
       openReminderPanel = (openReminderPanel === rk) ? null : rk;
       renderActiveTab();
+
     } else if (action === "save-reminder"){
-      var saveDs = el.getAttribute("data-date");
-      var saveId = el.getAttribute("data-id");
+      var saveDs  = el.getAttribute("data-date");
+      var saveId  = el.getAttribute("data-id");
       var inputId = "rtime-" + reminderKey(saveDs, saveId).replace(/[|]/g,"_");
-      var inp = document.getElementById(inputId);
+      var inp     = document.getElementById(inputId);
       var timeVal = inp ? inp.value : "";
       if (!timeVal){ showToast("Elegí una hora."); return; }
       requestNotifPermission(function(perm){
         setReminder(saveDs, saveId, timeVal);
         openReminderPanel = null;
         renderActiveTab();
-        if (perm === "granted"){
-          showToast("Recordatorio guardado para las " + timeVal + ".");
-        } else if (perm === "denied"){
-          showToast("Guardado. Activá notificaciones en el navegador para recibirlo.");
-        } else {
-          showToast("Guardado. Exportá el .ics para agregarlo a tu calendario.");
-        }
+        if (perm === "granted") showToast("Recordatorio guardado para las " + timeVal + ".");
+        else if (perm === "denied") showToast("Guardado. Activá notificaciones en el navegador para recibirlo.");
+        else showToast("Guardado. Exportá el .ics para agregarlo a tu calendario.");
       });
+
     } else if (action === "clear-reminder"){
-      var clrDs = el.getAttribute("data-date");
-      var clrId = el.getAttribute("data-id");
-      setReminder(clrDs, clrId, null);
+      setReminder(el.getAttribute("data-date"), el.getAttribute("data-id"), null);
       openReminderPanel = null;
       renderActiveTab();
       showToast("Recordatorio eliminado.");
+
     } else if (action === "export-ics"){
-      var icsDs = el.getAttribute("data-date");
-      var icsId = el.getAttribute("data-id");
+      var icsDs   = el.getAttribute("data-date");
+      var icsId   = el.getAttribute("data-id");
       var icsTasks = getTasksForDate(icsDs);
-      var icsTask = icsTasks.find(function(t){ return t.id === icsId; });
+      var icsTask  = icsTasks.find(function(t){ return t.id === icsId; });
       if (icsTask) exportToIcs(icsTask.text, icsDs, getReminder(icsDs, icsId));
+
     } else if (action === "cal-select"){
       selectedCalendarDate = el.getAttribute("data-date");
       openReminderPanel = null;
       renderActiveTab();
+
     } else if (action === "cal-prev"){
       calendarViewDate.setMonth(calendarViewDate.getMonth()-1);
       renderActiveTab();
+
     } else if (action === "cal-next"){
       calendarViewDate.setMonth(calendarViewDate.getMonth()+1);
       renderActiveTab();
     }
   });
 
+  /* ===================== Eventos: submits ===================== */
   document.addEventListener("submit", function(e){
-    var form = e.target.closest('[data-action="add-task"]');
-    if (form){
+    /* Tarea / hábito */
+    var taskForm = e.target.closest('[data-action="add-task"]');
+    if (taskForm){
       e.preventDefault();
-      var text = form.elements["text"].value;
-      var repeatEl = form.elements["repeat"];
-      var repeat = repeatEl ? repeatEl.checked : false;
-      var date = form.getAttribute("data-date");
+      var text      = taskForm.elements["text"].value;
+      var repeatEl  = taskForm.elements["repeat"];
+      var repeat    = repeatEl ? repeatEl.checked : false;
+      var date      = taskForm.getAttribute("data-date");
       addTask(text, date, repeat);
+      taskForm.reset();
       return;
     }
-    var hform = e.target.closest('[data-action="add-habit"]');
-    if (hform){
+    /* Hábito desde pestaña hábitos */
+    var habitForm = e.target.closest('[data-action="add-habit"]');
+    if (habitForm){
       e.preventDefault();
-      var htext = hform.elements["text"].value;
+      var htext = habitForm.elements["text"].value;
       addTask(htext, todayStr(), true);
+      habitForm.reset();
+      return;
+    }
+    /* Rutina */
+    var routineForm = e.target.closest('[data-action="add-routine"]');
+    if (routineForm){
+      e.preventDefault();
+      var rtext = routineForm.elements["routineText"].value;
+      var rtime = routineForm.elements["routineTime"].value;
+      var checkboxes = routineForm.querySelectorAll('input[name="days"]:checked');
+      var rdays = [];
+      for (var i = 0; i < checkboxes.length; i++){ rdays.push(parseInt(checkboxes[i].value, 10)); }
+      addRoutine(rtext, rdays, rtime);
+      routineForm.reset();
+      return;
+    }
+    /* Proyecto */
+    var projectForm = e.target.closest('[data-action="add-project"]');
+    if (projectForm){
+      e.preventDefault();
+      var ptext     = projectForm.elements["projectText"].value;
+      var pdeadline = projectForm.elements["projectDeadline"].value;
+      addProject(ptext, pdeadline);
+      projectForm.reset();
+      return;
     }
   });
 
+  /* ===================== Arranque ===================== */
   init();
 })();
 </script>
