@@ -552,6 +552,130 @@
     .masthead h1{font-size:34px;}
   }
 
+  /* ---------- Selector de año (Calendario) ---------- */
+  .cal-year-selector{
+    display:flex; align-items:center; gap:8px;
+    margin-bottom:14px;
+  }
+  .cal-year-selector label{
+    font-size:11.5px; color:var(--text-muted);
+    text-transform:uppercase; letter-spacing:0.07em;
+    white-space:nowrap;
+  }
+  .cal-year-select{
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    color:var(--text-light);
+    font-family:var(--font-mono);
+    font-size:13px;
+    padding:7px 10px;
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    color-scheme:dark;
+    flex:1;
+  }
+  .cal-year-select:focus{outline:2px solid var(--brass-300); outline-offset:2px;}
+
+  /* ---------- Backup & Respaldo ---------- */
+  .backup-panel{
+    background:var(--ink-800-solid);
+    border:1px solid var(--ink-700);
+    border-radius:var(--radius-lg);
+    padding:20px 18px;
+    margin-bottom:22px;
+  }
+  .backup-panel-title{
+    font-family:var(--font-display);
+    font-size:15px;
+    color:var(--brass-300);
+    margin-bottom:4px;
+    font-weight:600;
+    display:flex; align-items:center; gap:8px;
+  }
+  .backup-panel-desc{
+    font-size:12px; color:var(--text-muted);
+    margin-bottom:16px; line-height:1.6;
+  }
+  .backup-actions{display:flex; flex-direction:column; gap:10px;}
+  .backup-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .backup-row-label{
+    font-size:12px; color:var(--text-faint);
+    text-transform:uppercase; letter-spacing:0.06em;
+    width:90px; flex-shrink:0;
+  }
+  .btn-backup-export{
+    background:linear-gradient(135deg, var(--brass-600), var(--brass-500));
+    color:var(--ink-900);
+    font-weight:600;
+    font-size:13px;
+    border:none;
+    padding:10px 18px;
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px;
+    transition:opacity .15s;
+  }
+  .btn-backup-export:hover{opacity:.85;}
+  .btn-backup-export:disabled{opacity:.45; cursor:wait;}
+  .btn-backup-import{
+    background:transparent;
+    color:var(--text-light);
+    font-weight:600;
+    font-size:13px;
+    border:1px solid var(--brass-600);
+    padding:10px 18px;
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px;
+    transition:border-color .15s, color .15s;
+  }
+  .btn-backup-import:hover{border-color:var(--brass-300); color:var(--brass-300);}
+  .btn-backup-import:disabled{opacity:.45; cursor:wait;}
+  .backup-file-input{display:none;}
+  .backup-status{
+    font-family:var(--font-mono);
+    font-size:11.5px;
+    padding:8px 12px;
+    border-radius:var(--radius-sm);
+    margin-top:6px;
+    display:none;
+  }
+  .backup-status.working{
+    background:rgba(168,123,60,0.12);
+    color:var(--brass-300);
+    border:1px solid rgba(168,123,60,0.3);
+    display:block;
+  }
+  .backup-status.success{
+    background:var(--done-dim);
+    color:var(--done);
+    border:1px solid var(--done);
+    display:block;
+  }
+  .backup-status.error{
+    background:var(--missed-dim);
+    color:var(--missed);
+    border:1px solid var(--missed);
+    display:block;
+  }
+  .backup-divider{
+    border:none;
+    border-top:1px solid var(--ink-700);
+    margin:14px 0;
+  }
+  .backup-meta{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    color:var(--text-faint);
+    margin-top:10px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .backup-meta-dot{
+    width:6px; height:6px; border-radius:50%;
+    background:var(--done);
+    flex-shrink:0;
+  }
+
   /* ---------- Recordatorio por tarea ---------- */
   .task-reminder-row{
     width:100%;
@@ -853,6 +977,8 @@
   var openReminderPanel = null;
   /* Evidencia pendiente de guardar: { ds, id } */
   var pendingEvidence = null;
+  /* Año histórico seleccionado en Calendario (null = año actual) */
+  var calendarHistoricalYear = null;
 
   /* ===================== IndexedDB ===================== */
   var db = null;
@@ -1597,10 +1723,27 @@
     for (var d=1; d<=daysInMonth; d++) cells.push(dateToStr(new Date(year, month, d)));
     return cells;
   }
+  /* Genera lista de años disponibles: desde firstUseDate hasta 2 años en el futuro */
+  function getAvailableYears(){
+    var startYear = parseInt((state.firstUseDate || todayStr()).substring(0, 4), 10);
+    var endYear   = new Date().getFullYear() + 2;
+    var years = [];
+    for (var y = startYear; y <= endYear; y++) years.push(y);
+    return years;
+  }
+
   function renderCalendario(){
+    /* Sincronizar año histórico con calendarViewDate */
+    var currentYear = new Date().getFullYear();
+    if (calendarHistoricalYear !== null && calendarHistoricalYear !== calendarViewDate.getFullYear()){
+      calendarViewDate = new Date(calendarHistoricalYear, calendarViewDate.getMonth(), 1);
+    }
+
     var cells = buildMonthGrid(calendarViewDate);
     var monthLabel = MONTHS[calendarViewDate.getMonth()] + " de " + calendarViewDate.getFullYear();
     var today = todayStr();
+    var viewYear = calendarViewDate.getFullYear();
+
     var gridHtml = cells.map(function(ds){
       if (!ds) return '<button class="cal-day empty" disabled></button>';
       var lvl = heatLevel(ds);
@@ -1612,6 +1755,10 @@
     }).join("");
 
     var sel = selectedCalendarDate;
+    /* Si la fecha seleccionada no pertenece al año/mes visible, usar el primer día del mes */
+    if (!sel || sel.substring(0,7) !== (viewYear + "-" + pad(calendarViewDate.getMonth()+1))){
+      sel = viewYear + "-" + pad(calendarViewDate.getMonth()+1) + "-01";
+    }
     var isFuture = sel > today;
     var detailHtml =
       '<div class="day-detail">' +
@@ -1621,8 +1768,23 @@
         renderTaskList(sel) +
       '</div>';
 
+    /* Selector de año */
+    var availYears = getAvailableYears();
+    var yearOptions = availYears.map(function(y){
+      var sel2 = (y === viewYear) ? ' selected' : '';
+      return '<option value="' + y + '"' + sel2 + '>' + y + (y === currentYear ? ' (actual)' : '') + '</option>';
+    }).join("");
+    var yearSelectorHtml =
+      '<div class="cal-year-selector">' +
+        '<label for="calYearSelect">📅 Año:</label>' +
+        '<select id="calYearSelect" class="cal-year-select" data-action="cal-year-change">' +
+          yearOptions +
+        '</select>' +
+      '</div>';
+
     return (
       '<section class="block">' +
+        yearSelectorHtml +
         '<div class="cal-nav">' +
           '<button data-action="cal-prev" aria-label="Mes anterior">&larr;</button>' +
           '<h2>' + monthLabel + '</h2>' +
@@ -1879,8 +2041,280 @@
           '<div class="heat-cell level-1"></div><div class="heat-cell level-2"></div><div class="heat-cell level-3"></div><div class="heat-cell level-4"></div>' +
         'Más</div>' +
       '</section>' +
-      '<div class="reset-row"><button class="reset-link" data-action="reset-all">Restablecer toda la bitácora</button></div>'
+      '<div class="reset-row"><button class="reset-link" data-action="reset-all">Restablecer toda la bitácora</button></div>' +
+      /* ——— Panel de Copia de Seguridad ——— */
+      '<section class="block" style="margin-top:10px;">' +
+        '<div class="block-title">Copia de seguridad</div>' +
+        '<div class="backup-panel">' +
+          '<div class="backup-panel-title">🗄 Respaldo Maestro</div>' +
+          '<div class="backup-panel-desc">' +
+            'Exporta <strong>toda</strong> la bitácora (hábitos, proyectos, rutinas, historial y evidencias) en un único archivo <code>.json</code> segmentado por año. ' +
+            'Importa ese mismo archivo para restaurar tu bitácora en cualquier dispositivo.' +
+          '</div>' +
+          '<div class="backup-actions">' +
+            '<div class="backup-row">' +
+              '<span class="backup-row-label">Exportar</span>' +
+              '<button class="btn-backup-export" id="btnBackupExport" data-action="backup-export">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+                'Descargar respaldo completo' +
+              '</button>' +
+            '</div>' +
+            '<hr class="backup-divider" />' +
+            '<div class="backup-row">' +
+              '<span class="backup-row-label">Importar</span>' +
+              '<button class="btn-backup-import" id="btnBackupImport" data-action="backup-import-trigger">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>' +
+                'Restaurar desde archivo' +
+              '</button>' +
+              '<input type="file" id="backupFileInput" class="backup-file-input" accept=".json,application/json" />' +
+            '</div>' +
+          '</div>' +
+          '<div class="backup-status" id="backupStatus"></div>' +
+          '<div class="backup-meta"><span class="backup-meta-dot"></span>Los datos se guardan localmente en este dispositivo</div>' +
+        '</div>' +
+      '</section>'
     );
+  }
+
+  /* ===================== Backup: leer TODO de IndexedDB con cursor ===================== */
+  function dbReadAllWithCursor(){
+    return new Promise(function(resolve, reject){
+      if (!db){ resolve({}); return; }
+      try {
+        var tx    = db.transaction("evidence", "readonly");
+        var store = tx.objectStore("evidence");
+        var req   = store.openCursor();
+        var all   = {};
+        req.onsuccess = function(e){
+          var cursor = e.target.result;
+          if (cursor){
+            all[cursor.key] = cursor.value;
+            cursor.continue();
+          } else {
+            resolve(all);
+          }
+        };
+        req.onerror = function(){ reject(req.error); };
+      } catch(err){ reject(err); }
+    });
+  }
+
+  /* ===================== Backup: limpiar IndexedDB completamente ===================== */
+  function dbClearAll(){
+    return new Promise(function(resolve, reject){
+      if (!db){ resolve(); return; }
+      try {
+        var tx    = db.transaction("evidence", "readwrite");
+        var req   = tx.objectStore("evidence").clear();
+        tx.oncomplete = function(){ resolve(); };
+        tx.onerror    = function(){ reject(tx.error); };
+      } catch(err){ reject(err); }
+    });
+  }
+
+  /* ===================== Backup: reinyectar evidencias en IndexedDB ===================== */
+  function dbBulkWrite(entriesObj){
+    return new Promise(function(resolve, reject){
+      if (!db || !entriesObj || Object.keys(entriesObj).length === 0){ resolve(); return; }
+      try {
+        var tx    = db.transaction("evidence", "readwrite");
+        var store = tx.objectStore("evidence");
+        Object.keys(entriesObj).forEach(function(key){
+          store.put(entriesObj[key], key);
+        });
+        tx.oncomplete = function(){ resolve(); };
+        tx.onerror    = function(){ reject(tx.error); };
+      } catch(err){ reject(err); }
+    });
+  }
+
+  /* ===================== Backup: extraer año de clave "YYYY-MM-DD_..." o "project_..." ===================== */
+  function extractYearFromKey(key){
+    if (!key) return "sin-fecha";
+    /* Formato normal: "2025-06-15_habitoId" */
+    var m = key.match(/^(\d{4})-\d{2}-\d{2}/);
+    if (m) return m[1];
+    /* Proyectos: "project_id" */
+    if (key.indexOf("project_") === 0) return "projects";
+    return "sin-fecha";
+  }
+
+  /* ===================== exportMasterBackup: Exportación Única Segmentada por Año ===================== */
+  async function exportMasterBackup(){
+    var btn = document.getElementById("btnBackupExport");
+    var statusEl = document.getElementById("backupStatus");
+    if (btn) btn.disabled = true;
+    if (statusEl){ statusEl.className = "backup-status working"; statusEl.textContent = "⏳ Preparando respaldo completo…"; }
+
+    try {
+      /* 1. Leer estado de localStorage */
+      var rawState = await storageGet(STORAGE_KEY);
+      var currentState = null;
+      if (rawState){
+        try { currentState = JSON.parse(rawState); } catch(e){ currentState = state; }
+      } else {
+        currentState = state;
+      }
+
+      /* 2. Leer TODAS las evidencias de IndexedDB con cursor */
+      if (statusEl) statusEl.textContent = "⏳ Leyendo evidencias de IndexedDB…";
+      var allEvidence = await dbReadAllWithCursor();
+
+      /* 3. Construir objeto maestro segmentado por año */
+      var backup = {
+        _meta: {
+          version:     2,
+          exportedAt:  new Date().toISOString(),
+          appName:     "Bitácora — Hábitos",
+          totalEvidenceKeys: Object.keys(allEvidence).length
+        },
+        state: currentState,
+        evidenceByYear: {}
+      };
+
+      /* Segmentar evidencias por año */
+      Object.keys(allEvidence).forEach(function(key){
+        var yr = extractYearFromKey(key);
+        if (!backup.evidenceByYear[yr]) backup.evidenceByYear[yr] = {};
+        backup.evidenceByYear[yr][key] = allEvidence[key];
+      });
+
+      /* Segmentar logs del state por año para acceso rápido histórico */
+      var logByYear = {};
+      if (currentState && currentState.log){
+        Object.keys(currentState.log).forEach(function(ds){
+          var yr = ds.substring(0, 4);
+          if (!logByYear[yr]) logByYear[yr] = {};
+          logByYear[yr][ds] = currentState.log[ds];
+        });
+      }
+      backup.logByYear = logByYear;
+
+      /* 4. Serializar y descargar */
+      if (statusEl) statusEl.textContent = "⏳ Generando archivo JSON…";
+      var json     = JSON.stringify(backup, null, 2);
+      var blob     = new Blob([json], { type: "application/json" });
+      var url      = URL.createObjectURL(blob);
+      var a        = document.createElement("a");
+      a.href       = url;
+      var dateTag  = new Date().toISOString().slice(0,10).replace(/-/g,"");
+      a.download   = "bitacora_respaldo_total_" + dateTag + ".json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      var totalYears = Object.keys(backup.evidenceByYear).length;
+      var totalEv    = Object.keys(allEvidence).length;
+      if (statusEl){
+        statusEl.className = "backup-status success";
+        statusEl.textContent = "✔ Respaldo exportado · " + totalEv + " evidencias · " + totalYears + " año(s)";
+      }
+      showToast("✅ Respaldo descargado correctamente.");
+    } catch(err){
+      console.error("Backup export error:", err);
+      if (statusEl){
+        statusEl.className = "backup-status error";
+        statusEl.textContent = "✖ Error: " + (err.message || err);
+      }
+      showToast("Error al exportar el respaldo.");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  /* ===================== importMasterBackup: Importación y Desempaquetado ===================== */
+  async function importMasterBackup(file){
+    var btn      = document.getElementById("btnBackupImport");
+    var statusEl = document.getElementById("backupStatus");
+    if (!file) return;
+    if (btn) btn.disabled = true;
+    if (statusEl){ statusEl.className = "backup-status working"; statusEl.textContent = "⏳ Leyendo archivo de respaldo…"; }
+
+    try {
+      /* 1. Leer el archivo JSON */
+      var text = await new Promise(function(resolve, reject){
+        var reader = new FileReader();
+        reader.onload  = function(e){ resolve(e.target.result); };
+        reader.onerror = function(){ reject(new Error("No se pudo leer el archivo.")); };
+        reader.readAsText(file);
+      });
+
+      var backup;
+      try { backup = JSON.parse(text); } catch(e){ throw new Error("El archivo no es un JSON válido."); }
+
+      /* Validación mínima */
+      if (!backup._meta || !backup.state){
+        throw new Error("El archivo no parece ser un respaldo de Bitácora válido.");
+      }
+
+      /* Confirmar con el usuario */
+      var ok = window.confirm(
+        "⚠ IMPORTAR RESPALDO\n\n" +
+        "Esto REEMPLAZARÁ toda tu bitácora actual con los datos del archivo:\n" +
+        "· Exportado: " + (backup._meta.exportedAt || "—") + "\n" +
+        "· Evidencias: " + (backup._meta.totalEvidenceKeys || 0) + " registros\n\n" +
+        "¿Deseas continuar? Esta acción no se puede deshacer."
+      );
+      if (!ok){
+        if (statusEl){ statusEl.className = "backup-status"; statusEl.style.display = "none"; }
+        if (btn) btn.disabled = false;
+        return;
+      }
+
+      /* 2. Limpiar localStorage */
+      if (statusEl) statusEl.textContent = "⏳ Limpiando datos actuales…";
+      try { window.localStorage.removeItem(STORAGE_KEY); } catch(e){}
+      if (typeof window.storage === "object" && window.storage && window.storage.delete){
+        try { await window.storage.delete(STORAGE_KEY, false); } catch(e){}
+      }
+
+      /* 3. Limpiar IndexedDB */
+      if (statusEl) statusEl.textContent = "⏳ Limpiando base de datos de evidencias…";
+      await dbClearAll();
+
+      /* 4. Reescribir state en localStorage */
+      if (statusEl) statusEl.textContent = "⏳ Restaurando configuración y historial…";
+      var restoredState = backup.state;
+      /* Normalizar campos por si el backup es de versión anterior */
+      restoredState.habits       = restoredState.habits       || [];
+      restoredState.oneoff       = restoredState.oneoff       || [];
+      restoredState.log          = restoredState.log          || {};
+      restoredState.firstUseDate = restoredState.firstUseDate || todayStr();
+      restoredState.reminders    = restoredState.reminders    || {};
+      restoredState.projects     = restoredState.projects     || [];
+      restoredState.routines     = restoredState.routines     || [];
+
+      await storageSet(STORAGE_KEY, JSON.stringify(restoredState));
+
+      /* 5. Reinyectar evidencias de todos los bloques de año */
+      if (statusEl) statusEl.textContent = "⏳ Restaurando evidencias…";
+      var evidenceByYear = backup.evidenceByYear || {};
+      var years = Object.keys(evidenceByYear);
+      var totalRestored = 0;
+      for (var i = 0; i < years.length; i++){
+        var block = evidenceByYear[years[i]];
+        await dbBulkWrite(block);
+        totalRestored += Object.keys(block).length;
+      }
+
+      /* 6. Mensaje de éxito y recarga */
+      if (statusEl){
+        statusEl.className = "backup-status success";
+        statusEl.textContent = "✔ Restaurado: " + totalRestored + " evidencias en " + years.length + " año(s). Recargando…";
+      }
+      showToast("✅ Bitácora restaurada. Recargando…");
+      setTimeout(function(){ window.location.reload(); }, 1500);
+
+    } catch(err){
+      console.error("Backup import error:", err);
+      if (statusEl){
+        statusEl.className = "backup-status error";
+        statusEl.textContent = "✖ Error: " + (err.message || err);
+      }
+      showToast("Error al importar el respaldo.");
+      if (btn) btn.disabled = false;
+    }
   }
 
   /* ===================== Render principal ===================== */
