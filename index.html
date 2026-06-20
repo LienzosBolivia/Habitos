@@ -1028,13 +1028,21 @@
     return { total: tasks.length, done: done };
   }
 
-  /**
-   * Marcar como hecha (sin modal de evidencia).
-   * Llamado SOLO desde saveEvidence() después de guardar en IDB.
+   /**
+   * Marcar como hecha o completada.
+   * Llamado desde saveEvidence() después de guardar en IDB.
    */
   function markDone(ds, id){
-    if (!state.log[ds]) state.log[ds] = {};
-    state.log[ds][id] = true;
+    if (ds === "project") {
+      var p = state.projects.find(function(x){ return x.id === id; });
+      if (p){ 
+        p.status = "completed"; 
+        p.completedAt = todayStr(); 
+      }
+    } else {
+      if (!state.log[ds]) state.log[ds] = {};
+      state.log[ds][id] = true;
+    }
     persist();
     renderActiveTab();
   }
@@ -1384,10 +1392,10 @@
       savedAt: new Date().toISOString()
     });
 
-    dbSet(key, evidence).catch(function(){/* silently ignore IDB errors */}).then(function(){
+        dbSet(key, evidence).catch(function(){/* silently ignore IDB errors */}).then(function(){
       markDone(ds, id);
       closeEvidenceModal();
-      showToast("¡Tarea cumplida y evidencia guardada!");
+      showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
     });
   }
 
@@ -1731,6 +1739,8 @@
     function projectCard(p){
       var isCompleted = p.status === "completed";
       var deadlineBadge = "";
+      
+      /* 1. Lógica para la etiqueta de la fecha (se mantiene igual) */
       if (!isCompleted){
         var diff = daysUntil(p.deadline);
         var cls  = diff < 0 ? "urgent" : diff <= 7 ? "soon" : "ok";
@@ -1741,16 +1751,24 @@
       } else {
         deadlineBadge = '<span class="project-deadline-badge done-badge">✔ Completado el ' + (p.completedAt ? formatDateShort(p.completedAt) : "—") + '</span>';
       }
+
+      /* 2. AQUÍ ESTÁ LA MAGIA DEL PASO 4: Creamos el botón del ojo condicionalmente */
+      var eyeBtn = isCompleted
+        ? '<button class="task-eye-btn" data-action="view-evidence" data-date="project" data-id="' + p.id + '" title="Ver evidencia" style="display:inline-block; margin-left:8px; vertical-align:middle;">' + ICON_EYE + '</button>'
+        : "";
+
       var actions = isCompleted
         ? '<button class="btn-delete-project" data-action="delete-project" data-id="' + p.id + '">Eliminar</button>'
         : (
             '<button class="btn-complete-project" data-action="complete-project" data-id="' + p.id + '">✔ Completar</button>' +
             '<button class="btn-delete-project" data-action="delete-project" data-id="' + p.id + '">Eliminar</button>'
           );
+          
+      /* 3. Renderizamos el HTML final, inyectando el eyeBtn al lado del título */
       return (
         '<div class="project-item' + (isCompleted ? " is-completed" : "") + '">' +
           '<div class="project-header">' +
-            '<div class="project-name">' + escapeHtml(p.text) + '</div>' +
+            '<div class="project-name">' + escapeHtml(p.text) + eyeBtn + '</div>' +
             '<div class="project-actions">' + actions + '</div>' +
           '</div>' +
           '<div class="project-meta">' +
@@ -1927,7 +1945,9 @@
       deleteRoutine(el.getAttribute("data-id"));
 
     } else if (action === "complete-project"){
-      completeProject(el.getAttribute("data-id"));
+      /* Abrimos el modal. Usamos la palabra "project" como si fuera la fecha
+         para que la base de datos sepa cómo clasificar esta evidencia */
+      openEvidenceModal("project", el.getAttribute("data-id"));
 
     } else if (action === "delete-project"){
       deleteProject(el.getAttribute("data-id"));
