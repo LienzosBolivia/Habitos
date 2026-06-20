@@ -2358,9 +2358,12 @@
       var ds = el.getAttribute("data-date");
       var id = el.getAttribute("data-id");
       var status = getStatus(ds, id);
+      
       if (status === "done"){
-        /* Desmarcar directo */
-        unmarkDone(ds, id);
+        /* Aviso de seguridad antes de desmarcar */
+        if (window.confirm("¿Seguro que quieres desmarcar esta tarea? Perderás el registro de tu evidencia.")){
+          unmarkDone(ds, id);
+        }
       } else {
         /* Pedir evidencia antes de marcar */
         openEvidenceModal(ds, id);
@@ -2432,8 +2435,36 @@
       calendarViewDate.setMonth(calendarViewDate.getMonth()-1);
       renderActiveTab();
 
-    } else if (action === "cal-next"){
+        } else if (action === "cal-next"){
       calendarViewDate.setMonth(calendarViewDate.getMonth()+1);
+      renderActiveTab();
+      
+    /* --- NUEVAS CONEXIONES DE BACKUP --- */
+    } else if (action === "backup-export"){
+      exportMasterBackup();
+      
+    } else if (action === "backup-import-trigger"){
+      /* Esto hace clic invisible en el input de archivo real */
+      var fileInput = document.getElementById("backupFileInput");
+      if(fileInput) fileInput.click();
+    }
+  });
+
+  /* ===================== Eventos: changes (Inputs y Selects) ===================== */
+  document.addEventListener("change", function(e){
+    /* Seleccionar archivo de importación */
+    if (e.target.id === "backupFileInput"){
+      var file = e.target.files && e.target.files[0];
+      if (file) {
+        importMasterBackup(file);
+        e.target.value = ""; /* Resetea el input por si quieres subir el mismo archivo después */
+      }
+    } 
+    /* Cambiar el año histórico en el calendario */
+    else if (e.target.getAttribute("data-action") === "cal-year-change") {
+      var y = parseInt(e.target.value, 10);
+      var currentY = new Date().getFullYear();
+      calendarHistoricalYear = (y === currentY) ? null : y;
       renderActiveTab();
     }
   });
