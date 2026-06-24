@@ -2583,18 +2583,73 @@
   }
 
   /* ===================== Google Drive Sync ===================== */
-  var DRIVE_CLIENT_ID  = "24854889316-jrsj155n0noevb59tt6683m13gbcajm5.apps.googleusercontent.com";
-  var DRIVE_SCOPE      = "https://www.googleapis.com/auth/drive.appdata";
-  var DRIVE_FILENAME   = "bitacora_master_backup.json";
-  var DRIVE_SPACES     = "appDataFolder";
-  var DRIVE_API        = "https://www.googleapis.com/drive/v3/files";
-  var DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files";
+  var DRIVE_CLIENT_ID   = "24854889316-jrsj155n0noevb59tt6683m13gbcajm5.apps.googleusercontent.com";
+  var DRIVE_SCOPE       = "https://www.googleapis.com/auth/drive.appdata";
+  var DRIVE_FILENAME    = "bitacora_master_backup.json";
+  var DRIVE_SPACES      = "appDataFolder";
+  var DRIVE_API         = "https://www.googleapis.com/drive/v3/files";
+  var DRIVE_UPLOAD_API  = "https://www.googleapis.com/upload/drive/v3/files";
+  var DRIVE_SESSION_KEY = "bitacora_drive_session"; /* clave para persistir sesión en localStorage */
 
   /* Estado de autenticación */
-  var driveAccessToken = null;
-  var driveTokenClient = null;
-  var driveTokenExpiry = 0;
-  var driveUserEmail   = null;
+  var driveAccessToken  = null;
+  var driveTokenClient  = null;
+  var driveTokenExpiry  = 0;
+  var driveUserEmail    = null;
+  var driveRefreshTimer = null;  /* handle del setInterval de renovación silenciosa */
+  var driveIsSilentRenew = false; /* flag: true cuando la renovación es silenciosa (sin popup) */
+
+  /* ---- Persistencia de sesión en localStorage ---- */
+  function saveDriveSession(){
+    try {
+      localStorage.setItem(DRIVE_SESSION_KEY, JSON.stringify({
+        email: driveUserEmail || null,
+        connectedAt: Date.now()
+      }));
+    } catch(e){}
+  }
+
+  function loadDriveSession(){
+    try {
+      var raw = localStorage.getItem(DRIVE_SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch(e){ return null; }
+  }
+
+  function clearDriveSession(){
+    try { localStorage.removeItem(DRIVE_SESSION_KEY); } catch(e){}
+  }
+
+  /* ---- Renovación silenciosa del token ---- */
+  /* Intenta obtener un nuevo access_token sin abrir ventana de login.
+     Si el usuario aún tiene sesión activa en Chrome/Google, funciona de forma invisible.
+     Si la sesión de Google expiró, simplemente marca como desconectado. */
+  function silentTokenRenew(){
+    if (!driveTokenClient) return;
+    /* Si el token aún tiene más de 5 min de vida, no hace falta renovar */
+    if (driveAccessToken && Date.now() < driveTokenExpiry - 5 * 60 * 1000) return;
+    driveIsSilentRenew = true;
+    try {
+      driveTokenClient.requestAccessToken({ prompt: "none" });
+    } catch(e){
+      driveIsSilentRenew = false;
+    }
+  }
+
+  /* ---- Timer de renovación automática cada 50 minutos ---- */
+  function startTokenRefreshTimer(){
+    stopTokenRefreshTimer();
+    driveRefreshTimer = setInterval(function(){
+      silentTokenRenew();
+    }, 50 * 60 * 1000); /* 50 minutos → el token dura 60, renovamos con margen */
+  }
+
+  function stopTokenRefreshTimer(){
+    if (driveRefreshTimer){
+      clearInterval(driveRefreshTimer);
+      driveRefreshTimer = null;
+    }
+  }
 
   /* Actualizar la barra de estado de autenticación en el DOM */
   function updateDriveAuthUI(){
@@ -2623,28 +2678,69 @@
       client_id: DRIVE_CLIENT_ID,
       scope: DRIVE_SCOPE,
       callback: function(tokenResponse){
+        var wasSilent = driveIsSilentRenew;
+        driveIsSilentRenew = false; /* resetear flag */
+
         if (tokenResponse && tokenResponse.access_token){
           driveAccessToken = tokenResponse.access_token;
           driveTokenExpiry = Date.now() + (tokenResponse.expires_in || 3600) * 1000 - 60000;
+
           /* Obtener email del usuario via tokeninfo */
           fetch("https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=" + driveAccessToken)
             .then(function(r){ return r.json(); })
-            .then(function(info){ driveUserEmail = info.email || null; updateDriveAuthUI(); })
-            .catch(function(){ updateDriveAuthUI(); });
+            .then(function(info){
+              driveUserEmail = info.email || driveUserEmail || null;
+              saveDriveSession(); /* persistir sesión para auto-reconexión al recargar */
+              updateDriveAuthUI();
+            })
+            .catch(function(){
+              saveDriveSession();
+              updateDriveAuthUI();
+            });
+
           updateDriveAuthUI();
-          showToast("✅ Conectado a Google Drive.");
-          /* Si había una operación pendiente, se ejecuta desde el handler que hizo la llamada */
+
+          /* Solo mostrar toast si el usuario lo hizo manualmente, no en renovación silenciosa */
+          if (!wasSilent){
+            showToast("✅ Conectado a Google Drive.");
+          }
+
+          /* Arrancar el timer de renovación automática */
+          startTokenRefreshTimer();
+
+          /* Si había una operación pendiente, ejecutarla */
           if (typeof driveTokenClient._pendingCallback === "function"){
             var cb = driveTokenClient._pendingCallback;
             driveTokenClient._pendingCallback = null;
             cb();
           }
+
         } else if (tokenResponse && tokenResponse.error){
-          setBackupStatus("error", "✖ Auth cancelada o denegada: " + tokenResponse.error);
+          driveIsSilentRenew = false;
+          if (wasSilent){
+            /* En renovación silenciosa: si Google rechaza (sesión expirada),
+               simplemente marcamos como desconectado sin molestar al usuario */
+            if (tokenResponse.error === "interaction_required" ||
+                tokenResponse.error === "access_denied" ||
+                tokenResponse.error === "user_logged_out"){
+              driveAccessToken = null;
+              driveTokenExpiry = 0;
+              clearDriveSession();
+              updateDriveAuthUI();
+            }
+            /* Para otros errores silenciosos, no hacemos nada visible */
+          } else {
+            setBackupStatus("error", "✖ Auth cancelada o denegada: " + tokenResponse.error);
+          }
         }
       },
       error_callback: function(err){
-        setBackupStatus("error", "✖ Error de autenticación: " + (err.message || err.type || JSON.stringify(err)));
+        var wasSilent = driveIsSilentRenew;
+        driveIsSilentRenew = false;
+        if (!wasSilent){
+          /* Solo mostrar error si fue intento manual */
+          setBackupStatus("error", "✖ Error de autenticación: " + (err.message || err.type || JSON.stringify(err)));
+        }
       }
     });
   }
@@ -2657,6 +2753,8 @@
       driveAccessToken = null;
       driveTokenExpiry = 0;
       driveUserEmail   = null;
+      clearDriveSession();   /* eliminar sesión persistida */
+      stopTokenRefreshTimer(); /* detener timer de renovación */
       updateDriveAuthUI();
       showToast("Desconectado de Google Drive.");
       return;
@@ -2671,6 +2769,7 @@
     }
     if (pendingCallback) driveTokenClient._pendingCallback = pendingCallback;
     setBackupStatus("working", "⏳ Autenticando con Google…");
+    driveIsSilentRenew = false;
     driveTokenClient.requestAccessToken({ prompt: "consent" });
   }
 
@@ -2883,6 +2982,22 @@
   function tryInitDriveClient(){
     if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2){
       initDriveTokenClient();
+
+      /* ── Auto-reconexión silenciosa ──────────────────────────────────────────
+         Si el usuario tenía sesión activa en su visita anterior, intentamos
+         obtener un token nuevo con prompt:'none'. Si Google sigue teniendo
+         la sesión activa en el navegador, el token llega sin que el usuario
+         vea ninguna ventana. Si la sesión de Google expiró, simplemente
+         se queda en modo "desconectado" sin error visible. */
+      var savedSession = loadDriveSession();
+      if (savedSession && savedSession.email){
+        driveUserEmail = savedSession.email; /* mostrar email en UI mientras llega el token */
+        updateDriveAuthUI();
+        setTimeout(function(){
+          silentTokenRenew();
+        }, 600); /* pequeño delay para asegurar que el cliente GIS quedó listo */
+      }
+
     } else {
       setTimeout(tryInitDriveClient, 500);
     }
