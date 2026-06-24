@@ -264,6 +264,52 @@
   .task-eye-btn:hover{opacity:1;}
   .task-eye-btn svg{width:15px; height:15px;}
 
+  /* Evidence pencil (edit) button */
+  .task-pencil-btn{
+    flex:0 0 auto;
+    background:none; border:none;
+    color:var(--brass-500);
+    cursor:pointer;
+    padding:0 2px;
+    display:flex; align-items:center;
+    opacity:.7;
+    transition:opacity .15s;
+  }
+  .task-pencil-btn:hover{opacity:1;}
+  .task-pencil-btn svg{width:14px; height:14px;}
+
+  /* Drive auto-sync status badge */
+  .drive-autosync-badge{
+    display:inline-flex; align-items:center; gap:5px;
+    font-family:var(--font-mono); font-size:10.5px;
+    color:var(--text-faint);
+    padding:4px 10px;
+    border-radius:20px;
+    border:1px solid var(--ink-700);
+    background:var(--ink-800-solid);
+    transition:color .3s, border-color .3s;
+  }
+  .drive-autosync-badge.syncing{
+    color:var(--brass-300);
+    border-color:rgba(168,123,60,0.35);
+    animation:pulseBadge 1.2s ease-in-out infinite;
+  }
+  .drive-autosync-badge.synced{
+    color:var(--done);
+    border-color:rgba(95,161,119,0.35);
+  }
+  .drive-autosync-badge.error{
+    color:var(--missed);
+    border-color:rgba(193,87,61,0.35);
+  }
+  @keyframes pulseBadge{
+    0%,100%{opacity:1;} 50%{opacity:.55;}
+  }
+  .autosync-dot{
+    width:6px; height:6px; border-radius:50%;
+    background:currentColor; flex-shrink:0;
+  }
+
   .empty-state{
     text-align:center;
     padding:32px 16px;
@@ -1035,7 +1081,8 @@
   var ICON_X     = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
   var ICON_EYE   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
   var ICON_CALENDAR_SM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-  var ICON_BELL  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+  var ICON_BELL   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+  var ICON_PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
   /* ===================== Estado global ===================== */
   var state = null;
@@ -1047,6 +1094,12 @@
   var pendingEvidence = null;
   /* Año histórico seleccionado en Calendario (null = año actual) */
   var calendarHistoricalYear = null;
+  /* Modo edición de evidencia */
+  var isEditingEvidence = false;
+  var editingPrevImage  = null;
+  /* Auto-sync Drive */
+  var autoSyncDebounceTimer = null;
+  var lastAutoSyncTime      = null;
 
   /* ===================== IndexedDB ===================== */
   var db = null;
@@ -1160,7 +1213,93 @@
     };
   }
 
-  function persist(){ return storageSet(STORAGE_KEY, JSON.stringify(state)); }
+    /* ===================== Guardado Inteligente (Smart Sync) ===================== */
+  var bitacora_needs_sync = false;
+
+  function persist(){ 
+    return storageSet(STORAGE_KEY, JSON.stringify(state)).then(function(){ 
+      bitacora_needs_sync = true;
+      try { localStorage.setItem("bitacora_needs_sync", "true"); } catch(e){}
+      setAutoSyncBadge("syncing", "Cambios pendientes de subir...");
+    }); 
+  }
+
+  /* El navegador avisa automáticamente cuando cambias de pestaña o minimizas la app */
+  document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === 'hidden' && bitacora_needs_sync) {
+      autoSyncToDrive();
+    }
+  });
+
+  /* Al arrancar la app, revisamos si quedó algo pendiente de la sesión anterior */
+  function checkPendingSyncOnLoad(){
+    try {
+      if (localStorage.getItem("bitacora_needs_sync") === "true") {
+        bitacora_needs_sync = true;
+        autoSyncToDrive();
+      }
+    } catch(e){}
+  }
+
+  function setAutoSyncBadge(state, text){
+    var el = document.getElementById("driveAutoSyncBadge");
+    if (!el) return;
+    el.className = "drive-autosync-badge" + (state ? " " + state : "");
+    var dot = el.querySelector(".autosync-dot");
+    var lbl = el.querySelector(".autosync-label");
+    if (lbl) lbl.textContent = text;
+  }
+
+  async function autoSyncToDrive(){
+    /* Solo sincronizar si hay token válido — no interrumpir al usuario */
+    if (!driveAccessToken || Date.now() >= driveTokenExpiry) return;
+    setAutoSyncBadge("syncing", "Sincronizando…");
+    try {
+      var backup  = await buildMasterBackupJSON();
+      var jsonStr = JSON.stringify(backup);
+      var searchResp = await fetch(
+        DRIVE_API + "?spaces=" + DRIVE_SPACES +
+        "&fields=files(id,name)" +
+        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
+        { headers: { "Authorization": "Bearer " + driveAccessToken } }
+      );
+      if (!searchResp.ok) throw new Error("search " + searchResp.status);
+      var searchData   = await searchResp.json();
+      var existingFile = searchData.files && searchData.files.length > 0 ? searchData.files[0] : null;
+      var boundary     = "ab_" + Date.now();
+      var metadata     = JSON.stringify(
+        existingFile
+          ? { name: DRIVE_FILENAME }
+          : { name: DRIVE_FILENAME, parents: [DRIVE_SPACES] }
+      );
+      var body =
+        "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
+        metadata + "\r\n--" + boundary + "\r\nContent-Type: application/json\r\n\r\n" +
+        jsonStr + "\r\n--" + boundary + "--";
+      var url    = existingFile
+        ? DRIVE_UPLOAD_API + "/" + existingFile.id + "?uploadType=multipart"
+        : DRIVE_UPLOAD_API + "?uploadType=multipart";
+      var method = existingFile ? "PATCH" : "POST";
+      var upResp = await fetch(url, {
+        method: method,
+        headers: { "Authorization": "Bearer " + driveAccessToken, "Content-Type": "multipart/related; boundary=" + boundary },
+        body: body
+      });
+      if (!upResp.ok) throw new Error("upload " + upResp.status);
+      lastAutoSyncTime = new Date();
+      var timeStr = lastAutoSyncTime.toLocaleDateString("es-BO") + " " +
+                    lastAutoSyncTime.toLocaleTimeString("es-BO", { hour:"2-digit", minute:"2-digit" });
+      setAutoSyncBadge("synced", "Respaldo automático: " + timeStr);
+      
+      /* Apagamos la bandera porque ya está todo seguro en la nube */
+      bitacora_needs_sync = false;
+      try { localStorage.setItem("bitacora_needs_sync", "false"); } catch(e){}
+      
+    } catch(err){
+      console.warn("autoSync error:", err);
+      setAutoSyncBadge("error", "Sin sincronizar");
+    }
+  }
 
   function init(){
     var dbPromise = initDB().catch(function(){ db = null; return null; });
@@ -1183,6 +1322,7 @@
       selectedCalendarDate = todayStr();
       persist();
       scheduleTodayReminders();
+      checkPendingSyncOnLoad();
       render();
     });
   }
@@ -1526,7 +1666,15 @@
   }
 
     function openEvidenceModal(ds, id){
-    pendingEvidence = { ds: ds, id: id };
+    pendingEvidence  = { ds: ds, id: id };
+    isEditingEvidence = false;
+    editingPrevImage  = null;
+
+    /* Actualizar título del modal */
+    var title = document.getElementById("evidModalTitle");
+    if (title) title.textContent = "📋 Evidencia de cumplimiento";
+    var saveBtn = document.getElementById("evidenceSaveBtn");
+    if (saveBtn) saveBtn.textContent = "Guardar y marcar cumplida";
     
     /* Limpiar campos */
     document.getElementById("evidenceNote").value = "";
@@ -1548,9 +1696,57 @@
     setTimeout(function(){ document.getElementById("evidenceNote").focus(); }, 100);
   }
 
+  function openEditEvidenceModal(ds, id){
+    var key = ds + "_" + id;
+    pendingEvidence   = { ds: ds, id: id };
+    isEditingEvidence = true;
+    editingPrevImage  = null;
+
+    /* Actualizar título y botón del modal */
+    var title = document.getElementById("evidModalTitle");
+    if (title) title.textContent = "✏️ Editar evidencia";
+    var saveBtn = document.getElementById("evidenceSaveBtn");
+    if (saveBtn) saveBtn.textContent = "Guardar cambios";
+
+    /* Limpiar campos */
+    document.getElementById("evidenceNote").value = "";
+    document.getElementById("evidencePreview").innerHTML =
+      '<p style="font-size:11px;color:var(--text-faint);">Cargando evidencia…</p>';
+    var lbl = document.getElementById("evidenceFileLabel");
+    lbl.childNodes[0].textContent = "📷 Cambiar foto (opcional)";
+    var fileInput = document.getElementById("evidenceFile");
+    if (fileInput){ fileInput.value = ""; fileInput.removeAttribute("data-compressed"); }
+
+    /* Abrir el modal primero para que el usuario vea el loader */
+    document.getElementById("evidenceModal").classList.add("open");
+
+    /* Cargar datos existentes de IDB */
+    dbGet(key).then(function(raw){
+      var ev = null;
+      if (raw){ try { ev = JSON.parse(raw); } catch(e){} }
+      var preview = document.getElementById("evidencePreview");
+      if (ev && ev.image){
+        editingPrevImage = ev.image;
+        preview.innerHTML =
+          '<img src="' + ev.image + '" alt="Evidencia actual" />' +
+          '<p class="preview-note" style="color:var(--text-muted);">Imagen actual — sube otra para reemplazarla</p>';
+      } else {
+        preview.innerHTML = "";
+      }
+      if (ev && ev.note){
+        document.getElementById("evidenceNote").value = ev.note;
+      }
+      setTimeout(function(){ document.getElementById("evidenceNote").focus(); }, 100);
+    }).catch(function(){
+      document.getElementById("evidencePreview").innerHTML = "";
+    });
+  }
+
   function closeEvidenceModal(){
     document.getElementById("evidenceModal").classList.remove("open");
-    pendingEvidence = null;
+    pendingEvidence   = null;
+    isEditingEvidence = false;
+    editingPrevImage  = null;
   }
 
   function onEvidenceFileChange(){
@@ -1572,7 +1768,10 @@
     var note       = document.getElementById("evidenceNote").value.trim();
     var compressed = document.getElementById("evidenceFile").getAttribute("data-compressed") || null;
 
-    if (!note && !compressed){
+    /* En modo edición: si no hay nueva imagen, conservar la anterior */
+    var imageToSave = compressed || (isEditingEvidence ? editingPrevImage : null);
+
+    if (!note && !imageToSave){
       showToast("Escribe una nota o adjunta una foto.");
       return;
     }
@@ -1580,16 +1779,25 @@
     var key      = pendingEvidence.ds + "_" + pendingEvidence.id;
     var ds       = pendingEvidence.ds;
     var id       = pendingEvidence.id;
+    var editing  = isEditingEvidence;
     var evidence = JSON.stringify({
       note:    note || null,
-      image:   compressed || null,
+      image:   imageToSave || null,
       savedAt: new Date().toISOString()
     });
 
-        dbSet(key, evidence).catch(function(){/* silently ignore IDB errors */}).then(function(){
-      markDone(ds, id);
-      closeEvidenceModal();
-      showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
+    dbSet(key, evidence).catch(function(){}).then(function(){
+      if (editing){
+        /* Solo actualiza IDB — no cambia el estado de log ni re-marca */
+        closeEvidenceModal();
+        autoSyncToDrive();
+        showToast("✏️ Evidencia actualizada.");
+        renderActiveTab();
+      } else {
+        markDone(ds, id); /* markDone ya llama persist() → scheduleAutoSync() */
+        closeEvidenceModal();
+        showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
+      }
     });
   }
 
@@ -1663,9 +1871,10 @@
     if (t.type === "habit")   badgeHtml = '<span class="badge">hábito</span>';
     if (t.type === "routine") badgeHtml = '<span class="badge badge-routine">rutina</span>';
 
-    /* Ojo de evidencia (solo si done) */
+    /* Ojo y Lápiz de evidencia (solo si done) */
     var eyeBtn = status === "done"
-      ? '<button class="task-eye-btn" data-action="view-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Ver evidencia">' + ICON_EYE + '</button>'
+      ? '<button class="task-eye-btn" data-action="view-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Ver evidencia">' + ICON_EYE + '</button>' +
+        '<button class="task-pencil-btn" data-action="edit-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Editar evidencia">' + ICON_PENCIL + '</button>'
       : "";
 
     /* Botón de borrar (solo oneoff) */
@@ -1982,9 +2191,10 @@
         deadlineBadge = '<span class="project-deadline-badge done-badge">✔ Completado el ' + (p.completedAt ? formatDateShort(p.completedAt) : "—") + '</span>';
       }
 
-      /* 2. AQUÍ ESTÁ LA MAGIA DEL PASO 4: Creamos el botón del ojo condicionalmente */
+      /* 2. Botón del ojo y lápiz condicionales */
       var eyeBtn = isCompleted
-        ? '<button class="task-eye-btn" data-action="view-evidence" data-date="project" data-id="' + p.id + '" title="Ver evidencia" style="display:inline-block; margin-left:8px; vertical-align:middle;">' + ICON_EYE + '</button>'
+        ? '<button class="task-eye-btn" data-action="view-evidence" data-date="project" data-id="' + p.id + '" title="Ver evidencia" style="display:inline-block; margin-left:8px; vertical-align:middle;">' + ICON_EYE + '</button>' +
+          '<button class="task-pencil-btn" data-action="edit-evidence" data-date="project" data-id="' + p.id + '" title="Editar evidencia" style="display:inline-block; margin-left:4px; vertical-align:middle;">' + ICON_PENCIL + '</button>'
         : "";
 
       var actions = isCompleted
@@ -2731,9 +2941,11 @@
         /* Pedir evidencia antes de marcar */
         openEvidenceModal(ds, id);
       }
-
     } else if (action === "view-evidence"){
       openViewEvidenceModal(el.getAttribute("data-date"), el.getAttribute("data-id"));
+
+    } else if (action === "edit-evidence"){
+      openEditEvidenceModal(el.getAttribute("data-date"), el.getAttribute("data-id"));
 
     } else if (action === "delete-task"){
       deleteOneoff(el.getAttribute("data-id"));
