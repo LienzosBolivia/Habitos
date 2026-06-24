@@ -2593,7 +2593,7 @@
 
   /* ===================== Google Drive Sync ===================== */
   var DRIVE_CLIENT_ID   = "24854889316-jrsj155n0noevb59tt6683m13gbcajm5.apps.googleusercontent.com";
-  var DRIVE_SCOPE       = "https://www.googleapis.com/auth/drive.appdata";
+  var DRIVE_SCOPE       = "https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email";
   var DRIVE_FILENAME    = "bitacora_master_backup.json";
   var DRIVE_SPACES      = "appDataFolder";
   var DRIVE_API         = "https://www.googleapis.com/drive/v3/files";
@@ -3033,8 +3033,8 @@
             pasamos a "Desconectado" sin error visible.
          3. Si no hay sesión guardada, arrancar desconectado normalmente. */
       var savedSession = loadDriveSession();
-      if (savedSession && savedSession.email){
-        driveUserEmail = savedSession.email;
+      if (savedSession){
+        driveUserEmail = savedSession.email || null;
 
         /* Capa 1: ¿Tenemos un token guardado que todavía sirve? */
         var hasValidToken = savedSession.accessToken &&
