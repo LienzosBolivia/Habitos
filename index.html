@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Google Identity Services + Google API Client -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 <style>
   :root{
     --ink-900:#0A1B27;
@@ -674,6 +677,71 @@
     width:6px; height:6px; border-radius:50%;
     background:var(--done);
     flex-shrink:0;
+  }
+
+  /* ---------- Google Drive Sync Styles ---------- */
+  .drive-auth-bar{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 14px;
+    background:rgba(95,161,119,0.07);
+    border:1px solid rgba(95,161,119,0.2);
+    border-radius:var(--radius-sm);
+    margin-bottom:14px;
+    flex-wrap:wrap;
+  }
+  .drive-auth-bar.disconnected{
+    background:rgba(168,123,60,0.07);
+    border-color:rgba(168,123,60,0.2);
+  }
+  .drive-auth-dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--done); flex-shrink:0;
+  }
+  .drive-auth-bar.disconnected .drive-auth-dot{ background:var(--brass-500); }
+  .drive-auth-label{
+    font-family:var(--font-mono); font-size:11px;
+    color:var(--text-muted); flex:1;
+  }
+  .drive-auth-label strong{ color:var(--text-light); }
+  .btn-drive-auth{
+    background:transparent;
+    border:1px solid var(--brass-600);
+    color:var(--brass-300);
+    font-size:11.5px; font-weight:600;
+    padding:6px 12px; border-radius:var(--radius-sm);
+    cursor:pointer; white-space:nowrap;
+    display:inline-flex; align-items:center; gap:5px;
+    transition:background .15s, border-color .15s;
+  }
+  .btn-drive-auth:hover{ background:rgba(168,123,60,0.12); border-color:var(--brass-300); }
+  .btn-drive-auth:disabled{ opacity:.4; cursor:wait; }
+  .btn-drive-sync{
+    background:linear-gradient(135deg,#1a6b3c,#247a47);
+    color:#fff;
+    font-weight:600; font-size:13px;
+    border:none; padding:10px 18px;
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px;
+    transition:opacity .15s;
+  }
+  .btn-drive-sync:hover{ opacity:.85; }
+  .btn-drive-sync:disabled{ opacity:.4; cursor:wait; }
+  .btn-drive-restore{
+    background:transparent;
+    color:var(--text-light);
+    font-weight:600; font-size:13px;
+    border:1px solid #1a6b3c;
+    padding:10px 18px; border-radius:var(--radius-sm);
+    cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px;
+    transition:border-color .15s, color .15s;
+  }
+  .btn-drive-restore:hover{ border-color:var(--done); color:var(--done); }
+  .btn-drive-restore:disabled{ opacity:.4; cursor:wait; }
+  .backup-section-label{
+    font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
+    color:var(--text-faint); font-weight:600; margin-bottom:8px;
   }
 
   /* ---------- Recordatorio por tarea ---------- */
@@ -2046,21 +2114,48 @@
       '<section class="block" style="margin-top:10px;">' +
         '<div class="block-title">Copia de seguridad</div>' +
         '<div class="backup-panel">' +
-          '<div class="backup-panel-title">🗄 Respaldo Maestro</div>' +
+          '<div class="backup-panel-title">☁ Sincronización con Google Drive</div>' +
           '<div class="backup-panel-desc">' +
-            'Exporta <strong>toda</strong> la bitácora (hábitos, proyectos, rutinas, historial y evidencias) en un único archivo <code>.json</code> segmentado por año. ' +
-            'Importa ese mismo archivo para restaurar tu bitácora en cualquier dispositivo.' +
+            'Sube <strong>toda</strong> la bitácora (hábitos, proyectos, rutinas, historial y evidencias) ' +
+            'a tu Google Drive personal de forma <strong>privada y segura</strong>. ' +
+            'Solo tú puedes ver el archivo — queda oculto en la carpeta de aplicación de tu cuenta.' +
           '</div>' +
+          /* Auth bar */
+          '<div id="driveAuthBar" class="drive-auth-bar disconnected">' +
+            '<div class="drive-auth-dot"></div>' +
+            '<div class="drive-auth-label" id="driveAuthLabel">No conectado a Google Drive</div>' +
+            '<button class="btn-drive-auth" id="btnDriveAuth" data-action="drive-auth">' +
+              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057.1 18.08.114 18.1.132 18.11a20.03 20.03 0 0 0 5.993 3.04.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.201 13.201 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.04.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>' +
+              'Conectar con Google' +
+            '</button>' +
+          '</div>' +
+          /* Drive actions */
           '<div class="backup-actions">' +
+            '<div class="backup-section-label">☁ Google Drive (privado)</div>' +
+            '<div class="backup-row">' +
+              '<span class="backup-row-label">Subir</span>' +
+              '<button class="btn-drive-sync" id="btnDriveSync" data-action="drive-sync">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>' +
+                'Subir respaldo a Google Drive' +
+              '</button>' +
+            '</div>' +
+            '<div class="backup-row" style="margin-top:8px;">' +
+              '<span class="backup-row-label">Restaurar</span>' +
+              '<button class="btn-drive-restore" id="btnDriveRestore" data-action="drive-restore">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 16 12 20 16 16"/><line x1="12" y1="20" x2="12" y2="11"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>' +
+                'Restaurar desde Google Drive' +
+              '</button>' +
+            '</div>' +
+            '<hr class="backup-divider" />' +
+            '<div class="backup-section-label">💾 Respaldo local (archivo)</div>' +
             '<div class="backup-row">' +
               '<span class="backup-row-label">Exportar</span>' +
               '<button class="btn-backup-export" id="btnBackupExport" data-action="backup-export">' +
                 '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
-                'Descargar respaldo completo' +
+                'Descargar respaldo .json' +
               '</button>' +
             '</div>' +
-            '<hr class="backup-divider" />' +
-            '<div class="backup-row">' +
+            '<div class="backup-row" style="margin-top:8px;">' +
               '<span class="backup-row-label">Importar</span>' +
               '<button class="btn-backup-import" id="btnBackupImport" data-action="backup-import-trigger">' +
                 '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>' +
@@ -2070,7 +2165,7 @@
             '</div>' +
           '</div>' +
           '<div class="backup-status" id="backupStatus"></div>' +
-          '<div class="backup-meta"><span class="backup-meta-dot"></span>Los datos se guardan localmente en este dispositivo</div>' +
+          '<div class="backup-meta"><span class="backup-meta-dot"></span>Los datos locales se guardan en este dispositivo · El respaldo de Drive es privado y solo visible para ti</div>' +
         '</div>' +
       '</section>'
     );
@@ -2147,50 +2242,10 @@
     if (statusEl){ statusEl.className = "backup-status working"; statusEl.textContent = "⏳ Preparando respaldo completo…"; }
 
     try {
-      /* 1. Leer estado de localStorage */
-      var rawState = await storageGet(STORAGE_KEY);
-      var currentState = null;
-      if (rawState){
-        try { currentState = JSON.parse(rawState); } catch(e){ currentState = state; }
-      } else {
-        currentState = state;
-      }
+      if (statusEl) statusEl.textContent = "⏳ Leyendo datos y evidencias…";
+      var backup = await buildMasterBackupJSON();
 
-      /* 2. Leer TODAS las evidencias de IndexedDB con cursor */
-      if (statusEl) statusEl.textContent = "⏳ Leyendo evidencias de IndexedDB…";
-      var allEvidence = await dbReadAllWithCursor();
-
-      /* 3. Construir objeto maestro segmentado por año */
-      var backup = {
-        _meta: {
-          version:     2,
-          exportedAt:  new Date().toISOString(),
-          appName:     "Bitácora — Hábitos",
-          totalEvidenceKeys: Object.keys(allEvidence).length
-        },
-        state: currentState,
-        evidenceByYear: {}
-      };
-
-      /* Segmentar evidencias por año */
-      Object.keys(allEvidence).forEach(function(key){
-        var yr = extractYearFromKey(key);
-        if (!backup.evidenceByYear[yr]) backup.evidenceByYear[yr] = {};
-        backup.evidenceByYear[yr][key] = allEvidence[key];
-      });
-
-      /* Segmentar logs del state por año para acceso rápido histórico */
-      var logByYear = {};
-      if (currentState && currentState.log){
-        Object.keys(currentState.log).forEach(function(ds){
-          var yr = ds.substring(0, 4);
-          if (!logByYear[yr]) logByYear[yr] = {};
-          logByYear[yr][ds] = currentState.log[ds];
-        });
-      }
-      backup.logByYear = logByYear;
-
-      /* 4. Serializar y descargar */
+      /* Serializar y descargar */
       if (statusEl) statusEl.textContent = "⏳ Generando archivo JSON…";
       var json     = JSON.stringify(backup, null, 2);
       var blob     = new Blob([json], { type: "application/json" });
@@ -2204,8 +2259,8 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
+      var totalEv = backup._meta.totalEvidenceKeys || 0;
       var totalYears = Object.keys(backup.evidenceByYear).length;
-      var totalEv    = Object.keys(allEvidence).length;
       if (statusEl){
         statusEl.className = "backup-status success";
         statusEl.textContent = "✔ Respaldo exportado · " + totalEv + " evidencias · " + totalYears + " año(s)";
@@ -2316,6 +2371,314 @@
       if (btn) btn.disabled = false;
     }
   }
+
+  /* ===================== Google Drive Sync ===================== */
+  var DRIVE_CLIENT_ID  = "24854889316-jrsj155n0noevb59tt6683m13gbcajm5.apps.googleusercontent.com";
+  var DRIVE_SCOPE      = "https://www.googleapis.com/auth/drive.appdata";
+  var DRIVE_FILENAME   = "bitacora_master_backup.json";
+  var DRIVE_SPACES     = "appDataFolder";
+  var DRIVE_API        = "https://www.googleapis.com/drive/v3/files";
+  var DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files";
+
+  /* Estado de autenticación */
+  var driveAccessToken = null;
+  var driveTokenClient = null;
+  var driveTokenExpiry = 0;
+  var driveUserEmail   = null;
+
+  /* Actualizar la barra de estado de autenticación en el DOM */
+  function updateDriveAuthUI(){
+    var bar   = document.getElementById("driveAuthBar");
+    var label = document.getElementById("driveAuthLabel");
+    var btn   = document.getElementById("btnDriveAuth");
+    if (!bar || !label || !btn) return;
+    if (driveAccessToken && Date.now() < driveTokenExpiry){
+      bar.classList.remove("disconnected");
+      label.innerHTML = "Conectado" + (driveUserEmail ? " como <strong>" + escapeHtml(driveUserEmail) + "</strong>" : "");
+      btn.textContent = "Desconectar";
+    } else {
+      bar.classList.add("disconnected");
+      label.textContent = "No conectado a Google Drive";
+      btn.innerHTML =
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057.1 18.08.114 18.1.132 18.11a20.03 20.03 0 0 0 5.993 3.04.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.201 13.201 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.04.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>' +
+        '</svg> Conectar con Google';
+    }
+  }
+
+  /* Inicializar el cliente de token GIS */
+  function initDriveTokenClient(){
+    if (typeof google === "undefined" || !google.accounts) return;
+    driveTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: DRIVE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: function(tokenResponse){
+        if (tokenResponse && tokenResponse.access_token){
+          driveAccessToken = tokenResponse.access_token;
+          driveTokenExpiry = Date.now() + (tokenResponse.expires_in || 3600) * 1000 - 60000;
+          /* Obtener email del usuario via tokeninfo */
+          fetch("https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=" + driveAccessToken)
+            .then(function(r){ return r.json(); })
+            .then(function(info){ driveUserEmail = info.email || null; updateDriveAuthUI(); })
+            .catch(function(){ updateDriveAuthUI(); });
+          updateDriveAuthUI();
+          showToast("✅ Conectado a Google Drive.");
+          /* Si había una operación pendiente, se ejecuta desde el handler que hizo la llamada */
+          if (typeof driveTokenClient._pendingCallback === "function"){
+            var cb = driveTokenClient._pendingCallback;
+            driveTokenClient._pendingCallback = null;
+            cb();
+          }
+        } else if (tokenResponse && tokenResponse.error){
+          setBackupStatus("error", "✖ Auth cancelada o denegada: " + tokenResponse.error);
+        }
+      },
+      error_callback: function(err){
+        setBackupStatus("error", "✖ Error de autenticación: " + (err.message || err.type || JSON.stringify(err)));
+      }
+    });
+  }
+
+  /* Intentar conectar / desconectar */
+  function handleAuthClick(pendingCallback){
+    if (driveAccessToken && Date.now() < driveTokenExpiry){
+      /* Desconectar */
+      google.accounts.oauth2.revoke(driveAccessToken, function(){});
+      driveAccessToken = null;
+      driveTokenExpiry = 0;
+      driveUserEmail   = null;
+      updateDriveAuthUI();
+      showToast("Desconectado de Google Drive.");
+      return;
+    }
+    /* Inicializar cliente si todavía no existe (los scripts async pueden tardar) */
+    if (!driveTokenClient){
+      if (typeof google === "undefined" || !google.accounts){
+        setBackupStatus("error", "✖ Los scripts de Google aún no han cargado. Espera unos segundos e intenta de nuevo.");
+        return;
+      }
+      initDriveTokenClient();
+    }
+    if (pendingCallback) driveTokenClient._pendingCallback = pendingCallback;
+    setBackupStatus("working", "⏳ Autenticando con Google…");
+    driveTokenClient.requestAccessToken({ prompt: "consent" });
+  }
+
+  /* Asegurarse de tener token válido antes de una operación */
+  function ensureToken(callback){
+    if (driveAccessToken && Date.now() < driveTokenExpiry){
+      callback();
+    } else {
+      handleAuthClick(callback);
+    }
+  }
+
+  /* Helper: mostrar mensaje en backupStatus */
+  function setBackupStatus(type, text){
+    var el = document.getElementById("backupStatus");
+    if (!el) return;
+    el.className = "backup-status" + (type ? " " + type : "");
+    el.textContent = text;
+    if (!type) el.style.display = "none";
+  }
+
+  /* ============= buildMasterBackupJSON: construye el objeto maestro ============= */
+  async function buildMasterBackupJSON(){
+    var rawState = await storageGet(STORAGE_KEY);
+    var currentState = null;
+    if (rawState){
+      try { currentState = JSON.parse(rawState); } catch(e){ currentState = state; }
+    } else {
+      currentState = state;
+    }
+    var allEvidence = await dbReadAllWithCursor();
+    var backup = {
+      _meta: {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        appName: "Bitácora — Hábitos",
+        totalEvidenceKeys: Object.keys(allEvidence).length
+      },
+      state: currentState,
+      evidenceByYear: {}
+    };
+    Object.keys(allEvidence).forEach(function(key){
+      var yr = extractYearFromKey(key);
+      if (!backup.evidenceByYear[yr]) backup.evidenceByYear[yr] = {};
+      backup.evidenceByYear[yr][key] = allEvidence[key];
+    });
+    var logByYear = {};
+    if (currentState && currentState.log){
+      Object.keys(currentState.log).forEach(function(ds){
+        var yr = ds.substring(0, 4);
+        if (!logByYear[yr]) logByYear[yr] = {};
+        logByYear[yr][ds] = currentState.log[ds];
+      });
+    }
+    backup.logByYear = logByYear;
+    return backup;
+  }
+
+  /* ============= syncToDrive: sube el backup a appDataFolder ============= */
+  async function syncToDrive(){
+    var btnSync    = document.getElementById("btnDriveSync");
+    var btnRestore = document.getElementById("btnDriveRestore");
+    if (btnSync)    btnSync.disabled    = true;
+    if (btnRestore) btnRestore.disabled = true;
+
+    try {
+      setBackupStatus("working", "⏳ Preparando respaldo completo…");
+
+      /* 1. Construir JSON */
+      setBackupStatus("working", "⏳ Leyendo datos y evidencias…");
+      var backup = await buildMasterBackupJSON();
+      var jsonStr = JSON.stringify(backup, null, 2);
+
+      /* 2. Buscar si ya existe el archivo en appDataFolder */
+      setBackupStatus("working", "⏳ Comprobando respaldo existente en Drive…");
+      var searchResp = await fetch(
+        DRIVE_API + "?spaces=" + DRIVE_SPACES +
+        "&fields=files(id,name,modifiedTime)" +
+        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
+        { headers: { "Authorization": "Bearer " + driveAccessToken } }
+      );
+      if (!searchResp.ok){
+        var errBody = await searchResp.text();
+        throw new Error("Error buscando en Drive (" + searchResp.status + "): " + errBody);
+      }
+      var searchData = await searchResp.json();
+      var existingFile = searchData.files && searchData.files.length > 0 ? searchData.files[0] : null;
+
+      /* 3. Crear o actualizar el archivo */
+      var boundary = "bitacora_boundary_" + Date.now();
+      var metadata = JSON.stringify(
+        existingFile
+          ? { name: DRIVE_FILENAME }
+          : { name: DRIVE_FILENAME, parents: [DRIVE_SPACES] }
+      );
+      var body =
+        "--" + boundary + "\r\n" +
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+        metadata + "\r\n" +
+        "--" + boundary + "\r\n" +
+        "Content-Type: application/json\r\n\r\n" +
+        jsonStr + "\r\n" +
+        "--" + boundary + "--";
+
+      var uploadUrl, uploadMethod;
+      if (existingFile){
+        setBackupStatus("working", "⏳ Actualizando respaldo en Drive…");
+        uploadUrl    = DRIVE_UPLOAD_API + "/" + existingFile.id + "?uploadType=multipart";
+        uploadMethod = "PATCH";
+      } else {
+        setBackupStatus("working", "⏳ Creando nuevo respaldo en Drive…");
+        uploadUrl    = DRIVE_UPLOAD_API + "?uploadType=multipart";
+        uploadMethod = "POST";
+      }
+
+      var uploadResp = await fetch(uploadUrl, {
+        method: uploadMethod,
+        headers: {
+          "Authorization": "Bearer " + driveAccessToken,
+          "Content-Type": "multipart/related; boundary=" + boundary
+        },
+        body: body
+      });
+
+      if (!uploadResp.ok){
+        var upErr = await uploadResp.text();
+        throw new Error("Error subiendo a Drive (" + uploadResp.status + "): " + upErr);
+      }
+
+      var totalEv = Object.keys(backup._meta.totalEvidenceKeys !== undefined
+        ? { length: backup._meta.totalEvidenceKeys }
+        : {}).length;
+      var evCount = backup._meta.totalEvidenceKeys || 0;
+      var action  = existingFile ? "actualizado" : "creado";
+      setBackupStatus("success",
+        "✔ Respaldo " + action + " en Google Drive · " +
+        evCount + " evidencias · " +
+        new Date().toLocaleString("es")
+      );
+      showToast("✅ Respaldo " + action + " en Google Drive.");
+    } catch(err){
+      console.error("Drive sync error:", err);
+      setBackupStatus("error", "✖ " + (err.message || err));
+      showToast("Error al subir a Google Drive.");
+    } finally {
+      if (btnSync)    btnSync.disabled    = false;
+      if (btnRestore) btnRestore.disabled = false;
+    }
+  }
+
+  /* ============= restoreFromDrive: descarga y restaura el backup ============= */
+  async function restoreFromDrive(){
+    var btnSync    = document.getElementById("btnDriveSync");
+    var btnRestore = document.getElementById("btnDriveRestore");
+    if (btnSync)    btnSync.disabled    = true;
+    if (btnRestore) btnRestore.disabled = true;
+
+    try {
+      /* 1. Buscar el archivo */
+      setBackupStatus("working", "⏳ Buscando respaldo en Google Drive…");
+      var searchResp = await fetch(
+        DRIVE_API + "?spaces=" + DRIVE_SPACES +
+        "&fields=files(id,name,modifiedTime)" +
+        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
+        { headers: { "Authorization": "Bearer " + driveAccessToken } }
+      );
+      if (!searchResp.ok){
+        var errBody = await searchResp.text();
+        throw new Error("Error buscando en Drive (" + searchResp.status + "): " + errBody);
+      }
+      var searchData = await searchResp.json();
+      if (!searchData.files || searchData.files.length === 0){
+        setBackupStatus("error", "✖ No se encontró ningún respaldo previo en Google Drive.");
+        showToast("No se encontró respaldo en Drive.");
+        return;
+      }
+      var file = searchData.files[0];
+      var modDate = file.modifiedTime ? new Date(file.modifiedTime).toLocaleString("es") : "—";
+      setBackupStatus("working", "⏳ Respaldo encontrado (" + modDate + "). Descargando…");
+
+      /* 2. Descargar contenido */
+      var downloadResp = await fetch(
+        DRIVE_API + "/" + file.id + "?alt=media",
+        { headers: { "Authorization": "Bearer " + driveAccessToken } }
+      );
+      if (!downloadResp.ok){
+        var dlErr = await downloadResp.text();
+        throw new Error("Error descargando de Drive (" + downloadResp.status + "): " + dlErr);
+      }
+      var jsonText = await downloadResp.text();
+
+      /* 3. Convertir a Blob/File e inyectar en importMasterBackup */
+      setBackupStatus("working", "⏳ Restaurando datos…");
+      var blob = new Blob([jsonText], { type: "application/json" });
+      var virtualFile = new File([blob], DRIVE_FILENAME, { type: "application/json" });
+      /* importMasterBackup se encarga de toda la limpieza y restauración en IndexedDB */
+      await importMasterBackup(virtualFile);
+      /* Nota: importMasterBackup ya setea su propio mensaje de éxito y recarga la página */
+
+    } catch(err){
+      console.error("Drive restore error:", err);
+      setBackupStatus("error", "✖ " + (err.message || err));
+      showToast("Error al restaurar desde Google Drive.");
+      if (btnSync)    btnSync.disabled    = false;
+      if (btnRestore) btnRestore.disabled = false;
+    }
+  }
+
+  /* Inicializar GIS cuando el script esté disponible */
+  function tryInitDriveClient(){
+    if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2){
+      initDriveTokenClient();
+    } else {
+      setTimeout(tryInitDriveClient, 500);
+    }
+  }
+  /* Disparar intento de init después de un pequeño delay para que los scripts async carguen */
+  setTimeout(tryInitDriveClient, 800);
 
   /* ===================== Render principal ===================== */
   function render(){
@@ -2447,6 +2810,20 @@
       /* Esto hace clic invisible en el input de archivo real */
       var fileInput = document.getElementById("backupFileInput");
       if(fileInput) fileInput.click();
+
+    /* --- GOOGLE DRIVE --- */
+    } else if (action === "drive-auth"){
+      handleAuthClick(null);
+
+    } else if (action === "drive-sync"){
+      ensureToken(function(){
+        syncToDrive();
+      });
+
+    } else if (action === "drive-restore"){
+      ensureToken(function(){
+        restoreFromDrive();
+      });
     }
   });
 
@@ -2514,7 +2891,7 @@
       addProject(ptext, pdeadline);
       projectForm.reset();
       return;
-    }
+    }.
   });
 
   /* ===================== Arranque ===================== */
