@@ -3023,6 +3023,11 @@
     else if (activeTab === "proyectos")    html = renderProyectos();
     else if (activeTab === "estadisticas") html = renderEstadisticas();
     app.innerHTML = html;
+
+    /* ¡NUEVO! Actualiza el botón de Drive al volver a la pestaña */
+    if (activeTab === "estadisticas") {
+      updateDriveAuthUI();
+    }
   }
 
   /* ===================== Eventos: clicks ===================== */
