@@ -3056,24 +3056,16 @@
           driveIsReconnecting = true;
           updateDriveAuthUI();
 
-          /* Timeout de seguridad: 6 segundos. Si el callback no llega
-             (porque Chrome bloqueó las cookies de terceros), mostramos
-             "desconectado" en lugar de quedarnos en "reconectando" para siempre */
-          driveReconnectTimeout = setTimeout(function(){
-            if (driveIsReconnecting){
-              console.warn("[Drive] Timeout: renovación silenciosa no respondió (posible bloqueo de cookies).");
-              driveIsReconnecting = false;
-              driveIsSilentRenew  = false;
-              driveAccessToken    = null;
-              driveTokenExpiry    = 0;
-              clearDriveSession();
-              updateDriveAuthUI();
+          /* MAGIA NINJA: Esperamos al primer toque de pantalla para eludir el bloqueador de popups */
+          var triggerRenew = function() {
+            if (driveIsReconnecting) {
+              silentTokenRenew();
             }
-          }, 6000);
-
-          setTimeout(function(){
-            silentTokenRenew();
-          }, 600);
+            document.removeEventListener("click", triggerRenew);
+            document.removeEventListener("touchstart", triggerRenew);
+          };
+          document.addEventListener("click", triggerRenew);
+          document.addEventListener("touchstart", triggerRenew);
         }
 
       }
@@ -3113,6 +3105,11 @@
 
   /* ===================== Eventos: clicks ===================== */
   document.addEventListener("click", function(e){
+    /* Magia Ninja: Si el token está a menos de 5 min de caducar, lo renovamos aprovechando este toque */
+    if (driveUserEmail && driveAccessToken && Date.now() > driveTokenExpiry - 300000) {
+      silentTokenRenew();
+    }
+
     /* Nav tabs */
     var navBtn = e.target.closest(".nav-btn");
     if (navBtn && navBtn.hasAttribute("data-tab")){
