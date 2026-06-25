@@ -2643,7 +2643,8 @@
     if (driveAccessToken && Date.now() < driveTokenExpiry - 5 * 60 * 1000) return;
     driveIsSilentRenew = true;
     try {
-      driveTokenClient.requestAccessToken({ prompt: "none" });
+      /* ¡Aquí está la magia! Le pasamos el correo a Google para que renueve sin preguntar */
+      driveTokenClient.requestAccessToken({ prompt: "none", login_hint: driveUserEmail });
     } catch(e){
       driveIsSilentRenew = false;
     }
