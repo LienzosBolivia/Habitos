@@ -225,6 +225,62 @@
   .task-stamp-btn.is-done{background:var(--done); border-color:var(--done); color:var(--ink-900);}
   .task-stamp-btn.is-missed{background:var(--missed-dim); border-color:var(--missed);}
   .task-stamp-btn:disabled{opacity:.45; cursor:not-allowed;}
+
+  /* ===== Rastreo de Tiempo: Interruptor Maestro ===== */
+  .master-switch-panel{
+    background:var(--ink-800); border:1px solid var(--ink-650);
+    border-radius:var(--radius-lg); padding:14px 16px; margin-bottom:14px;
+    transition:border-color .25s ease, background .25s ease;
+  }
+  .master-switch-panel.status-thinking{ border-color:var(--brass-500); }
+  .master-switch-panel.status-task{ border-color:var(--done); background:var(--done-dim); }
+  .ms-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .ms-status{ display:flex; align-items:center; gap:10px; }
+  .ms-dot{
+    width:10px; height:10px; border-radius:50%; flex:0 0 auto;
+    background:var(--text-faint); box-shadow:0 0 0 0 rgba(0,0,0,0);
+  }
+  .status-thinking .ms-dot{ background:var(--brass-500); box-shadow:0 0 0 4px rgba(201,151,74,.18); animation:msPulse 1.6s infinite; }
+  .status-task .ms-dot{ background:var(--done); box-shadow:0 0 0 4px rgba(95,161,119,.18); animation:msPulse 1.6s infinite; }
+  @keyframes msPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.45; } }
+  .ms-label{ font-family:var(--font-display); font-size:15px; font-weight:600; color:var(--text-light); }
+  .ms-timer{ font-family:var(--font-mono); font-size:12px; color:var(--text-muted); letter-spacing:.03em; }
+  .ms-toggle-btn{
+    background:var(--brass-500); color:var(--ink-900); border:none; border-radius:999px;
+    padding:9px 18px; font-weight:600; font-size:13px; cursor:pointer; transition:filter .15s ease, transform .15s ease;
+  }
+  .status-thinking .ms-toggle-btn, .status-task .ms-toggle-btn{ background:var(--missed); color:var(--text-light); }
+  .ms-toggle-btn:hover{ filter:brightness(1.1); transform:translateY(-1px); }
+
+  /* ===== Controles de tiempo por tarea (oneoff) ===== */
+  .task-time-controls{ display:flex; align-items:center; gap:6px; flex:0 0 auto; }
+  .task-time-badge{
+    font-family:var(--font-mono); font-size:11px; color:var(--brass-300);
+    background:var(--ink-800-solid); border:1px solid var(--ink-650);
+    border-radius:6px; padding:3px 7px; min-width:46px; text-align:center;
+  }
+  .task-time-btn{
+    width:30px; height:30px; border-radius:50%; border:1px solid var(--ink-650);
+    background:var(--ink-800-solid); color:var(--text-light); display:inline-flex;
+    align-items:center; justify-content:center; cursor:pointer; transition:transform .12s ease, filter .12s ease;
+  }
+  .task-time-btn svg{ width:13px; height:13px; }
+  .task-time-btn:hover{ transform:scale(1.08); filter:brightness(1.15); }
+  .task-time-btn.play{ background:var(--brass-500); border-color:var(--brass-500); color:var(--ink-900); }
+  .task-time-btn.pause{ background:var(--ink-700); }
+  .task-time-btn.stop{ background:var(--done); border-color:var(--done); color:var(--ink-900); }
+
+  /* ===== Barra de distribución de tiempo (Estadísticas) ===== */
+  .time-dist-bar{
+    display:flex; width:100%; height:14px; border-radius:999px; overflow:hidden;
+    background:var(--ink-800-solid); border:1px solid var(--ink-650); margin-top:12px;
+  }
+  .time-dist-think{ background:var(--brass-500); transition:flex .3s ease; }
+  .time-dist-task{ background:var(--done); transition:flex .3s ease; }
+  .time-dist-legend{ display:flex; gap:16px; margin-top:8px; font-size:12px; color:var(--text-muted); }
+  .time-dist-legend .dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  .time-dist-legend .dot.think{ background:var(--brass-500); }
+  .time-dist-legend .dot.task{ background:var(--done); }
   .task-text{flex:1; font-size:14.5px; color:var(--text-light); line-height:1.4;}
   .task-text.is-done{color:var(--text-muted); text-decoration:line-through;}
   .badge{
@@ -1089,6 +1145,9 @@
   var ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 13 10 18 19 7"/></svg>';
   var ICON_X     = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
   var ICON_EYE   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var ICON_PLAY  = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg>';
+  var ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>';
+  var ICON_STOP  = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
   var ICON_CALENDAR_SM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
   var ICON_BELL   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
   var ICON_PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
@@ -1218,7 +1277,9 @@
       log: {},
       reminders: {},
       projects: [],
-      routines: []
+      routines: [],
+      timeLog: {},
+      tracking: { status: "inactive", taskId: null, taskDs: null, startTime: null }
     };
   }
 
@@ -1328,6 +1389,12 @@
       state.reminders    = state.reminders    || {};
       state.projects     = state.projects     || [];
       state.routines     = state.routines     || [];
+      state.timeLog      = state.timeLog      || {};
+      state.tracking      = state.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
+      state.tracking.status    = state.tracking.status    || "inactive";
+      if (typeof state.tracking.taskId    === "undefined") state.tracking.taskId    = null;
+      if (typeof state.tracking.taskDs    === "undefined") state.tracking.taskDs    = null;
+      if (typeof state.tracking.startTime === "undefined") state.tracking.startTime = null;
       selectedCalendarDate = todayStr();
       persist();
       scheduleTodayReminders();
@@ -1335,6 +1402,130 @@
       render();
     });
   }
+
+  /* ===================== Rastreo de Tiempo (Time Tracking) ===================== */
+  function formatDuration(totalSeconds){
+    var sec = Math.max(0, Math.round(totalSeconds || 0));
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    var p2 = function(n){ return n < 10 ? "0" + n : "" + n; };
+    return h > 0 ? (h + ":" + p2(m) + ":" + p2(s)) : (p2(m) + ":" + p2(s));
+  }
+
+  /**
+   * Vuelca el tiempo transcurrido desde tracking.startTime hacia el registro
+   * correspondiente (pensando o tarea puntual) y reinicia el contador.
+   * No toca log/reminders/projects — solo state.timeLog y state.tracking.
+   */
+  function flushTime(){
+    if (!state.tracking || state.tracking.status === "inactive" || !state.tracking.startTime) return;
+    var now = Date.now();
+    var elapsedSec = (now - state.tracking.startTime) / 1000;
+    if (elapsedSec <= 0){ state.tracking.startTime = now; return; }
+
+    var ds = state.tracking.taskDs || todayStr();
+    if (!state.timeLog[ds]) state.timeLog[ds] = { thinking: 0, tasks: {} };
+    if (!state.timeLog[ds].tasks) state.timeLog[ds].tasks = {};
+
+    if (state.tracking.status === "thinking"){
+      state.timeLog[ds].thinking = (state.timeLog[ds].thinking || 0) + elapsedSec;
+    } else if (state.tracking.status === "task" && state.tracking.taskId){
+      var tid = state.tracking.taskId;
+      state.timeLog[ds].tasks[tid] = (state.timeLog[ds].tasks[tid] || 0) + elapsedSec;
+    }
+    state.tracking.startTime = now;
+  }
+
+  function getTaskLiveSeconds(ds, id){
+    var log  = state.timeLog[ds];
+    var base = (log && log.tasks && log.tasks[id]) || 0;
+    if (state.tracking.status === "task" && state.tracking.taskId === id && state.tracking.taskDs === ds && state.tracking.startTime){
+      base += (Date.now() - state.tracking.startTime) / 1000;
+    }
+    return base;
+  }
+
+  function getThinkingLiveSeconds(ds){
+    var log  = state.timeLog[ds];
+    var base = (log && log.thinking) || 0;
+    if (state.tracking.status === "thinking" && state.tracking.startTime && (state.tracking.taskDs || todayStr()) === ds){
+      base += (Date.now() - state.tracking.startTime) / 1000;
+    }
+    return base;
+  }
+
+  function toggleMaster(){
+    flushTime();
+    if (state.tracking.status === "inactive"){
+      state.tracking.status    = "thinking";
+      state.tracking.taskId    = null;
+      state.tracking.taskDs    = null;
+      state.tracking.startTime = Date.now();
+    } else {
+      state.tracking.status    = "inactive";
+      state.tracking.taskId    = null;
+      state.tracking.taskDs    = null;
+      state.tracking.startTime = null;
+    }
+    persist();
+    renderActiveTab();
+  }
+
+  function playTask(ds, id){
+    flushTime();
+    state.tracking.status    = "task";
+    state.tracking.taskId    = id;
+    state.tracking.taskDs    = ds;
+    state.tracking.startTime = Date.now();
+    persist();
+    renderActiveTab();
+  }
+
+  function pauseTask(){
+    flushTime();
+    state.tracking.status    = "thinking";
+    state.tracking.taskId    = null;
+    state.tracking.taskDs    = null;
+    state.tracking.startTime = Date.now();
+    persist();
+    renderActiveTab();
+  }
+
+  function stopTask(ds, id){
+    flushTime();
+    state.tracking.status    = "thinking";
+    state.tracking.taskId    = null;
+    state.tracking.taskDs    = null;
+    state.tracking.startTime = Date.now();
+    persist();
+    /* El flujo original de evidencia (IndexedDB) continúa intacto:
+       markDone() se dispara desde saveEvidence() como siempre. */
+    openEvidenceModal(ds, id);
+  }
+
+  /* Al minimizar/cambiar de pestaña no perdemos tiempo acumulado */
+  document.addEventListener("visibilitychange", function(){
+    if (document.visibilityState === "hidden"){
+      flushTime();
+      persist();
+    }
+  });
+
+  /* Refresca los cronómetros visibles en el DOM cada segundo, sin re-render completo */
+  function updateLiveTimers(){
+    if (!state.tracking || state.tracking.status === "inactive") return;
+    var today = todayStr();
+
+    var masterEl = document.querySelector("[data-live-master]");
+    if (masterEl) masterEl.textContent = formatDuration(getThinkingLiveSeconds(state.tracking.taskDs || today));
+
+    if (state.tracking.status === "task" && state.tracking.taskId){
+      var taskEl = document.querySelector('[data-live-task="' + state.tracking.taskId + '"]');
+      if (taskEl) taskEl.textContent = formatDuration(getTaskLiveSeconds(state.tracking.taskDs, state.tracking.taskId));
+    }
+  }
+  setInterval(updateLiveTimers, 1000);
 
   /* ===================== Lógica de tareas ===================== */
   function getTasksForDate(ds){
@@ -1899,12 +2090,35 @@
                   '" data-date="' + ds + '" data-id="' + t.id + '" title="' +
                   (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
 
-    var mainRow = (
-      '<div class="task-main-row">' +
+    /* Controles de tiempo (solo tareas oneoff, no completadas, del día de hoy) */
+    var showTimeControls = (t.type === "oneoff" && status !== "done" && !isFuture && ds === todayStr());
+    var stampOrTimeHtml;
+    if (showTimeControls){
+      var isActiveTask = (state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds);
+      if (isActiveTask){
+        stampOrTimeHtml =
+          '<div class="task-time-controls">' +
+            '<span class="task-time-badge" data-live-task="' + t.id + '">' + formatDuration(getTaskLiveSeconds(ds, t.id)) + '</span>' +
+            '<button class="task-time-btn pause" data-action="pause-task" title="Pausar">' + ICON_PAUSE + '</button>' +
+            '<button class="task-time-btn stop" data-action="stop-task" data-date="' + ds + '" data-id="' + t.id + '" title="Completar">' + ICON_STOP + '</button>' +
+          '</div>';
+      } else {
+        stampOrTimeHtml =
+          '<div class="task-time-controls">' +
+            '<button class="task-time-btn play" data-action="play-task" data-date="' + ds + '" data-id="' + t.id + '" title="Empezar">' + ICON_PLAY + '</button>' +
+          '</div>';
+      }
+    } else {
+      stampOrTimeHtml =
         '<button class="' + btnClass + '" ' + disabled +
           ' data-action="toggle-task" data-date="' + ds + '" data-id="' + t.id +
           '" aria-pressed="' + (status === "done") +
-          '" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>' +
+          '" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>';
+    }
+
+    var mainRow = (
+      '<div class="task-main-row">' +
+        stampOrTimeHtml +
         '<span class="task-text' + (status === "done" ? " is-done" : "") + '">' + escapeHtml(t.text) +
           (t.routineTime ? ' <small style="font-size:11px;color:var(--brass-300);font-family:var(--font-mono);">(' + escapeHtml(t.routineTime) + ')</small>' : '') +
         '</span>' +
@@ -1969,6 +2183,28 @@
     );
   }
 
+  /* ===================== Render: Interruptor Maestro ===================== */
+  function renderMasterSwitch(){
+    var st = state.tracking.status;
+    var label = st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : "Ejecutando tarea…");
+    var btnLabel = st === "inactive" ? "▶ Encender sesión" : "⏻ Apagar sesión";
+    var timerSec = st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
+    return (
+      '<section class="block master-switch-panel status-' + st + '">' +
+        '<div class="ms-row">' +
+          '<div class="ms-status">' +
+            '<span class="ms-dot"></span>' +
+            '<div>' +
+              '<div class="ms-label">' + label + '</div>' +
+              '<div class="ms-timer" data-live-master>' + formatDuration(timerSec) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<button class="ms-toggle-btn" data-action="toggle-master">' + btnLabel + '</button>' +
+        '</div>' +
+      '</section>'
+    );
+  }
+
   /* ===================== Render: pestaña Hoy ===================== */
   function renderHoy(){
     var today = todayStr();
@@ -1990,6 +2226,7 @@
           stampHtml +
         '</div>' +
       '</section>' +
+      renderMasterSwitch() +
       '<section class="block">' +
         '<div class="block-title">Agregar tarea de hoy</div>' +
         addFormHtml(today, true) +
@@ -2255,11 +2492,117 @@
     );
   }
 
+  /* ===================== Estadísticas de tiempo (solo timeLog, hoy) ===================== */
+  function computeTodayTimeStats(){
+    var ds   = todayStr();
+    var log  = state.timeLog[ds] || { thinking: 0, tasks: {} };
+    var thinking = getThinkingLiveSeconds(ds);
+    var tasksTotal = 0;
+    if (log.tasks){
+      Object.keys(log.tasks).forEach(function(tid){
+        tasksTotal += (state.tracking.status === "task" && state.tracking.taskId === tid && state.tracking.taskDs === ds)
+          ? getTaskLiveSeconds(ds, tid)
+          : (log.tasks[tid] || 0);
+      });
+    }
+    /* Si la tarea activa aún no tiene entrada previa en log.tasks, súmala también */
+    if (state.tracking.status === "task" && state.tracking.taskId && state.tracking.taskDs === ds &&
+        (!log.tasks || !(state.tracking.taskId in log.tasks))){
+      tasksTotal += getTaskLiveSeconds(ds, state.tracking.taskId);
+    }
+    return { thinking: thinking, tasks: tasksTotal, total: thinking + tasksTotal };
+  }
+
+  function renderTimePerformance(){
+    var t = computeTodayTimeStats();
+    var hasActivity = t.total > 0;
+    var pctThink = hasActivity ? Math.round((t.thinking / t.total) * 100) : 50;
+    var pctTask  = hasActivity ? (100 - pctThink) : 50;
+    return (
+      '<section class="block">' +
+        '<div class="block-title">Desempeño de tiempo (hoy)</div>' +
+        '<div class="stat-grid">' +
+          '<div class="stat-card"><div class="sc-value">' + formatDuration(t.total)    + '</div><div class="sc-label">Tiempo total activo</div></div>' +
+          '<div class="stat-card"><div class="sc-value">' + formatDuration(t.thinking) + '</div><div class="sc-label">Tiempo pensando</div></div>' +
+          '<div class="stat-card"><div class="sc-value">' + formatDuration(t.tasks)    + '</div><div class="sc-label">Tiempo ejecutando tareas</div></div>' +
+        '</div>' +
+        '<div class="time-dist-bar">' +
+          '<div class="time-dist-think" style="flex:' + pctThink + '"></div>' +
+          '<div class="time-dist-task" style="flex:' + pctTask + '"></div>' +
+        '</div>' +
+        '<div class="time-dist-legend">' +
+          '<span><i class="dot think"></i>Pensando ' + (hasActivity ? pctThink : 0) + '%</span>' +
+          '<span><i class="dot task"></i>Ejecutando ' + (hasActivity ? pctTask : 0) + '%</span>' +
+        '</div>' +
+      '</section>'
+    );
+  }
+
+  /* ===================== Constancia de hábitos (solo habits + routines) ===================== */
+  function getHabitRoutineTasksForDate(ds){
+    var tasks = [];
+    state.habits.forEach(function(h){
+      if (h.archivedAt && ds > h.archivedAt) return;
+      if (ds >= h.createdAt) tasks.push({ id: h.id, text: h.text, type: "habit" });
+    });
+    var dayOfWeek = strToDate(ds).getDay();
+    state.routines.forEach(function(r){
+      if (r.days && r.days.indexOf(dayOfWeek) !== -1) tasks.push({ id: r.id, text: r.text, type: "routine" });
+    });
+    return tasks;
+  }
+  function dayStatsHR(ds){
+    var tasks = getHabitRoutineTasksForDate(ds);
+    var done = 0;
+    tasks.forEach(function(t){ if (getStatus(ds, t.id) === "done") done++; });
+    return { total: tasks.length, done: done };
+  }
+  function heatLevelHR(ds){
+    var s = dayStatsHR(ds);
+    if (s.total === 0) return 0;
+    var ratio = s.done / s.total;
+    if (ratio >= 1) return 4;
+    if (ratio >= 0.5) return 3;
+    if (ratio > 0) return 2;
+    return 1;
+  }
+  function computeCurrentStreakHR(){
+    var today = todayStr();
+    var ts = dayStatsHR(today);
+    var cursor = strToDate(today);
+    if (!(ts.total > 0 && ts.done === ts.total)) cursor.setDate(cursor.getDate() - 1);
+    var streak = 0, guard = 0;
+    while (guard < 5000){
+      var ds = dateToStr(cursor);
+      if (ds < state.firstUseDate) break;
+      var s = dayStatsHR(ds);
+      if (s.total === 0){ cursor.setDate(cursor.getDate() - 1); guard++; continue; }
+      if (s.done === s.total){ streak++; cursor.setDate(cursor.getDate() - 1); }
+      else break;
+      guard++;
+    }
+    return streak;
+  }
+  function computeBestStreakHR(){
+    var best = 0, run = 0;
+    var today = todayStr();
+    dateRangeArray(state.firstUseDate, today).forEach(function(ds){
+      if (ds === today) return;
+      var s = dayStatsHR(ds);
+      if (s.total === 0) return;
+      if (s.done === s.total){ run++; if (run > best) best = run; }
+      else run = 0;
+    });
+    var ts = dayStatsHR(today);
+    if (ts.total > 0 && ts.done === ts.total){ run++; if (run > best) best = run; }
+    return best;
+  }
+
   /* ===================== Render: pestaña Estadísticas ===================== */
   function renderEstadisticas(){
     var g          = computeGlobalStats();
-    var curStreak  = computeCurrentStreak();
-    var bestStreak = computeBestStreak();
+    var curStreak  = computeCurrentStreakHR();
+    var bestStreak = computeBestStreakHR();
 
     /* Proyectos */
     var activeProjects    = state.projects.filter(function(p){ return p.status === "active"; }).length;
@@ -2303,17 +2646,18 @@
 
     var heatDays  = dateRangeArray(addDays(today,-83), today);
     var heatCells = heatDays.map(function(ds){
-      var s   = dayStats(ds);
-      var lvl = heatLevel(ds);
+      var s   = dayStatsHR(ds);
+      var lvl = heatLevelHR(ds);
       return '<div class="heat-cell level-' + lvl + '" title="' + formatDateShort(ds) + ": " + s.done + "/" + s.total + '"></div>';
     }).join("");
 
     return (
+      renderTimePerformance() +
       '<section class="block">' +
         '<div class="block-title">Resumen general</div>' + statCards +
       '</section>' +
       '<section class="block">' +
-        '<div class="block-title">Constancia</div>' + streakCards +
+        '<div class="block-title">Constancia de hábitos</div>' + streakCards +
       '</section>' +
       '<section class="block">' +
         '<div class="block-title">Proyectos &amp; rutinas</div>' + projectCards +
@@ -2322,7 +2666,7 @@
         '<div class="block-title">Últimos 7 días</div>' + barHtml +
       '</section>' +
       '<section class="block">' +
-        '<div class="block-title">Bitácora de los últimos 12 semanas</div>' +
+        '<div class="block-title">Constancia de hábitos y rutinas · últimos 12 semanas</div>' +
         '<div class="heatmap-scroll"><div class="heatmap">' + heatCells + '</div></div>' +
         '<div class="heat-legend">Menos' +
           '<div class="heat-cell level-1"></div><div class="heat-cell level-2"></div><div class="heat-cell level-3"></div><div class="heat-cell level-4"></div>' +
@@ -2558,6 +2902,8 @@
       restoredState.reminders    = restoredState.reminders    || {};
       restoredState.projects     = restoredState.projects     || [];
       restoredState.routines     = restoredState.routines     || [];
+      restoredState.timeLog      = restoredState.timeLog      || {};
+      restoredState.tracking     = restoredState.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
 
       await storageSet(STORAGE_KEY, JSON.stringify(restoredState));
 
@@ -3234,6 +3580,19 @@
       ensureToken(function(){
         restoreFromDrive();
       });
+
+    /* --- RASTREO DE TIEMPO --- */
+    } else if (action === "toggle-master"){
+      toggleMaster();
+
+    } else if (action === "play-task"){
+      playTask(el.getAttribute("data-date"), el.getAttribute("data-id"));
+
+    } else if (action === "pause-task"){
+      pauseTask();
+
+    } else if (action === "stop-task"){
+      stopTask(el.getAttribute("data-date"), el.getAttribute("data-id"));
     }
   });
 
