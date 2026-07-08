@@ -403,6 +403,16 @@
     0%   { left: -100px; }
     100% { left: 110%; }
   }
+  /* Botón de Audio del Tren */
+  .train-mute-btn {
+    position: absolute; top: 6px; right: 10px;
+    background: rgba(0,0,0,0.4); border: 1px solid var(--ink-650);
+    color: var(--text-muted); width: 28px; height: 28px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; z-index: 10; transition: all 0.2s ease;
+  }
+  .train-mute-btn:hover { background: rgba(0,0,0,0.6); color: var(--brass-300); }
+  .train-mute-btn.is-active { color: var(--brass-300); border-color: var(--brass-500); }
 
   /* ===== Subtareas ===== */
   .subtasks-wrapper { width: 100%; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--ink-700); }
@@ -1336,6 +1346,21 @@
   /* ===================== Estado global ===================== */
   var state = null;
   var activeTab = "hoy";
+  /* --- Motor de Audio --- */
+  var trainAudio = new Audio("tren.mp3");
+  trainAudio.loop = true; /* Se repite en bucle infinito */
+  /* Guardamos la preferencia de silencio en el navegador (por defecto silenciado para evitar sustos) */
+  var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false"); 
+  
+  function syncTrainAudio() {
+    /* Si el estado es "tarea" y el megáfono ESTÁ encendido */
+    if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
+      if (trainAudio.paused) trainAudio.play().catch(function(e){ console.warn("Audio bloqueado por navegador", e); });
+    } else {
+      /* En cualquier otro caso (silenciado o modo pensar/reposo), se apaga totalmente el recurso */
+      if (!trainAudio.paused) trainAudio.pause();
+    }
+  }
   var selectedCalendarDate = null;
   var calendarViewDate = new Date();
   var openReminderPanel = null;
@@ -2476,8 +2501,13 @@
     var btnLabel = st === "inactive" ? "▶ Encender sesión" : "⏻ Apagar sesión";
     var timerSec = st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
     
+    var muteIcon = isTrainMuted 
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>' 
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>';
+
     var trainHtml = 
       '<div class="train-track-container status-' + st + '">' +
+        '<button class="train-mute-btn ' + (isTrainMuted ? '' : 'is-active') + '" data-action="toggle-mute" title="Sonido del tren">' + muteIcon + '</button>' +
         '<div class="train-loco">' +
           '<div class="train-smoke-puff"></div><div class="train-smoke-puff"></div><div class="train-smoke-puff"></div>' +
           '<div class="train-chimney"></div>' +
@@ -3753,6 +3783,9 @@
     if (activeTab === "estadisticas") {
       updateDriveAuthUI();
     }
+    
+    /* Disparador inteligente de audio */
+    syncTrainAudio();
   }
 
   /* ===================== Eventos: clicks ===================== */
@@ -3916,6 +3949,12 @@
           persist(); renderActiveTab();
         }
       }
+    } else if (action === "toggle-mute") {
+      isTrainMuted = !isTrainMuted;
+      localStorage.setItem("bitacora_train_muted", isTrainMuted);
+      syncTrainAudio();
+      renderActiveTab();
+
     } else if (action === "toggle-master"){
       toggleMaster();
 
