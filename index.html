@@ -270,6 +270,89 @@
   .task-time-btn.pause{ background:var(--ink-700); }
   .task-time-btn.stop{ background:var(--done); border-color:var(--done); color:var(--ink-900); }
 
+  /* ===== Tren de Enfoque (Locomotora) ===== */
+  .train-track-container {
+    position: relative; width: 100%; height: 50px;
+    border-bottom: 2px solid var(--ink-700);
+    margin: 10px 0 20px 0; overflow: hidden;
+    background: linear-gradient(to top, rgba(10,27,39,0), rgba(15,35,51,0.4));
+  }
+  .train-loco {
+    position: absolute; bottom: 0; left: 10px; width: 64px; height: 40px;
+    transition: left 0.5s ease;
+  }
+  .train-body {
+    position: absolute; bottom: 6px; left: 0; width: 64px; height: 18px;
+    background: var(--brass-500); border-radius: 4px 10px 0 0;
+  }
+  .train-cabin {
+    position: absolute; bottom: 24px; right: 2px; width: 22px; height: 16px;
+    background: var(--brass-600); border-radius: 4px 4px 0 0;
+  }
+  .train-cabin-window {
+    position: absolute; top: 4px; right: 4px; width: 10px; height: 7px;
+    background: var(--ink-900); border-radius: 2px;
+  }
+  .train-chimney {
+    position: absolute; bottom: 24px; left: 10px; width: 8px; height: 14px;
+    background: var(--text-faint); border-radius: 2px 2px 0 0;
+  }
+  .train-wheel {
+    position: absolute; bottom: 0; width: 16px; height: 16px;
+    background: var(--ink-900); border: 2px solid var(--text-muted);
+    border-radius: 50%; box-sizing: border-box;
+  }
+  .w1 { left: 4px; } .w2 { left: 24px; } .w3 { left: 44px; }
+  .train-wheel::after { content: ''; position: absolute; top: 5px; left: -2px; width: 16px; height: 2px; background: var(--text-muted); }
+  .train-wheel::before { content: ''; position: absolute; left: 5px; top: -2px; height: 16px; width: 2px; background: var(--text-muted); }
+  
+  /* Humo */
+  .train-smoke-puff {
+    position: absolute; bottom: 42px; left: 8px; width: 10px; height: 10px;
+    background: rgba(237,230,214,0.4); border-radius: 50%; opacity: 0;
+  }
+
+  /* ESTADO: PENSANDO (Quieto, ruedas giran, echa humo) */
+  .status-thinking .train-wheel { animation: spinWheel 1.5s linear infinite; }
+  .status-thinking .train-smoke-puff { animation: puffSmoke 2s infinite; }
+  .status-thinking .train-smoke-puff:nth-child(2) { animation-delay: 0.6s; }
+  .status-thinking .train-smoke-puff:nth-child(3) { animation-delay: 1.2s; }
+
+  /* ESTADO: TAREA (Avanza en ciclo, cambia a color verde éxito) */
+  .status-task .train-body, .status-task .train-cabin { background: var(--done); }
+  .status-task .train-wheel { border-color: var(--done); animation: spinWheel 0.3s linear infinite; }
+  .status-task .train-wheel::after, .status-task .train-wheel::before { background: var(--done); }
+  .status-task .train-smoke-puff { background: rgba(95,161,119,0.5); animation: puffSmoke 0.6s infinite; }
+  .status-task .train-smoke-puff:nth-child(2) { animation-delay: 0.2s; }
+  .status-task .train-smoke-puff:nth-child(3) { animation-delay: 0.4s; }
+  
+  /* La curva cubic-bezier hace que empiece lento, acelere y pase rápido */
+  .status-task .train-loco { animation: trainRun 4.5s cubic-bezier(0.5, 0, 0.8, 1) infinite; }
+
+  @keyframes spinWheel { 100% { transform: rotate(360deg); } }
+  @keyframes puffSmoke {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.8; }
+    100% { transform: translate(-15px, -30px) scale(3); opacity: 0; }
+  }
+  @keyframes trainRun {
+    0% { left: -80px; }
+    100% { left: 110%; }
+  }
+
+  /* ===== Subtareas ===== */
+  .subtasks-wrapper { width: 100%; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--ink-700); }
+  .subtask-progress-bar { width: 100%; height: 6px; background: var(--ink-850); border-radius: 3px; overflow: hidden; margin-bottom: 8px; border: 1px solid var(--ink-700); }
+  .subtask-progress-fill { height: 100%; transition: width 0.3s ease, background 0.3s; }
+  .subtask-progress-text { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 8px; text-align: right; }
+  .subtask-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .subtask-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-light); }
+  .subtask-item input[type="checkbox"] { appearance: none; width: 16px; height: 16px; border: 1px solid var(--text-faint); border-radius: 3px; cursor: pointer; position: relative; }
+  .subtask-item input[type="checkbox"]:checked { background: var(--done); border-color: var(--done); }
+  .subtask-item input[type="checkbox"]:checked::after { content: '✔'; position: absolute; top: -1px; left: 3px; font-size: 11px; color: var(--ink-900); }
+  .subtask-item.is-done .subtask-text { text-decoration: line-through; color: var(--text-muted); }
+  .btn-add-subtask { background: none; border: none; color: var(--brass-300); font-size: 11.5px; cursor: pointer; display: flex; align-items: center; padding: 0; font-weight: 600; opacity: 0.8; }
+  .btn-add-subtask:hover { opacity: 1; text-decoration: underline; }
+
   /* ===== Barra de distribución de tiempo (Estadísticas) ===== */
   .time-dist-bar{
     display:flex; width:100%; height:14px; border-radius:999px; overflow:hidden;
@@ -1504,11 +1587,20 @@
     openEvidenceModal(ds, id);
   }
 
-  /* Al minimizar/cambiar de pestaña no perdemos tiempo acumulado */
+  /* ===================== Control de Pantalla (Apagar/Encender) ===================== */
   document.addEventListener("visibilitychange", function(){
     if (document.visibilityState === "hidden"){
+      /* 1. Cuando tapas la pantalla: Congela el tiempo exacto y guarda localmente */
       flushTime();
       persist();
+    } else if (document.visibilityState === "visible") {
+      /* 2. Cuando prendes la pantalla: Verifica la sesión de Google silenciosamente */
+      if (driveUserEmail) {
+        /* Si la llave caducó mientras dormía o le quedan menos de 5 min, pide una nueva */
+        if (!driveAccessToken || Date.now() > (driveTokenExpiry - 300000)) {
+          silentTokenRenew();
+        }
+      }
     }
   });
 
@@ -1537,7 +1629,7 @@
     });
     /* Tareas one-off */
     state.oneoff.forEach(function(o){
-      if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff" });
+      if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff", subtasks: o.subtasks });
     });
     /* Rutinas semanales: inyección por día */
     var dayOfWeek = strToDate(ds).getDay(); // 0=Dom ... 6=Sáb
@@ -2116,6 +2208,15 @@
           '" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>';
     }
 
+        /* Lógica: Extraer el tiempo si la tarea ya está finalizada */
+    var timeLoggedHtml = "";
+    if (t.type === "oneoff" && status === "done") {
+      var totalSecs = getTaskLiveSeconds(ds, t.id);
+      if (totalSecs > 0) {
+        timeLoggedHtml = '<span style="margin-left:auto; margin-right:6px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 7px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + formatDuration(totalSecs) + '</span>';
+      }
+    }
+
     var mainRow = (
       '<div class="task-main-row">' +
         stampOrTimeHtml +
@@ -2123,6 +2224,7 @@
           (t.routineTime ? ' <small style="font-size:11px;color:var(--brass-300);font-family:var(--font-mono);">(' + escapeHtml(t.routineTime) + ')</small>' : '') +
         '</span>' +
         badgeHtml +
+        (timeLoggedHtml ? timeLoggedHtml : '<div style="margin-left:auto;"></div>') +
         eyeBtn +
         bellBtn +
         del +
@@ -2154,10 +2256,43 @@
       );
     }
 
-    var hasExtra = reminderBadge || panelHtml;
+    /* --- INYECCIÓN DE SUBTAREAS --- */
+    var subtasksHtml = "";
+    if (t.type === "oneoff" && status !== "done") {
+      var subs = t.subtasks || [];
+      var btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-id="' + t.id + '">+ Añadir subtarea</button>';
+      
+      if (subs.length > 0) {
+        var subsDone = subs.filter(function(s){ return s.done; }).length;
+        var pct = Math.round((subsDone / subs.length) * 100);
+        var barColor = pct === 100 ? "var(--done)" : "var(--brass-500)";
+        
+        var listHtml = subs.map(function(s){
+          var checked = s.done ? "checked" : "";
+          var doneCls = s.done ? " is-done" : "";
+          return '<label class="subtask-item' + doneCls + '">' +
+                   '<input type="checkbox" data-action="toggle-subtask" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' />' +
+                   '<span class="subtask-text">' + escapeHtml(s.text) + '</span>' +
+                 '</label>';
+        }).join("");
+
+        subtasksHtml = 
+          '<div class="subtasks-wrapper">' +
+            '<div class="subtask-progress-bar"><div class="subtask-progress-fill" style="width:' + pct + '%; background:' + barColor + ';"></div></div>' +
+            '<div class="subtask-progress-text">' + pct + '% completado (' + subsDone + '/' + subs.length + ')</div>' +
+            '<div class="subtask-list">' + listHtml + '</div>' +
+            btnAddSub +
+          '</div>';
+      } else {
+        /* Si no tiene subtareas, mostramos el botón escondido sutilmente abajo */
+        subtasksHtml = '<div class="subtasks-wrapper" style="border:none; padding:0; margin-top:4px;">' + btnAddSub + '</div>';
+      }
+    }
+
+    var hasExtra = reminderBadge || panelHtml || subtasksHtml;
     return (
       '<div class="task-item' + (hasExtra ? " has-reminder" : "") + '">' +
-        mainRow + reminderBadge + panelHtml +
+        mainRow + subtasksHtml + reminderBadge + panelHtml +
       '</div>'
     );
   }
@@ -2189,7 +2324,20 @@
     var label = st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : "Ejecutando tarea…");
     var btnLabel = st === "inactive" ? "▶ Encender sesión" : "⏻ Apagar sesión";
     var timerSec = st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
+    
+    var trainHtml = 
+      '<div class="train-track-container status-' + st + '">' +
+        '<div class="train-loco">' +
+          '<div class="train-smoke-puff"></div><div class="train-smoke-puff"></div><div class="train-smoke-puff"></div>' +
+          '<div class="train-chimney"></div>' +
+          '<div class="train-body"></div>' +
+          '<div class="train-cabin"><div class="train-cabin-window"></div></div>' +
+          '<div class="train-wheel w1"></div><div class="train-wheel w2"></div><div class="train-wheel w3"></div>' +
+        '</div>' +
+      '</div>';
+
     return (
+      trainHtml +
       '<section class="block master-switch-panel status-' + st + '">' +
         '<div class="ms-row">' +
           '<div class="ms-status">' +
@@ -3582,6 +3730,27 @@
       });
 
     /* --- RASTREO DE TIEMPO --- */
+    } else if (action === "add-subtask"){
+      var text = prompt("Escribe la nueva subtarea:");
+      if (text && text.trim() !== "") {
+        var task = state.oneoff.find(function(o){ return o.id === el.getAttribute("data-id"); });
+        if (task) {
+          if (!task.subtasks) task.subtasks = [];
+          task.subtasks.push({ id: uid(), text: text.trim(), done: false });
+          persist(); renderActiveTab();
+        }
+      }
+    } else if (action === "toggle-subtask"){
+      var taskId = el.getAttribute("data-id");
+      var subId  = el.getAttribute("data-subid");
+      var task = state.oneoff.find(function(o){ return o.id === taskId; });
+      if (task && task.subtasks) {
+        var sub = task.subtasks.find(function(s){ return s.id === subId; });
+        if (sub) {
+          sub.done = el.checked;
+          persist(); renderActiveTab();
+        }
+      }
     } else if (action === "toggle-master"){
       toggleMaster();
 
