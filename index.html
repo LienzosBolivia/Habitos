@@ -1174,7 +1174,24 @@
     display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;
   }
   .modal-actions button{flex:1;}
-
+  /* ===== Modal de Planificación de Proyectos ===== */
+  .project-note-display {
+    background: rgba(0,0,0,0.15);
+    border-left: 2px solid var(--brass-500);
+    padding: 10px 14px;
+    margin-top: 12px;
+    font-size: 13.5px;
+    color: var(--text-light);
+    border-radius: 0 4px 4px 0;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+  .btn-plan-project {
+    background:none; border:1px solid var(--brass-600);
+    color:var(--brass-300); font-size:11px; padding:5px 10px;
+    border-radius:6px; cursor:pointer; white-space:nowrap; font-family:inherit;
+  }
+  .btn-plan-project:hover { background: rgba(201,151,74,0.12); }
   /* View evidence modal content */
   #viewEvidenceContent{
     margin-bottom:16px;
@@ -1235,6 +1252,22 @@
 </div>
 
 <!-- ===== Modal: Ver evidencia (solo lectura) ===== -->
+    </div>
+  </div>
+</div>
+
+<div id="projectNoteModal" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <h3 style="font-size:17px; color:var(--brass-300); margin-bottom:6px;">📝 Planificar Proyecto</h3>
+    <p class="modal-hint">Anota aquí los pasos, ideas o la planificación de tu proyecto.</p>
+    <textarea id="projectNoteInput" class="modal-textarea" placeholder="Escribe aquí tu plan..." rows="6"></textarea>
+    <div class="modal-actions">
+      <button class="primary" id="projectNoteSaveBtn">Guardar nota</button>
+      <button class="btn-secondary" id="projectNoteCancelBtn">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <div id="viewEvidenceModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="viewEvidModalTitle">
   <div class="modal-box">
     <h3 id="viewEvidModalTitle">🔍 Evidencia registrada</h3>
@@ -2133,15 +2166,36 @@
       return;
     }
 
-    var key      = pendingEvidence.ds + "_" + pendingEvidence.id;
-    var ds       = pendingEvidence.ds;
-    var id       = pendingEvidence.id;
-    var editing  = isEditingEvidence;
-    var evidence = JSON.stringify({
-      note:    note || null,
-      image:   imageToSave || null,
-      savedAt: new Date().toISOString()
-    });
+      var key      = pendingEvidence.ds + "_" + pendingEvidence.id;
+      var ds       = pendingEvidence.ds;
+      var id       = pendingEvidence.id;
+      var editing  = isEditingEvidence;
+
+      /* --- NUEVO: Extraer nombre de la tarea y subtareas --- */
+      var taskText = "Tarea";
+      var taskSubtasks = [];
+      if (ds === "project") {
+        var p = state.projects.find(function(x){ return x.id === id; });
+        if (p) taskText = p.text;
+      } else {
+        var allT = getTasksForDate(ds);
+        var t = allT.find(function(x){ return x.id === id; });
+        if (t) {
+          taskText = t.text;
+          if (t.type === "oneoff") {
+            var orig = state.oneoff.find(function(x){ return x.id === id; });
+            if (orig && orig.subtasks) taskSubtasks = orig.subtasks;
+          }
+        }
+      }
+
+      var evidence = JSON.stringify({
+        taskName: taskText,
+        subtasks: taskSubtasks,
+        note:    note || null,
+        image:   imageToSave || null,
+        savedAt: new Date().toISOString()
+      });
 
     dbSet(key, evidence).catch(function(){}).then(function(){
       if (editing){
@@ -2173,6 +2227,21 @@
       try { ev = JSON.parse(raw); } catch(e){ ev = null; }
       if (!ev){ content.innerHTML = '<div class="ev-empty">No se pudo leer la evidencia.</div>'; return; }
       var html = "";
+      
+      if (ev.taskName) {
+        html += '<div style="font-weight:600; color:var(--brass-300); margin-bottom:12px; font-size:16px;">' + escapeHtml(ev.taskName) + '</div>';
+      }
+      if (ev.subtasks && ev.subtasks.length > 0) {
+        html += '<div style="margin-bottom:14px; background:var(--ink-800); border:1px dashed var(--ink-700); padding:10px; border-radius:6px;">';
+        html += '<div style="font-size:11px; color:var(--text-faint); margin-bottom:6px; text-transform:uppercase;">Subtareas completadas:</div>';
+        ev.subtasks.forEach(function(st){
+          var icon = st.done ? '✔' : '✖';
+          var color = st.done ? 'var(--done)' : 'var(--text-muted)';
+          html += '<div style="font-size:13px; color:'+color+'; margin-bottom:4px;"><span style="display:inline-block; width:16px;">'+icon+'</span> ' + escapeHtml(st.text) + '</div>';
+        });
+        html += '</div>';
+      }
+
       if (ev.image) html += '<img src="' + escapeHtml(ev.image) + '" alt="Evidencia fotográfica" />';
       if (ev.note)  html += '<div class="ev-note">' + escapeHtml(ev.note) + '</div>';
       if (ev.savedAt){
@@ -2190,8 +2259,25 @@
     document.getElementById("viewEvidenceModal").classList.remove("open");
   }
 
-  /* Bindear botones del modal de evidencia */
+  /* Bindear botones del modal de evidencia y proyectos */
   document.getElementById("evidenceSaveBtn").addEventListener("click", saveEvidence);
+  
+  document.getElementById("projectNoteSaveBtn").addEventListener("click", function(){
+    var pid = this.getAttribute("data-id");
+    if (!pid) return;
+    var p = state.projects.find(function(x){ return x.id === pid; });
+    if (p) {
+      p.notes = document.getElementById("projectNoteInput").value.trim();
+      persist(); renderActiveTab();
+    }
+    document.getElementById("projectNoteModal").classList.remove("open");
+  });
+  document.getElementById("projectNoteCancelBtn").addEventListener("click", function(){
+    document.getElementById("projectNoteModal").classList.remove("open");
+  });
+  document.getElementById("projectNoteModal").addEventListener("click", function(e){
+    if (e.target === this) this.classList.remove("open");
+  });
   document.getElementById("evidenceCancelBtn").addEventListener("click", closeEvidenceModal);
   document.getElementById("viewEvidenceCloseBtn").addEventListener("click", closeViewEvidenceModal);
 
@@ -2247,8 +2333,8 @@
                   '" data-date="' + ds + '" data-id="' + t.id + '" title="' +
                   (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
 
-    /* Controles de tiempo (solo tareas oneoff, no completadas, del día de hoy) */
-    var showTimeControls = (t.type === "oneoff" && status !== "done" && !isFuture && ds === todayStr());
+    /* Controles de tiempo (tareas oneoff y hábitos, no completadas, del día de hoy) */
+    var showTimeControls = ((t.type === "oneoff" || t.type === "habit") && status !== "done" && !isFuture && ds === todayStr());
     var stampOrTimeHtml;
     if (showTimeControls){
       var isActiveTask = (state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds);
@@ -2273,9 +2359,9 @@
           '" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>';
     }
 
-        /* Lógica: Extraer el tiempo si la tarea ya está finalizada */
+    /* Lógica: Extraer el tiempo si la tarea ya está finalizada */
     var timeLoggedHtml = "";
-    if (t.type === "oneoff" && status === "done") {
+    if ((t.type === "oneoff" || t.type === "habit") && status === "done") {
       var totalSecs = getTaskLiveSeconds(ds, t.id);
       if (totalSecs > 0) {
         timeLoggedHtml = '<span style="margin-left:auto; margin-right:6px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 7px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + formatDuration(totalSecs) + '</span>';
@@ -2659,9 +2745,12 @@
           '<button class="task-pencil-btn" data-action="edit-evidence" data-date="project" data-id="' + p.id + '" title="Editar evidencia" style="display:inline-block; margin-left:4px; vertical-align:middle;">' + ICON_PENCIL + '</button>'
         : "";
 
+      var noteHtml = p.notes ? '<div class="project-note-display">' + escapeHtml(p.notes) + '</div>' : '';
+
       var actions = isCompleted
         ? '<button class="btn-delete-project" data-action="delete-project" data-id="' + p.id + '">Eliminar</button>'
         : (
+            '<button class="btn-plan-project" data-action="plan-project" data-id="' + p.id + '">📝 Planificar</button>' +
             '<button class="btn-complete-project" data-action="complete-project" data-id="' + p.id + '">✔ Completar</button>' +
             '<button class="btn-delete-project" data-action="delete-project" data-id="' + p.id + '">Eliminar</button>'
           );
@@ -2677,6 +2766,7 @@
             deadlineBadge +
             '<span style="font-size:11px;color:var(--text-faint);">Creado: ' + formatDateShort(p.createdAt) + '</span>' +
           '</div>' +
+          noteHtml +
         '</div>'
       );
     }
@@ -3715,6 +3805,13 @@
 
     } else if (action === "delete-routine"){
       deleteRoutine(el.getAttribute("data-id"));
+
+    } else if (action === "plan-project"){
+      var pid = el.getAttribute("data-id");
+      document.getElementById("projectNoteSaveBtn").setAttribute("data-id", pid);
+      var p = state.projects.find(function(x){ return x.id === pid; });
+      document.getElementById("projectNoteInput").value = p.notes || "";
+      document.getElementById("projectNoteModal").classList.add("open");
 
     } else if (action === "complete-project"){
       /* Abrimos el modal. Usamos la palabra "project" como si fuera la fecha
