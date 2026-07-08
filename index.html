@@ -270,72 +270,137 @@
   .task-time-btn.pause{ background:var(--ink-700); }
   .task-time-btn.stop{ background:var(--done); border-color:var(--done); color:var(--ink-900); }
 
-  /* ===== Tren de Enfoque (Locomotora) ===== */
+  /* ===== Tren de Enfoque (Locomotora Realista) ===== */
   .train-track-container {
-    position: relative; width: 100%; height: 50px;
+    position: relative; width: 100%; height: 85px;
     border-bottom: 2px solid var(--ink-700);
-    margin: 10px 0 20px 0; overflow: hidden;
+    margin: 5px 0 20px 0; overflow: hidden;
     background: linear-gradient(to top, rgba(10,27,39,0), rgba(15,35,51,0.4));
   }
   .train-loco {
-    position: absolute; bottom: 0; left: 10px; width: 64px; height: 40px;
-    transition: left 0.5s ease;
+    position: absolute; bottom: 0; left: 10px; width: 85px; height: 45px;
   }
+  
+  /* --- Piezas orientadas hacia la DERECHA --- */
+  /* Tumbaburros (Frente derecho) */
+  .train-cowcatcher {
+    position: absolute; bottom: 4px; left: 78px; width: 7px; height: 12px;
+    background: var(--text-faint);
+    clip-path: polygon(0 0, 0 100%, 100% 100%);
+  }
+  /* Caldera cilíndrica */
   .train-body {
-    position: absolute; bottom: 6px; left: 0; width: 64px; height: 18px;
-    background: var(--brass-500); border-radius: 4px 10px 0 0;
+    position: absolute; bottom: 6px; left: 28px; width: 50px; height: 20px;
+    background: linear-gradient(to bottom, var(--brass-300), var(--brass-600));
+    border-radius: 0 12px 0 0;
+    box-shadow: inset 0 -4px 6px rgba(0,0,0,0.3);
   }
+  /* Domo de vapor */
+  .train-dome {
+    position: absolute; bottom: 26px; left: 42px; width: 12px; height: 8px;
+    background: linear-gradient(to right, var(--brass-500), var(--brass-600));
+    border-radius: 6px 6px 0 0;
+  }
+  /* Chimenea */
+  .train-chimney {
+    position: absolute; bottom: 26px; left: 64px; width: 10px; height: 16px;
+    background: linear-gradient(to right, var(--text-faint), var(--ink-700));
+    border-radius: 2px 2px 0 0;
+  }
+  .train-chimney::before {
+    content: ''; position: absolute; top: -3px; left: -2px; right: -2px; height: 4px;
+    background: var(--text-light); border-radius: 2px;
+  }
+  /* Cabina (Atrás / Izquierda) */
   .train-cabin {
-    position: absolute; bottom: 24px; right: 2px; width: 22px; height: 16px;
-    background: var(--brass-600); border-radius: 4px 4px 0 0;
+    position: absolute; bottom: 6px; left: 2px; width: 26px; height: 32px;
+    background: linear-gradient(to bottom, var(--brass-500), var(--brass-600));
+    border-radius: 4px;
+    box-shadow: inset 2px 0 4px rgba(0,0,0,0.2);
+  }
+  .train-cabin::before {
+    content: ''; position: absolute; top: -3px; left: -3px; right: -3px; height: 5px;
+    background: var(--text-light); border-radius: 3px;
+    box-shadow: 0 2px 2px rgba(0,0,0,0.3);
   }
   .train-cabin-window {
-    position: absolute; top: 4px; right: 4px; width: 10px; height: 7px;
+    position: absolute; top: 6px; left: 6px; width: 10px; height: 12px;
     background: var(--ink-900); border-radius: 2px;
+    border: 1px solid var(--brass-300);
+    box-shadow: inset 0 0 4px rgba(255,255,255,0.1);
   }
-  .train-chimney {
-    position: absolute; bottom: 24px; left: 10px; width: 8px; height: 14px;
-    background: var(--text-faint); border-radius: 2px 2px 0 0;
-  }
+  /* Ruedas y Biela */
   .train-wheel {
-    position: absolute; bottom: 0; width: 16px; height: 16px;
+    position: absolute; bottom: 0; width: 18px; height: 18px;
     background: var(--ink-900); border: 2px solid var(--text-muted);
     border-radius: 50%; box-sizing: border-box;
+    box-shadow: 0 0 4px rgba(0,0,0,0.5);
   }
-  .w1 { left: 4px; } .w2 { left: 24px; } .w3 { left: 44px; }
-  .train-wheel::after { content: ''; position: absolute; top: 5px; left: -2px; width: 16px; height: 2px; background: var(--text-muted); }
-  .train-wheel::before { content: ''; position: absolute; left: 5px; top: -2px; height: 16px; width: 2px; background: var(--text-muted); }
+  .train-wheel.large { width: 24px; height: 24px; bottom: 0; }
+  .w1 { left: 6px; } .w2 { left: 30px; } .w3 { left: 56px; }
   
+  .train-wheel::after { content: ''; position: absolute; top: 50%; left: -2px; right: -2px; height: 2px; background: var(--text-muted); margin-top: -1px; }
+  .train-wheel::before { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--text-muted); margin-left: -1px; }
+  
+  .train-rod {
+    position: absolute; bottom: 7px; left: 15px; width: 50px; height: 4px;
+    background: var(--text-light); border-radius: 2px;
+    box-shadow: 0 2px 2px rgba(0,0,0,0.4);
+  }
+
   /* Humo */
   .train-smoke-puff {
-    position: absolute; bottom: 42px; left: 8px; width: 10px; height: 10px;
-    background: rgba(237,230,214,0.4); border-radius: 50%; opacity: 0;
+    position: absolute; bottom: 44px; left: 62px;
+    width: 14px; height: 14px;
+    background: rgba(237,230,214,0.45); border-radius: 50%; opacity: 0;
+    filter: blur(1.5px);
   }
 
-  /* ESTADO: PENSANDO (Quieto, ruedas giran, echa humo) */
-  .status-thinking .train-wheel { animation: spinWheel 1.5s linear infinite; }
-  .status-thinking .train-smoke-puff { animation: puffSmoke 2s infinite; }
-  .status-thinking .train-smoke-puff:nth-child(2) { animation-delay: 0.6s; }
-  .status-thinking .train-smoke-puff:nth-child(3) { animation-delay: 1.2s; }
+  /* --- ESTADO: PENSANDO --- */
+  .status-thinking .train-loco { left: 10px; } /* Se parquea aquí */
+  .status-thinking .train-wheel { animation: spinWheel 2s linear infinite; }
+  .status-thinking .train-rod { animation: moveRod 2s linear infinite; }
+  .status-thinking .train-smoke-puff { animation: puffSmoke 2.5s infinite; }
+  .status-thinking .train-smoke-puff:nth-child(2) { animation-delay: 0.8s; }
+  .status-thinking .train-smoke-puff:nth-child(3) { animation-delay: 1.6s; }
 
-  /* ESTADO: TAREA (Avanza en ciclo, cambia a color verde éxito) */
-  .status-task .train-body, .status-task .train-cabin { background: var(--done); }
-  .status-task .train-wheel { border-color: var(--done); animation: spinWheel 0.3s linear infinite; }
+  /* --- ESTADO: TAREA --- */
+  .status-task .train-body, .status-task .train-cabin, .status-task .train-dome { background: linear-gradient(to bottom, var(--done), var(--done-dim)); }
+  .status-task .train-wheel { border-color: var(--done); animation: spinWheel 0.4s linear infinite; }
   .status-task .train-wheel::after, .status-task .train-wheel::before { background: var(--done); }
-  .status-task .train-smoke-puff { background: rgba(95,161,119,0.5); animation: puffSmoke 0.6s infinite; }
+  .status-task .train-rod { background: var(--done); animation: moveRod 0.4s linear infinite; }
+  .status-task .train-smoke-puff { background: rgba(95,161,119,0.6); animation: puffSmoke 0.6s infinite; }
   .status-task .train-smoke-puff:nth-child(2) { animation-delay: 0.2s; }
   .status-task .train-smoke-puff:nth-child(3) { animation-delay: 0.4s; }
+  .status-task .train-cabin-window { border-color: var(--done); }
   
-  /* La curva cubic-bezier hace que empiece lento, acelere y pase rápido */
-  .status-task .train-loco { animation: trainRun 4.5s cubic-bezier(0.5, 0, 0.8, 1) infinite; }
+  /* MAGIA DE ANIMACIÓN: Arranca desde donde está, sale de pantalla, y luego cicla */
+  .status-task .train-loco { 
+    animation: 
+      trainStart 3s cubic-bezier(0.5, 0, 0.8, 1) forwards,
+      trainLoop 2.5s linear infinite 3s; 
+  }
 
   @keyframes spinWheel { 100% { transform: rotate(360deg); } }
-  @keyframes puffSmoke {
-    0% { transform: translate(0, 0) scale(1); opacity: 0.8; }
-    100% { transform: translate(-15px, -30px) scale(3); opacity: 0; }
+  @keyframes moveRod {
+    0% { transform: translateY(0px) translateX(0px); }
+    25% { transform: translateY(2px) translateX(2px); }
+    50% { transform: translateY(0px) translateX(4px); }
+    75% { transform: translateY(-2px) translateX(2px); }
+    100% { transform: translateY(0px) translateX(0px); }
   }
-  @keyframes trainRun {
-    0% { left: -80px; }
+  @keyframes puffSmoke {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.9; }
+    100% { transform: translate(-35px, -65px) scale(3.5); opacity: 0; } /* Humo se va hacia atrás */
+  }
+  /* Animación 1: Arranque (De 10px a fuera de pantalla) */
+  @keyframes trainStart {
+    0%   { left: 10px; }
+    100% { left: 110%; }
+  }
+  /* Animación 2: Ciclo infinito (Pasa a toda velocidad) */
+  @keyframes trainLoop {
+    0%   { left: -100px; }
     100% { left: 110%; }
   }
 
@@ -2330,9 +2395,12 @@
         '<div class="train-loco">' +
           '<div class="train-smoke-puff"></div><div class="train-smoke-puff"></div><div class="train-smoke-puff"></div>' +
           '<div class="train-chimney"></div>' +
+          '<div class="train-dome"></div>' +
+          '<div class="train-cowcatcher"></div>' +
           '<div class="train-body"></div>' +
           '<div class="train-cabin"><div class="train-cabin-window"></div></div>' +
-          '<div class="train-wheel w1"></div><div class="train-wheel w2"></div><div class="train-wheel w3"></div>' +
+          '<div class="train-wheel w1"></div><div class="train-wheel w2"></div><div class="train-wheel w3 large"></div>' +
+          '<div class="train-rod"></div>' +
         '</div>' +
       '</div>';
 
