@@ -1346,18 +1346,35 @@
   /* ===================== Estado global ===================== */
   var state = null;
   var activeTab = "hoy";
-  /* --- Motor de Audio --- */
-  var trainAudio = new Audio("tren.mp3");
-  trainAudio.loop = true; /* Se repite en bucle infinito */
-  /* Guardamos la preferencia de silencio en el navegador (por defecto silenciado para evitar sustos) */
-  var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false"); 
-  
+  /* --- Motor de Audio (Con Desbloqueador Anti-Android) --- */
+  /* El ?v=2 fuerza a tu celular a borrar la caché y buscar el archivo real */
+  var trainAudio = new Audio("tren.mp3?v=2");
+  trainAudio.loop = true;
+  var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
+  var audioUnlocked = false;
+
+  /* Magia Ninja: En el primer toque de pantalla, desbloqueamos el audio en silencio para obtener permisos de Chrome */
+  var unlockAudio = function() {
+    if (!audioUnlocked) {
+      trainAudio.play().then(function() {
+        trainAudio.pause();
+        audioUnlocked = true;
+      }).catch(function(e){});
+      document.removeEventListener("touchstart", unlockAudio);
+      document.removeEventListener("click", unlockAudio);
+    }
+  };
+  document.addEventListener("touchstart", unlockAudio);
+  document.addEventListener("click", unlockAudio);
+
   function syncTrainAudio() {
-    /* Si el estado es "tarea" y el megáfono ESTÁ encendido */
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
-      if (trainAudio.paused) trainAudio.play().catch(function(e){ console.warn("Audio bloqueado por navegador", e); });
+      if (trainAudio.paused) {
+        trainAudio.play().catch(function(e){
+          console.warn("Audio bloqueado:", e);
+        });
+      }
     } else {
-      /* En cualquier otro caso (silenciado o modo pensar/reposo), se apaga totalmente el recurso */
       if (!trainAudio.paused) trainAudio.pause();
     }
   }
