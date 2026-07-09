@@ -366,22 +366,37 @@
 
   /* --- ESTADO: TAREA --- */
   .status-task .train-body, .status-task .train-cabin, .status-task .train-dome { background: linear-gradient(to bottom, var(--done), var(--done-dim)); }
-  .status-task .train-wheel { border-color: var(--done); animation: spinWheel 0.4s linear infinite; }
+  
+  /* Ruedas: Empiezan girando lento y aceleran durante 4 segundos */
+  .status-task .train-wheel { 
+    border-color: var(--done); 
+    animation: 
+      spinWheelStart 4s ease-in forwards,
+      spinWheel 0.3s linear infinite 4s; 
+  }
   .status-task .train-wheel::after, .status-task .train-wheel::before { background: var(--done); }
+  
   .status-task .train-rod { background: var(--done); animation: moveRod 0.4s linear infinite; }
   .status-task .train-smoke-puff { background: rgba(95,161,119,0.6); animation: puffSmoke 0.6s infinite; }
   .status-task .train-smoke-puff:nth-child(2) { animation-delay: 0.2s; }
   .status-task .train-smoke-puff:nth-child(3) { animation-delay: 0.4s; }
   .status-task .train-cabin-window { border-color: var(--done); }
   
-  /* MAGIA DE ANIMACIÓN: Arranca desde donde está, sale de pantalla, y luego cicla */
+  /* MAGIA DE ANIMACIÓN: Aceleración de la inercia (ease-in) */
   .status-task .train-loco { 
     animation: 
-      trainStart 3s cubic-bezier(0.5, 0, 0.8, 1) forwards,
-      trainLoop 2.5s linear infinite 3s; 
+      trainStart 4s ease-in forwards,
+      trainLoop 2.2s linear infinite 4s; 
   }
 
   @keyframes spinWheel { 100% { transform: rotate(360deg); } }
+  
+  /* NUEVO: Las ruedas dan 4 vueltas enteras poco a poco para simular la aceleración */
+  @keyframes spinWheelStart {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(1440deg); } 
+  }
+  
   @keyframes moveRod {
     0% { transform: translateY(0px) translateX(0px); }
     25% { transform: translateY(2px) translateX(2px); }
@@ -391,9 +406,9 @@
   }
   @keyframes puffSmoke {
     0% { transform: translate(0, 0) scale(1); opacity: 0.9; }
-    100% { transform: translate(-35px, -65px) scale(3.5); opacity: 0; } /* Humo se va hacia atrás */
+    100% { transform: translate(-35px, -65px) scale(3.5); opacity: 0; }
   }
-  /* Animación 1: Arranque (De 10px a fuera de pantalla) */
+  /* Animación 1: Arranque desde reposo (Empieza MUY lento, termina rápido) */
   @keyframes trainStart {
     0%   { left: 10px; }
     100% { left: 110%; }
@@ -1346,18 +1361,21 @@
   /* ===================== Estado global ===================== */
   var state = null;
   var activeTab = "hoy";
-  /* --- Motor de Audio (Con Desbloqueador Anti-Android) --- */
-  /* El ?v=2 fuerza a tu celular a borrar la caché y buscar el archivo real */
-  var trainAudio = new Audio("BLUE HORIZON FUNK_256k.mp3?v=2");
+  /* --- Motor de Audio (Reinicio Inteligente y Anti-Notificaciones Fantasma) --- */
+  
+  /* PON AQUÍ EL NOMBRE EXACTO DEL AUDIO QUE SUBISTE A GITHUB: */
+  var nombreDeMiAudio = "BLUE HORIZON FUNK_256k.mp3"; 
+
+  var trainAudio = new Audio(nombreDeMiAudio);
   trainAudio.loop = true;
   var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
   var audioUnlocked = false;
 
-  /* Magia Ninja: En el primer toque de pantalla, desbloqueamos el audio en silencio para obtener permisos de Chrome */
   var unlockAudio = function() {
     if (!audioUnlocked) {
       trainAudio.play().then(function() {
         trainAudio.pause();
+        trainAudio.currentTime = 0;
         audioUnlocked = true;
       }).catch(function(e){});
       document.removeEventListener("touchstart", unlockAudio);
@@ -1369,13 +1387,22 @@
 
   function syncTrainAudio() {
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
+      /* Si el audio fue borrado para quitar la notificación, lo recargamos */
+      if (!trainAudio.src || trainAudio.src === "" || trainAudio.src === window.location.href) {
+        trainAudio.src = nombreDeMiAudio;
+        trainAudio.load();
+      }
       if (trainAudio.paused) {
-        trainAudio.play().catch(function(e){
-          console.warn("Audio bloqueado:", e);
-        });
+        trainAudio.play().catch(function(e){ console.warn("Audio bloqueado:", e); });
       }
     } else {
-      if (!trainAudio.paused) trainAudio.pause();
+      /* APAGADO TOTAL: Pausamos, reiniciamos a 0 y borramos la fuente para matar la notificación de Android */
+      if (!trainAudio.paused || trainAudio.src) {
+        trainAudio.pause();
+        trainAudio.currentTime = 0;
+        trainAudio.removeAttribute('src'); 
+        trainAudio.load(); 
+      }
     }
   }
   var selectedCalendarDate = null;
