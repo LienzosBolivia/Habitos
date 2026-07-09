@@ -418,6 +418,22 @@
     0%   { left: -100px; }
     100% { left: 110%; }
   }
+  /* ===== Gráfica de Tiempo Histórico (7 Días) ===== */
+  .time-chart-wrapper { margin: 15px 0 10px 0; }
+  .time-chart {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    height: 150px; border-bottom: 1px solid var(--ink-700);
+    padding-bottom: 5px; position: relative; margin-bottom: 15px;
+  }
+  .tc-column {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    align-items: center; width: 12%; height: 100%; position: relative;
+    gap: 2px;
+  }
+  .tc-bar-tasks { background: var(--done); width: 100%; border-radius: 3px; transition: height 0.5s ease; box-shadow: inset 0 0 4px rgba(0,0,0,0.2); }
+  .tc-bar-thinking { background: var(--brass-500); width: 100%; border-radius: 3px; transition: height 0.5s ease; box-shadow: inset 0 0 4px rgba(0,0,0,0.2); }
+  .tc-day-label { position: absolute; bottom: -24px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+  .tc-val-label { position: absolute; top: -22px; font-size: 9.5px; color: var(--brass-300); font-family: var(--font-mono); font-weight:600; white-space:nowrap; }
   /* Botón de Audio del Tren */
   .train-mute-btn {
     position: absolute; top: 6px; right: 10px;
@@ -2659,9 +2675,28 @@
       sel = viewYear + "-" + pad(calendarViewDate.getMonth()+1) + "-01";
     }
     var isFuture = sel > today;
+    
+    /* --- NUEVO: Extraer el tiempo total del día seleccionado --- */
+    var dayLog = state.timeLog[sel] || { thinking: 0, tasks: {} };
+    var dayThink = dayLog.thinking || 0;
+    var dayTask = 0;
+    Object.values(dayLog.tasks || {}).forEach(function(s){ dayTask += s; });
+    var dayTotal = dayThink + dayTask;
+    
+    var timeSummaryHtml = "";
+    if (dayTotal > 0) {
+      timeSummaryHtml = 
+        '<div style="font-family:var(--font-mono); font-size:12px; color:var(--brass-300); background:rgba(0,0,0,0.2); border:1px solid var(--ink-700); padding:8px 12px; border-radius:6px; margin-bottom:14px; display:inline-block;">' +
+          '⏱ Tiempo activo: <b style="font-size:13px;">' + formatDuration(dayTotal) + '</b> ' +
+          '<div style="color:var(--text-muted); font-size:10.5px; margin-top:3px;">(Pensando: ' + formatDuration(dayThink) + ' · Ejecutando: ' + formatDuration(dayTask) + ')</div>' +
+        '</div>';
+    }
+    /* ----------------------------------------------------------- */
+
     var detailHtml =
       '<div class="day-detail">' +
         '<h3>' + capitalize(formatDateLong(sel)) + '</h3>' +
+        timeSummaryHtml +
         (isFuture ? '<div class="future-note">Puedes programar tareas para este día. Podrás marcarlas como cumplidas cuando llegue.</div>' : '') +
         addFormHtml(sel, true) +
         renderTaskList(sel) +
@@ -2980,6 +3015,9 @@
 
   /* ===================== Render: pestaña Estadísticas ===================== */
   function renderEstadisticas(){
+    /* Actualiza el tiempo al segundo actual para que la gráfica sea precisa */
+    flushTime();
+
     var g          = computeGlobalStats();
     var curStreak  = computeCurrentStreakHR();
     var bestStreak = computeBestStreakHR();
@@ -3010,19 +3048,53 @@
       '</div>';
 
     var today  = todayStr();
-    var last7  = [];
-    for (var i=6;i>=0;i--) last7.push(addDays(today,-i));
-    var barHtml = '<div class="bar-chart">' + last7.map(function(ds){
-      var s   = dayStats(ds);
-      var pct = s.total ? Math.round((s.done/s.total)*100) : 0;
-      var d   = strToDate(ds);
-      return (
-        '<div class="bar-col" title="' + formatDateShort(ds) + ": " + s.done + "/" + s.total + '">' +
-          '<div class="bar-fill-wrap"><div class="bar-fill" style="height:' + (s.total? Math.max(pct,4):0) + '%"></div></div>' +
-          '<div class="bar-label">' + WD_SHORT[d.getDay()] + '</div>' +
-        '</div>'
-      );
-    }).join("") + '</div>';
+
+    /* --- NUEVO: Motor de Gráfica Histórica (7 Días) de Tiempo --- */
+    var dObj = new Date();
+    var maxSecs = 1; 
+    var chartData = [];
+    
+    /* 1. Recopilamos los datos y buscamos el día récord (para escalar las barras) */
+    for (var i = 6; i >= 0; i--) {
+      var tempD = new Date(); tempD.setDate(dObj.getDate() - i);
+      var ds = dateToStr(tempD);
+      var dayName = tempD.toLocaleDateString('es-ES', {weekday: 'short'}).slice(0,3);
+      
+      var l = state.timeLog[ds] || { thinking: 0, tasks: {} };
+      var dayThink = l.thinking || 0;
+      var dayTask = 0;
+      Object.values(l.tasks || {}).forEach(function(s){ dayTask += s; });
+      var dayTotal = dayThink + dayTask;
+      
+      /* Actualizamos el máximo para que la gráfica escale bien */
+      if (dayTotal > maxSecs) maxSecs = dayTotal;
+      
+      chartData.push({ day: dayName, think: dayThink, task: dayTask, total: dayTotal });
+    }
+
+    /* 2. Renderizamos las columnas apiladas */
+    var columnsHtml = chartData.map(function(cd) {
+      var pctThink = (cd.think / maxSecs) * 100;
+      var pctTask = (cd.task / maxSecs) * 100;
+      var totalLbl = cd.total > 0 ? formatDuration(cd.total) : '';
+      
+      return '<div class="tc-column">' +
+               (totalLbl ? '<div class="tc-val-label">' + totalLbl + '</div>' : '') +
+               (pctThink > 0 ? '<div class="tc-bar-thinking" style="height:' + pctThink + '%" title="Pensando: ' + formatDuration(cd.think) + '"></div>' : '') +
+               (pctTask > 0 ? '<div class="tc-bar-tasks" style="height:' + pctTask + '%" title="Ejecutando: ' + formatDuration(cd.task) + '"></div>' : '') +
+               '<div class="tc-day-label">' + cd.day + '</div>' +
+             '</div>';
+    }).join("");
+
+    var timeChartHtml = 
+      '<div class="time-chart-wrapper">' +
+        '<div class="time-chart">' + columnsHtml + '</div>' +
+      '</div>' +
+      '<div class="time-dist-legend" style="margin-top:24px; justify-content:center;">' +
+        '<span><i class="dot think"></i>Pensando</span>' +
+        '<span><i class="dot task"></i>Ejecutando</span>' +
+      '</div>';
+    /* ----------------------------------------------------------- */
 
     var heatDays  = dateRangeArray(addDays(today,-83), today);
     var heatCells = heatDays.map(function(ds){
@@ -3043,7 +3115,8 @@
         '<div class="block-title">Proyectos &amp; rutinas</div>' + projectCards +
       '</section>' +
       '<section class="block">' +
-        '<div class="block-title">Últimos 7 días</div>' + barHtml +
+        '<div class="block-title">Historial de uso de tiempo (Últimos 7 días)</div>' + 
+        timeChartHtml +
       '</section>' +
       '<section class="block">' +
         '<div class="block-title">Constancia de hábitos y rutinas · últimos 12 semanas</div>' +
