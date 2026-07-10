@@ -458,7 +458,11 @@
   .subtask-item.is-done .subtask-text { text-decoration: line-through; color: var(--text-muted); }
   .btn-add-subtask { background: none; border: none; color: var(--brass-300); font-size: 11.5px; cursor: pointer; display: flex; align-items: center; padding: 0; font-weight: 600; opacity: 0.8; }
   .btn-add-subtask:hover { opacity: 1; text-decoration: underline; }
-
+  .subtask-del-btn {
+    background: none; border: none; color: var(--text-faint); font-size: 18px; line-height: 1;
+    cursor: pointer; padding: 0 4px; display: flex; align-items: center; justify-content: center;
+  }
+  .subtask-del-btn:hover { color: var(--missed); }
   /* ===== Barra de distribución de tiempo (Estadísticas) ===== */
   .time-dist-bar{
     display:flex; width:100%; height:14px; border-radius:999px; overflow:hidden;
@@ -1684,6 +1688,9 @@
    * correspondiente (pensando o tarea puntual) y reinicia el contador.
    * No toca log/reminders/projects — solo state.timeLog y state.tracking.
    */
+  /**
+   * Vuelca el tiempo transcurrido desde tracking.startTime hacia el registro correspondiente
+   */
   function flushTime(){
     if (!state.tracking || state.tracking.status === "inactive" || !state.tracking.startTime) return;
     var now = Date.now();
@@ -1691,14 +1698,21 @@
     if (elapsedSec <= 0){ state.tracking.startTime = now; return; }
 
     var ds = state.tracking.taskDs || todayStr();
-    if (!state.timeLog[ds]) state.timeLog[ds] = { thinking: 0, tasks: {} };
+    if (!state.timeLog[ds]) state.timeLog[ds] = { thinking: 0, tasks: {}, subtasks: {} };
     if (!state.timeLog[ds].tasks) state.timeLog[ds].tasks = {};
+    if (!state.timeLog[ds].subtasks) state.timeLog[ds].subtasks = {};
 
     if (state.tracking.status === "thinking"){
       state.timeLog[ds].thinking = (state.timeLog[ds].thinking || 0) + elapsedSec;
     } else if (state.tracking.status === "task" && state.tracking.taskId){
       var tid = state.tracking.taskId;
       state.timeLog[ds].tasks[tid] = (state.timeLog[ds].tasks[tid] || 0) + elapsedSec;
+      
+      /* Vuelca tiempo también a la subtarea si hay una activa */
+      if (state.tracking.subtaskId) {
+         var stid = state.tracking.subtaskId;
+         state.timeLog[ds].subtasks[stid] = (state.timeLog[ds].subtasks[stid] || 0) + elapsedSec;
+      }
     }
     state.tracking.startTime = now;
   }
@@ -1726,11 +1740,13 @@
     if (state.tracking.status === "inactive"){
       state.tracking.status    = "thinking";
       state.tracking.taskId    = null;
+      state.tracking.subtaskId = null;
       state.tracking.taskDs    = null;
       state.tracking.startTime = Date.now();
     } else {
       state.tracking.status    = "inactive";
       state.tracking.taskId    = null;
+      state.tracking.subtaskId = null;
       state.tracking.taskDs    = null;
       state.tracking.startTime = null;
     }
@@ -1738,10 +1754,11 @@
     renderActiveTab();
   }
 
-  function playTask(ds, id){
+  function playTask(ds, id, subId){
     flushTime();
     state.tracking.status    = "task";
     state.tracking.taskId    = id;
+    state.tracking.subtaskId = subId || null;
     state.tracking.taskDs    = ds;
     state.tracking.startTime = Date.now();
     persist();
@@ -1752,6 +1769,7 @@
     flushTime();
     state.tracking.status    = "thinking";
     state.tracking.taskId    = null;
+    state.tracking.subtaskId = null;
     state.tracking.taskDs    = null;
     state.tracking.startTime = Date.now();
     persist();
@@ -1762,11 +1780,10 @@
     flushTime();
     state.tracking.status    = "thinking";
     state.tracking.taskId    = null;
+    state.tracking.subtaskId = null;
     state.tracking.taskDs    = null;
     state.tracking.startTime = Date.now();
     persist();
-    /* El flujo original de evidencia (IndexedDB) continúa intacto:
-       markDone() se dispara desde saveEvidence() como siempre. */
     openEvidenceModal(ds, id);
   }
 
@@ -1787,7 +1804,7 @@
     }
   });
 
-  /* Refresca los cronómetros visibles en el DOM cada segundo, sin re-render completo */
+  /* Refresca los cronómetros visibles en el DOM cada segundo */
   function updateLiveTimers(){
     if (!state.tracking || state.tracking.status === "inactive") return;
     var today = todayStr();
@@ -1798,6 +1815,16 @@
     if (state.tracking.status === "task" && state.tracking.taskId){
       var taskEl = document.querySelector('[data-live-task="' + state.tracking.taskId + '"]');
       if (taskEl) taskEl.textContent = formatDuration(getTaskLiveSeconds(state.tracking.taskDs, state.tracking.taskId));
+      
+      if (state.tracking.subtaskId) {
+        var subEl = document.querySelector('[data-live-subtask="' + state.tracking.subtaskId + '"]');
+        if (subEl) {
+          var log = state.timeLog[state.tracking.taskDs];
+          var base = (log && log.subtasks && log.subtasks[state.tracking.subtaskId]) || 0;
+          base += (Date.now() - state.tracking.startTime) / 1000;
+          subEl.textContent = formatDuration(base);
+        }
+      }
     }
   }
   setInterval(updateLiveTimers, 1000);
@@ -1805,17 +1832,22 @@
   /* ===================== Lógica de tareas ===================== */
   function getTasksForDate(ds){
     var tasks = [];
-    /* Hábitos diarios */
+    /* Hábitos diarios (ahora soportan subtareas) */
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
-      if (ds >= h.createdAt) tasks.push({ id:h.id, text:h.text, type:"habit" });
+      if (ds >= h.createdAt) {
+        var habitSubs = h.subtasks ? h.subtasks.map(function(s){
+           return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
+        }) : [];
+        tasks.push({ id:h.id, text:h.text, type:"habit", subtasks: habitSubs });
+      }
     });
     /* Tareas one-off */
     state.oneoff.forEach(function(o){
       if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff", subtasks: o.subtasks });
     });
-    /* Rutinas semanales: inyección por día */
-    var dayOfWeek = strToDate(ds).getDay(); // 0=Dom ... 6=Sáb
+    /* Rutinas semanales */
+    var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
       if (r.days && r.days.indexOf(dayOfWeek) !== -1){
         tasks.push({ id:r.id, text:r.text, type:"routine", routineTime: r.time || null });
@@ -2494,7 +2526,7 @@
 
     /* --- INYECCIÓN DE SUBTAREAS --- */
     var subtasksHtml = "";
-    if (t.type === "oneoff" && status !== "done") {
+    if ((t.type === "oneoff" || t.type === "habit") && status !== "done") {
       var subs = t.subtasks || [];
       var btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-id="' + t.id + '">+ Añadir subtarea</button>';
       
@@ -2506,10 +2538,31 @@
         var listHtml = subs.map(function(s){
           var checked = s.done ? "checked" : "";
           var doneCls = s.done ? " is-done" : "";
-          return '<label class="subtask-item' + doneCls + '">' +
-                   '<input type="checkbox" data-action="toggle-subtask" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' />' +
-                   '<span class="subtask-text">' + escapeHtml(s.text) + '</span>' +
-                 '</label>';
+          
+          /* Tiempo de la subtarea */
+          var log = state.timeLog[ds];
+          var totalSubSecs = (log && log.subtasks && log.subtasks[s.id]) || 0;
+          var isTrackingThis = (state.tracking.status === "task" && state.tracking.subtaskId === s.id && state.tracking.taskDs === ds);
+          if (isTrackingThis && state.tracking.startTime){
+            totalSubSecs += (Date.now() - state.tracking.startTime) / 1000;
+          }
+          
+          var timeBtn = "";
+          if (!s.done && showTimeControls) {
+            if (isTrackingThis) {
+               timeBtn = '<button class="task-time-btn pause" style="width:24px;height:24px;min-width:24px;" data-action="pause-task" title="Pausar subtarea">' + ICON_PAUSE + '</button>';
+            } else {
+               timeBtn = '<button class="task-time-btn play" style="width:24px;height:24px;min-width:24px;" data-action="play-subtask" data-date="'+ds+'" data-id="'+t.id+'" data-subid="'+s.id+'" title="Empezar subtarea">' + ICON_PLAY + '</button>';
+            }
+          }
+          var timeBadge = (totalSubSecs > 0) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
+          var delBtn = '<button class="subtask-del-btn" data-action="delete-subtask" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
+
+          return '<div class="subtask-item' + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
+                   '<input type="checkbox" data-action="toggle-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' />' +
+                   '<span class="subtask-text" style="flex:1;">' + escapeHtml(s.text) + '</span>' +
+                   timeBadge + timeBtn + delBtn +
+                 '</div>';
         }).join("");
 
         subtasksHtml = 
@@ -2520,7 +2573,6 @@
             btnAddSub +
           '</div>';
       } else {
-        /* Si no tiene subtareas, mostramos el botón escondido sutilmente abajo */
         subtasksHtml = '<div class="subtasks-wrapper" style="border:none; padding:0; margin-top:4px;">' + btnAddSub + '</div>';
       }
     }
@@ -4044,28 +4096,59 @@
         restoreFromDrive();
       });
 
-    /* --- RASTREO DE TIEMPO --- */
+    /* --- SUBTAREAS Y RASTREO DE TIEMPO --- */
+    } else if (action === "play-subtask"){
+      playTask(el.getAttribute("data-date"), el.getAttribute("data-id"), el.getAttribute("data-subid"));
+
     } else if (action === "add-subtask"){
       var text = prompt("Escribe la nueva subtarea:");
       if (text && text.trim() !== "") {
-        var task = state.oneoff.find(function(o){ return o.id === el.getAttribute("data-id"); });
-        if (task) {
-          if (!task.subtasks) task.subtasks = [];
-          task.subtasks.push({ id: uid(), text: text.trim(), done: false });
+        var taskId = el.getAttribute("data-id");
+        /* Buscar la tarea tanto en el día de hoy como en el registro de Hábitos */
+        var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
+                     state.habits.find(function(h){ return h.id === taskId; });
+        if (target) {
+          if (!target.subtasks) target.subtasks = [];
+          target.subtasks.push({ id: uid(), text: text.trim(), done: false });
           persist(); renderActiveTab();
         }
       }
+    } else if (action === "delete-subtask"){
+      var taskId = el.getAttribute("data-id");
+      var subId  = el.getAttribute("data-subid");
+      var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
+                   state.habits.find(function(h){ return h.id === taskId; });
+      if (target && target.subtasks) {
+          target.subtasks = target.subtasks.filter(function(s){ return s.id !== subId; });
+      }
+      if (state.tracking.subtaskId === subId) pauseTask();
+      persist(); renderActiveTab();
+      
     } else if (action === "toggle-subtask"){
       var taskId = el.getAttribute("data-id");
       var subId  = el.getAttribute("data-subid");
-      var task = state.oneoff.find(function(o){ return o.id === taskId; });
-      if (task && task.subtasks) {
-        var sub = task.subtasks.find(function(s){ return s.id === subId; });
-        if (sub) {
-          sub.done = el.checked;
-          persist(); renderActiveTab();
+      var ds     = el.getAttribute("data-date");
+      var isDone = el.checked;
+      
+      var oneoff = state.oneoff.find(function(o){ return o.id === taskId; });
+      if (oneoff && oneoff.subtasks) {
+        var sub = oneoff.subtasks.find(function(s){ return s.id === subId; });
+        if (sub) sub.done = isDone;
+      } else {
+        var habit = state.habits.find(function(h){ return h.id === taskId; });
+        if (habit && habit.subtasks) {
+            if (isDone) {
+                if (!state.log[ds]) state.log[ds] = {};
+                /* Si se marca, lo guarda en el día para que mañana amanezca destildado */
+                state.log[ds][subId] = true;
+            } else {
+                if (state.log[ds]) delete state.log[ds][subId];
+            }
         }
       }
+      /* Detener cronómetro de la subtarea automáticamente si la completas */
+      if (state.tracking.subtaskId === subId && isDone) pauseTask();
+      persist(); renderActiveTab();
     } else if (action === "toggle-mute") {
       isTrainMuted = !isTrainMuted;
       localStorage.setItem("bitacora_train_muted", isTrainMuted);
