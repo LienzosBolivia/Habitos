@@ -270,152 +270,189 @@
   .task-time-btn.pause{ background:var(--ink-700); }
   .task-time-btn.stop{ background:var(--done); border-color:var(--done); color:var(--ink-900); }
 
-  /* ===== Tren de Enfoque (Locomotora Realista) ===== */
+  /* ===== Tren de Enfoque (Locomotora Hiperrealista, SVG) ===== */
   .train-track-container {
-    position: relative; width: 100%; height: 85px;
+    position: relative; width: 100%; height: 90px;
     border-bottom: 2px solid var(--ink-700);
     margin: 5px 0 20px 0; overflow: hidden;
-    background: linear-gradient(to top, rgba(10,27,39,0), rgba(15,35,51,0.4));
+    background:
+      radial-gradient(ellipse at 20% 100%, rgba(0,0,0,0.35), transparent 60%),
+      linear-gradient(to top, rgba(10,27,39,0), rgba(15,35,51,0.4));
+  }
+  /* Traviesas de la vía, para dar sensación de movimiento/perspectiva */
+  .train-track-container::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+    background: repeating-linear-gradient(to right, var(--ink-650) 0 8px, transparent 8px 22px);
+    opacity: 0.6;
   }
   .train-loco {
-    position: absolute; bottom: 0; left: 10px; width: 85px; height: 45px;
+    position: absolute; bottom: 1px; left: 10px; width: 150px; height: 62px;
+    filter: drop-shadow(0 3px 3px rgba(0,0,0,0.45));
   }
-  
-  /* --- Piezas orientadas hacia la DERECHA --- */
-  /* Tumbaburros (Frente derecho) */
-  .train-cowcatcher {
-    position: absolute; bottom: 4px; left: 78px; width: 7px; height: 12px;
-    background: var(--text-faint);
-    clip-path: polygon(0 0, 0 100%, 100% 100%);
-  }
-  /* Caldera cilíndrica */
-  .train-body {
-    position: absolute; bottom: 6px; left: 28px; width: 50px; height: 20px;
-    background: linear-gradient(to bottom, var(--brass-300), var(--brass-600));
-    border-radius: 0 12px 0 0;
-    box-shadow: inset 0 -4px 6px rgba(0,0,0,0.3);
-  }
-  /* Domo de vapor */
-  .train-dome {
-    position: absolute; bottom: 26px; left: 42px; width: 12px; height: 8px;
-    background: linear-gradient(to right, var(--brass-500), var(--brass-600));
-    border-radius: 6px 6px 0 0;
-  }
-  /* Chimenea */
-  .train-chimney {
-    position: absolute; bottom: 26px; left: 64px; width: 10px; height: 16px;
-    background: linear-gradient(to right, var(--text-faint), var(--ink-700));
-    border-radius: 2px 2px 0 0;
-  }
-  .train-chimney::before {
-    content: ''; position: absolute; top: -3px; left: -2px; right: -2px; height: 4px;
-    background: var(--text-light); border-radius: 2px;
-  }
-  /* Cabina (Atrás / Izquierda) */
-  .train-cabin {
-    position: absolute; bottom: 6px; left: 2px; width: 26px; height: 32px;
-    background: linear-gradient(to bottom, var(--brass-500), var(--brass-600));
-    border-radius: 4px;
-    box-shadow: inset 2px 0 4px rgba(0,0,0,0.2);
-  }
-  .train-cabin::before {
-    content: ''; position: absolute; top: -3px; left: -3px; right: -3px; height: 5px;
-    background: var(--text-light); border-radius: 3px;
-    box-shadow: 0 2px 2px rgba(0,0,0,0.3);
-  }
-  .train-cabin-window {
-    position: absolute; top: 6px; left: 6px; width: 10px; height: 12px;
-    background: var(--ink-900); border-radius: 2px;
-    border: 1px solid var(--brass-300);
-    box-shadow: inset 0 0 4px rgba(255,255,255,0.1);
-  }
-  /* Ruedas y Biela */
-  .train-wheel {
-    position: absolute; bottom: 0; width: 18px; height: 18px;
-    background: var(--ink-900); border: 2px solid var(--text-muted);
-    border-radius: 50%; box-sizing: border-box;
-    box-shadow: 0 0 4px rgba(0,0,0,0.5);
-  }
-  .train-wheel.large { width: 24px; height: 24px; bottom: 0; }
-  .w1 { left: 6px; } .w2 { left: 30px; } .w3 { left: 56px; }
-  
-  .train-wheel::after { content: ''; position: absolute; top: 50%; left: -2px; right: -2px; height: 2px; background: var(--text-muted); margin-top: -1px; }
-  .train-wheel::before { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--text-muted); margin-left: -1px; }
-  
-  .train-rod {
-    position: absolute; bottom: 7px; left: 15px; width: 50px; height: 4px;
-    background: var(--text-light); border-radius: 2px;
-    box-shadow: 0 2px 2px rgba(0,0,0,0.4);
-  }
+  .loco-svg { width: 100%; height: 100%; overflow: visible; display: block; }
 
-  /* Humo */
-  .train-smoke-puff {
-    position: absolute; bottom: 44px; left: 62px;
-    width: 14px; height: 14px;
-    background: rgba(237,230,214,0.45); border-radius: 50%; opacity: 0;
-    filter: blur(1.5px);
-  }
+  /* --- Grupos base (color neutro / "apagado") --- */
+  .loco-runningboard { fill: #2a3a44; }
+  .loco-cowcatcher path { fill: var(--text-faint); }
+  .loco-cowcatcher rect { fill: #2a3a44; }
+  .loco-cylinder rect { fill: #384954; }
+  .loco-piston-rod { fill: var(--text-muted); }
+  .loco-crosshead-guide { fill: #384954; stroke: var(--text-muted); stroke-width: 0.5; }
+  .loco-boiler { fill: url(#gradBoilerN); stroke: rgba(0,0,0,0.25); stroke-width: 0.4; }
+  .loco-smokebox { fill: #24343d; stroke: rgba(0,0,0,0.3); stroke-width: 0.4; }
+  .loco-smokebox-door { fill: #2c3e48; stroke: #0c1519; stroke-width: 0.7; }
+  .loco-smokebox-hinge { stroke: #55697488; stroke-width: 0.4; stroke-dasharray: 1.4 1.6; }
+  .loco-smokebox-handle { fill: var(--brass-300); }
+  .loco-headlamp-mount { fill: #3a4d59; }
+  .loco-headlamp { fill: #FFF6DC; stroke: var(--brass-600); stroke-width: 0.6; }
+  .loco-headlamp-core { fill: #fff; }
+  .loco-lamp-glow { fill: url(#gradLamp); opacity: 0.55; }
+  .loco-rivet { fill: rgba(0,0,0,0.28); }
+  .loco-dome { fill: url(#gradBoilerN); stroke: rgba(0,0,0,0.25); stroke-width: 0.4; }
+  .loco-dome-band, .loco-chimney-rim { fill: var(--brass-600); }
+  .loco-safety-valve { fill: #55697d; }
+  .loco-chimney path { fill: #1b2a32; stroke: #0a1216; stroke-width: 0.4; }
+  .loco-cab-roof { fill: #16262f; }
+  .loco-cab { fill: url(#gradBoilerN); stroke: rgba(0,0,0,0.25); stroke-width: 0.4; }
+  .loco-cab-windshield, .loco-cab-window { fill: #0a171f; stroke: var(--brass-300); stroke-width: 0.6; }
+  .loco-cab-mullion { stroke: var(--brass-300); stroke-width: 0.7; }
+  .loco-number-plate { fill: var(--ink-900); stroke: var(--brass-300); stroke-width: 0.5; }
+  .loco-wheel-rim { fill: url(#gradWheelN); stroke: var(--text-muted); stroke-width: 1.1; }
+  .loco-wheel-hub { fill: #4a5c68; stroke: var(--text-muted); stroke-width: 0.5; }
+  .loco-spokes line { stroke: var(--text-muted); stroke-width: 1.4; stroke-linecap: round; }
+  .loco-crankpin { fill: var(--brass-300); }
+  .loco-coupling-rod { fill: var(--text-light); }
+  .loco-main-rod { fill: var(--brass-300); stroke: rgba(0,0,0,0.3); stroke-width: 0.3; }
+  .loco-crosshead-pin { fill: var(--text-light); }
+  .loco-rod-pin { fill: var(--brass-500); stroke: rgba(0,0,0,0.3); stroke-width: 0.3; }
 
-  /* --- ESTADO: PENSANDO --- */
-  .status-thinking .train-loco { left: 10px; } /* Se parquea aquí */
-  .status-thinking .train-wheel { animation: spinWheel 2s linear infinite; }
-  .status-thinking .train-rod { animation: moveRod 2s linear infinite; }
-  .status-thinking .train-smoke-puff { animation: puffSmoke 2.5s infinite; }
-  .status-thinking .train-smoke-puff:nth-child(2) { animation-delay: 0.8s; }
-  .status-thinking .train-smoke-puff:nth-child(3) { animation-delay: 1.6s; }
+      /* --- Humo (partículas reales, con blur SVG-like via filter CSS) --- */
+      .loco-smoke { position: absolute; bottom: 60px; left: 88px; width: 1px; height: 1px; }
+      .loco-smoke span {
+        position: absolute; bottom: 0; left: 0;
+        width: 14px; height: 14px; border-radius: 50%; opacity: 0;
+        background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.85), rgba(230,222,205,0.45) 55%, rgba(230,222,205,0) 75%);
+        filter: blur(1.5px);
+      }
 
-  /* --- ESTADO: TAREA --- */
-  .status-task .train-body, .status-task .train-cabin, .status-task .train-dome { background: linear-gradient(to bottom, var(--done), var(--done-dim)); }
+  /* Cada rueda gira sobre su propio eje real; la biela motriz va anidada dentro de la rueda w1,
+     así que gira SOLIDARIA al cigüeñal (mecanismo real), mientras la barra de acoplamiento
+     (fuera de la rueda) solo ORBITA en fase -> de ahí el cruce hipnótico entre ambas. */
+  .loco-wheelset[data-wheel="w1"] { transform-box: view-box; transform-origin: 20px 48px; }
+  .loco-wheelset[data-wheel="w2"] { transform-box: view-box; transform-origin: 55px 48px; }
+  .loco-wheelset[data-wheel="w3"] { transform-box: view-box; transform-origin: 95px 48px; }
+
+  /* --- ESTADO: PENSANDO (fuego encendido, parada en el andén) --- */
+  .status-thinking .train-loco { left: 10px; }
+  .status-thinking .loco-wheelset { animation: spinWheel 2.4s linear infinite; }
+  .status-thinking .loco-coupling-rod,
+  .status-thinking .loco-rod-pin { animation: rodOrbit 2.4s linear infinite; }
   
-  /* Ruedas: Empiezan girando lento y aceleran durante 4 segundos */
-  .status-task .train-wheel { 
-    border-color: var(--done); 
-    animation: 
-      spinWheelStart 4s ease-in forwards,
-      spinWheel 0.3s linear infinite 4s; 
+  .status-thinking .loco-smoke span { animation: puffSmokeSoft 2.8s ease-out infinite; }
+  .status-thinking .loco-smoke span:nth-child(1) { animation-delay: 0s; }
+  .status-thinking .loco-smoke span:nth-child(2) { animation-delay: 0.35s; }
+  .status-thinking .loco-smoke span:nth-child(3) { animation-delay: 0.7s; }
+  .status-thinking .loco-smoke span:nth-child(4) { animation-delay: 1.05s; }
+  .status-thinking .loco-smoke span:nth-child(5) { animation-delay: 1.4s; }
+  .status-thinking .loco-smoke span:nth-child(6) { animation-delay: 1.75s; }
+  .status-thinking .loco-smoke span:nth-child(7) { animation-delay: 2.1s; }
+  .status-thinking .loco-smoke span:nth-child(8) { animation-delay: 2.45s; }
+
+  /* --- ESTADO: TAREA (a toda máquina, calderas verdes) --- */
+  .status-task .loco-boiler, .status-task .loco-dome, .status-task .loco-cab, .status-task .loco-smokebox { fill: url(#gradBoilerT); }
+  .status-task .loco-wheel-rim { fill: url(#gradWheelT); stroke: var(--done); }
+  .status-task .loco-coupling-rod { fill: var(--done); }
+  .status-task .loco-main-rod { fill: var(--done-dim); stroke: var(--done); }
+  .status-task .loco-spokes line { stroke: var(--done); }
+  .status-task .loco-cab-windshield, .status-task .loco-cab-window { stroke: var(--done); }
+  .status-task .loco-cab-mullion { stroke: var(--done-dim); }
+
+  .status-task .loco-wheelset {
+    animation:
+      spinWheelStart 4s cubic-bezier(.22,.4,.3,1) forwards,
+      spinWheel 0.32s linear infinite 4s;
   }
-  .status-task .train-wheel::after, .status-task .train-wheel::before { background: var(--done); }
-  
-  .status-task .train-rod { background: var(--done); animation: moveRod 0.4s linear infinite; }
-  .status-task .train-smoke-puff { background: rgba(95,161,119,0.6); animation: puffSmoke 0.6s infinite; }
-  .status-task .train-smoke-puff:nth-child(2) { animation-delay: 0.2s; }
-  .status-task .train-smoke-puff:nth-child(3) { animation-delay: 0.4s; }
-  .status-task .train-cabin-window { border-color: var(--done); }
-  
-  /* MAGIA DE ANIMACIÓN: Aceleración de la inercia (ease-in) */
-  .status-task .train-loco { 
-    animation: 
-      trainStart 4s ease-in forwards,
-      trainLoop 2.2s linear infinite 4s; 
+  .status-task .loco-coupling-rod, .status-task .loco-rod-pin {
+    animation:
+      rodOrbitStart 4s cubic-bezier(.22,.4,.3,1) forwards,
+      rodOrbit 0.32s linear infinite 4s;
+  }
+  .status-task .loco-smoke span { animation: puffSmokeFast 1.2s ease-out infinite; }
+  .status-task .loco-smoke span:nth-child(1) { animation-delay: 0s; }
+  .status-task .loco-smoke span:nth-child(2) { animation-delay: 0.15s; }
+  .status-task .loco-smoke span:nth-child(3) { animation-delay: 0.3s; }
+  .status-task .loco-smoke span:nth-child(4) { animation-delay: 0.45s; }
+  .status-task .loco-smoke span:nth-child(5) { animation-delay: 0.6s; }
+  .status-task .loco-smoke span:nth-child(6) { animation-delay: 0.75s; }
+  .status-task .loco-smoke span:nth-child(7) { animation-delay: 0.9s; }
+  .status-task .loco-smoke span:nth-child(8) { animation-delay: 1.05s; }
+
+  .status-task .train-loco {
+    animation:
+      trainStart 4s cubic-bezier(.4,0,.2,1) forwards,
+      trainLoop 2.1s linear infinite 4s;
   }
 
   @keyframes spinWheel { 100% { transform: rotate(360deg); } }
-  
-  /* NUEVO: Las ruedas dan 4 vueltas enteras poco a poco para simular la aceleración */
-  @keyframes spinWheelStart {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(1440deg); } 
+  @keyframes spinWheelStart { 0% { transform: rotate(0deg); } 100% { transform: rotate(1800deg); } }
+
+  /* Barra de acoplamiento: NO rota, solo se traslada en una órbita circular (radio ~7px),
+     porque los 3 cigüeñales están en fase entre sí — así se comporta un varillaje real. */
+  @keyframes rodOrbit {
+    0%    { transform: translate(0px, 0px); }
+    12.5% { transform: translate(-2.05px, 4.95px); }
+    25%   { transform: translate(-7px, 7px); }
+    37.5% { transform: translate(-11.95px, 4.95px); }
+    50%   { transform: translate(-14px, 0px); }
+    62.5% { transform: translate(-11.95px, -4.95px); }
+    75%   { transform: translate(-7px, -7px); }
+    87.5% { transform: translate(-2.05px, -4.95px); }
+    100%  { transform: translate(0px, 0px); }
   }
-  
-  @keyframes moveRod {
-    0% { transform: translateY(0px) translateX(0px); }
-    25% { transform: translateY(2px) translateX(2px); }
-    50% { transform: translateY(0px) translateX(4px); }
-    75% { transform: translateY(-2px) translateX(2px); }
-    100% { transform: translateY(0px) translateX(0px); }
+  @keyframes rodOrbitStart {
+    0%     { transform: translate(0px,0px); }
+    6.25%  { transform: translate(-7px,7px); }
+    12.5%  { transform: translate(-14px,0px); }
+    18.75% { transform: translate(-7px,-7px); }
+    25%    { transform: translate(0px,0px); }
+    30%    { transform: translate(-7px,7px); }
+    35%    { transform: translate(-14px,0px); }
+    40%    { transform: translate(-7px,-7px); }
+    45%    { transform: translate(0px,0px); }
+    49.25% { transform: translate(-7px,7px); }
+    53.5%  { transform: translate(-14px,0px); }
+    57.75% { transform: translate(-7px,-7px); }
+    62%    { transform: translate(0px,0px); }
+    66%    { transform: translate(-7px,7px); }
+    70%    { transform: translate(-14px,0px); }
+    74%    { transform: translate(-7px,-7px); }
+    78%    { transform: translate(0px,0px); }
+    83.5%  { transform: translate(-7px,7px); }
+    89%    { transform: translate(-14px,0px); }
+    94.5%  { transform: translate(-7px,-7px); }
+    100%   { transform: translate(0px,0px); }
   }
-  @keyframes puffSmoke {
-    0% { transform: translate(0, 0) scale(1); opacity: 0.9; }
-    100% { transform: translate(-35px, -65px) scale(3.5); opacity: 0; }
+
+  @keyframes puffSmokeSoft {
+    0%   { transform: translate(0,0) scale(0.7); opacity: 0; }
+    15%  { opacity: 0.85; }
+    100% { transform: translate(-40px,-75px) scale(3.5); opacity: 0; }
   }
-  /* Animación 1: Arranque desde reposo (Empieza MUY lento, termina rápido) */
+  @keyframes puffSmokeFast {
+    0%   { transform: translate(0,0) scale(0.6); opacity: 0; }
+    10%  { opacity: 0.95; }
+    50%  { opacity: 0.8; }
+    100% { transform: translate(-80px,-100px) scale(4.5); opacity: 0; }
+  }
+
+  /* Arranque desde reposo: empieza MUY lento (inercia) y termina a toda velocidad */
   @keyframes trainStart {
     0%   { left: 10px; }
     100% { left: 110%; }
   }
-  /* Animación 2: Ciclo infinito (Pasa a toda velocidad) */
+  /* Ciclo infinito ya a toda máquina */
   @keyframes trainLoop {
-    0%   { left: -100px; }
+    0%   { left: -160px; }
     100% { left: 110%; }
   }
   /* ===== Gráfica de Tiempo Histórico (7 Días) ===== */
@@ -2621,14 +2658,116 @@
       '<div class="train-track-container status-' + st + '">' +
         '<button class="train-mute-btn ' + (isTrainMuted ? '' : 'is-active') + '" data-action="toggle-mute" title="Sonido del tren">' + muteIcon + '</button>' +
         '<div class="train-loco">' +
-          '<div class="train-smoke-puff"></div><div class="train-smoke-puff"></div><div class="train-smoke-puff"></div>' +
-          '<div class="train-chimney"></div>' +
-          '<div class="train-dome"></div>' +
-          '<div class="train-cowcatcher"></div>' +
-          '<div class="train-body"></div>' +
-          '<div class="train-cabin"><div class="train-cabin-window"></div></div>' +
-          '<div class="train-wheel w1"></div><div class="train-wheel w2"></div><div class="train-wheel w3 large"></div>' +
-          '<div class="train-rod"></div>' +
+          '<div class="loco-smoke"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>' +
+          '<svg class="loco-svg" viewBox="0 0 150 62" xmlns="http://www.w3.org/2000/svg">' +
+            '<defs>' +
+              '<linearGradient id="gradBoilerN" x1="0" y1="0" x2="0" y2="1">' +
+                '<stop offset="0%" stop-color="#E3BD7C"/><stop offset="45%" stop-color="#C9974A"/><stop offset="100%" stop-color="#8C6530"/>' +
+              '</linearGradient>' +
+              '<linearGradient id="gradBoilerT" x1="0" y1="0" x2="0" y2="1">' +
+                '<stop offset="0%" stop-color="#9CD4AF"/><stop offset="45%" stop-color="#5FA177"/><stop offset="100%" stop-color="#2E5B41"/>' +
+              '</linearGradient>' +
+              '<radialGradient id="gradWheelN" cx="35%" cy="30%" r="75%">' +
+                '<stop offset="0%" stop-color="#3a4d59"/><stop offset="70%" stop-color="#101c24"/><stop offset="100%" stop-color="#050a0d"/>' +
+              '</radialGradient>' +
+              '<radialGradient id="gradWheelT" cx="35%" cy="30%" r="75%">' +
+                '<stop offset="0%" stop-color="#6fbf8c"/><stop offset="70%" stop-color="#1c3527"/><stop offset="100%" stop-color="#0c1712"/>' +
+              '</radialGradient>' +
+              '<radialGradient id="gradLamp" cx="50%" cy="50%" r="50%">' +
+                '<stop offset="0%" stop-color="#FFF6DC"/><stop offset="60%" stop-color="#F3DFB8" stop-opacity="0.8"/><stop offset="100%" stop-color="#F3DFB8" stop-opacity="0"/>' +
+              '</radialGradient>' +
+              '<filter id="steamBlur" x="-100%" y="-100%" width="300%" height="300%">' +
+                '<feGaussianBlur stdDeviation="1.1"/>' +
+              '</filter>' +
+            '</defs>' +
+
+            '<ellipse class="loco-lamp-glow" cx="140" cy="26" rx="11" ry="9"></ellipse>' +
+
+            '<rect class="loco-runningboard" x="4" y="40" width="110" height="3" rx="1"></rect>' +
+
+            '<g class="loco-cylinder">' +
+              '<rect x="14" y="34" width="20" height="12" rx="3"></rect>' +
+              '<rect class="loco-piston-rod" x="-8" y="38.5" width="24" height="3" rx="1.5"></rect>' +
+            '</g>' +
+            '<circle class="loco-crosshead-guide" cx="14" cy="40" r="2.6"></circle>' +
+
+            /* Parachoques / Delantal (Cowcatcher) extendido en punta */
+            '<g class="loco-cowcatcher">' +
+              '<path d="M116,41 L138,52 L106,52 Z" fill="#1b2a32" stroke="#0a1216" stroke-width="0.5"></path>' +
+              '<path d="M116,41 L134,52 M116,41 L130,52 M116,41 L126,52 M116,41 L122,52 M116,41 L118,52 M116,41 L114,52 M116,41 L110,52" stroke="var(--text-faint)" stroke-width="0.8"></path>' +
+              '<rect x="104" y="50.5" width="36" height="2.5" rx="1" fill="#2a3a44"></rect>' +
+            '</g>' +
+
+            /* Caldera cilíndrica clásica (recta, no aerodinámica) rematada en un smokebox con puerta redonda remachada */
+            '<rect class="loco-boiler" x="40" y="14" width="70" height="26" rx="2"></rect>' +
+            '<path class="loco-smokebox" d="M100,14 L110,14 Q116,14 116,20 L116,34 Q116,40 110,40 L100,40 Z"></path>' +
+            '<circle class="loco-smokebox-door" cx="112" cy="27" r="9.5"></circle>' +
+            '<circle class="loco-smokebox-hinge" cx="112" cy="27" r="6.5" fill="none"></circle>' +
+            '<rect class="loco-smokebox-handle" x="108" y="16.5" width="8" height="2" rx="1"></rect>' +
+            '<circle class="loco-headlamp-mount" cx="112" cy="12" r="1.6"></circle>' +
+            '<rect class="loco-headlamp-mount" x="110.5" y="6" width="3" height="6.5"></rect>' +
+            '<circle class="loco-headlamp" cx="112" cy="6" r="4"></circle>' +
+            '<circle class="loco-headlamp-core" cx="112" cy="6" r="1.7"></circle>' +
+
+            (function(){var r="";for(var i=0;i<4;i++){r+='<circle class="loco-rivet" cx="'+(45+i*13)+'" cy="17" r="0.9"></circle><circle class="loco-rivet" cx="'+(45+i*13)+'" cy="37" r="0.9"></circle>';}return r;})() +
+            (function(){var a=[100,104,108,112,116,120,124,128];var r="";for(var i=0;i<a.length;i++){var ang=a[i]*Math.PI/180;r+='<circle class="loco-rivet" cx="'+(112+9*Math.cos(ang)).toFixed(1)+'" cy="'+(27+9*Math.sin(ang)).toFixed(1)+'" r="0.7"></circle>';}return r;})() +
+
+            '<path class="loco-dome" d="M58,14 Q58,5 66,5 Q74,5 74,14 Z"></path>' +
+            '<rect class="loco-dome-band" x="57" y="12.5" width="18" height="2"></rect>' +
+            '<rect class="loco-safety-valve" x="78" y="6" width="3" height="8" rx="1"></rect>' +
+
+            '<g class="loco-chimney">' +
+              '<path d="M84,14 L85,3 Q85.3,0 89,0 L95,0 Q98.7,0 99,3 L100,14 Z"></path>' +
+              '<rect class="loco-chimney-rim" x="83.3" y="-1.6" width="17.4" height="3.4" rx="1.5"></rect>' +
+            '</g>' +
+
+            '<path class="loco-cab-roof" d="M0,9 L44,9 L48,5 L2,5 Z"></path>' +
+            '<path class="loco-cab" d="M2,9 L44,9 L44,44 L2,44 Q0,44 0,42 L0,11 Q0,9 2,9 Z"></path>' +
+            '<path class="loco-cab-windshield" d="M6,13 L20,13 L20,27 L6,27 Q4,27 4,25 L4,15 Q4,13 6,13 Z"></path>' +
+            '<line class="loco-cab-mullion" x1="12.5" y1="13" x2="12.5" y2="27"></line>' +
+            '<rect class="loco-cab-window" x="24" y="13" width="12" height="14" rx="1.5"></rect>' +
+            '<circle class="loco-number-plate" cx="22" cy="37" r="3.2"></circle>' +
+            (function(){var r="";for(var i=0;i<3;i++){r+='<circle class="loco-rivet" cx="'+(6+i*13)+'" cy="11" r="0.8"></circle>';}return r;})() +
+
+            /* Ruedas motrices — cada una gira sobre su propio eje real (transform-origin fijado en coords del viewBox) */
+            '<g class="loco-wheelset" data-wheel="w1">' +
+              '<circle class="loco-wheel-rim" cx="20" cy="48" r="12"></circle>' +
+              '<circle class="loco-wheel-hub" cx="20" cy="48" r="3.4"></circle>' +
+              '<g class="loco-spokes">' +
+                '<line x1="20" y1="37" x2="20" y2="59"></line><line x1="9" y1="48" x2="31" y2="48"></line>' +
+                '<line x1="12.2" y1="40.2" x2="27.8" y2="55.8"></line><line x1="12.2" y1="55.8" x2="27.8" y2="40.2"></line>' +
+              '</g>' +
+              '<circle class="loco-crankpin" cx="27" cy="48" r="1.7"></circle>' +
+              /* Biela motriz: solidaria al cigüeñal, gira 360° con la rueda y "cruza" el resto del mecanismo */
+              '<path class="loco-main-rod" d="M27,49.4 L27,46.6 L11,39.2 Q9,38.3 8,40.2 Q7,42 9,42.9 Z"></path>' +
+              '<circle class="loco-crosshead-pin" cx="9.2" cy="40.9" r="1.4"></circle>' +
+            '</g>' +
+            '<g class="loco-wheelset" data-wheel="w2">' +
+              '<circle class="loco-wheel-rim" cx="55" cy="48" r="13"></circle>' +
+              '<circle class="loco-wheel-hub" cx="55" cy="48" r="3.6"></circle>' +
+              '<g class="loco-spokes">' +
+                '<line x1="55" y1="36" x2="55" y2="60"></line><line x1="43" y1="48" x2="67" y2="48"></line>' +
+                '<line x1="46.5" y1="39.5" x2="63.5" y2="56.5"></line><line x1="46.5" y1="56.5" x2="63.5" y2="39.5"></line>' +
+              '</g>' +
+              '<circle class="loco-crankpin" cx="63" cy="48" r="1.8"></circle>' +
+            '</g>' +
+            '<g class="loco-wheelset" data-wheel="w3">' +
+              '<circle class="loco-wheel-rim" cx="95" cy="48" r="14"></circle>' +
+              '<circle class="loco-wheel-hub" cx="95" cy="48" r="3.8"></circle>' +
+              '<g class="loco-spokes">' +
+                '<line x1="95" y1="35" x2="95" y2="61"></line><line x1="82" y1="48" x2="108" y2="48"></line>' +
+                '<line x1="85.2" y1="38.2" x2="104.8" y2="57.8"></line><line x1="85.2" y1="57.8" x2="104.8" y2="38.2"></line>' +
+              '</g>' +
+              '<circle class="loco-crankpin" cx="104" cy="48" r="1.9"></circle>' +
+            '</g>' +
+
+            /* Barra de acoplamiento: une los 3 cigüeñales, avanza en una órbita circular en fase con las ruedas (sin girar sobre sí misma), y por eso se cruza visualmente con la biela motriz que sí gira */
+            '<path class="loco-coupling-rod" d="M27,49.2 L63,49.2 L63,46.8 L27,46.8 Z"></path>' +
+            '<path class="loco-coupling-rod" d="M63,49.2 L104,49.2 L104,46.8 L63,46.8 Z"></path>' +
+            '<circle class="loco-rod-pin" cx="27" cy="48" r="1.3"></circle>' +
+            '<circle class="loco-rod-pin" cx="63" cy="48" r="1.3"></circle>' +
+            '<circle class="loco-rod-pin" cx="104" cy="48" r="1.3"></circle>' +
+          '</svg>' +
         '</div>' +
       '</div>';
 
