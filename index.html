@@ -272,7 +272,7 @@
 
   /* ===== Tren de Enfoque (Locomotora Hiperrealista, SVG) ===== */
   .train-track-container {
-    position: relative; width: 100%; height: 90px;
+    position: relative; width: 100%; height: 145px;
     border-bottom: 2px solid var(--ink-700);
     margin: 5px 0 20px 0; overflow: hidden;
     background:
@@ -1869,13 +1869,24 @@
   /* ===================== Lógica de tareas ===================== */
   function getTasksForDate(ds){
     var tasks = [];
-    /* Hábitos diarios (ahora soportan subtareas) */
+    /* Hábitos diarios (ahora con subtareas independientes por fecha) */
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
       if (ds >= h.createdAt) {
-        var habitSubs = h.subtasks ? h.subtasks.map(function(s){
-           return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
-        }) : [];
+        var habitSubs = [];
+        if (h.subtasks) {
+          habitSubs = h.subtasks.filter(function(s){
+            var created = s.createdAt || h.createdAt || "2020-01-01";
+            var archived = s.archivedAt || null;
+            /* No mostrar si el día que estamos viendo es anterior a cuando se creó la subtarea */
+            if (ds < created) return false;
+            /* No mostrar si la subtarea fue borrada/archivada hoy o antes de hoy */
+            if (archived && ds >= archived) return false;
+            return true;
+          }).map(function(s){
+            return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
+          });
+        }
         tasks.push({ id:h.id, text:h.text, type:"habit", subtasks: habitSubs });
       }
     });
@@ -2565,7 +2576,8 @@
     var subtasksHtml = "";
     if ((t.type === "oneoff" || t.type === "habit") && status !== "done") {
       var subs = t.subtasks || [];
-      var btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-id="' + t.id + '">+ Añadir subtarea</button>';
+      /* Le pasamos la fecha actual (ds) al botón de crear */
+      var btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
       
       if (subs.length > 0) {
         var subsDone = subs.filter(function(s){ return s.done; }).length;
@@ -2593,7 +2605,9 @@
             }
           }
           var timeBadge = (totalSubSecs > 0) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
-          var delBtn = '<button class="subtask-del-btn" data-action="delete-subtask" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
+          
+          /* Le pasamos la fecha actual (ds) al botón de borrar */
+          var delBtn = '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
 
           return '<div class="subtask-item' + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
                    '<input type="checkbox" data-action="toggle-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' />' +
@@ -4243,23 +4257,35 @@
       var text = prompt("Escribe la nueva subtarea:");
       if (text && text.trim() !== "") {
         var taskId = el.getAttribute("data-id");
-        /* Buscar la tarea tanto en el día de hoy como en el registro de Hábitos */
+        var ds = el.getAttribute("data-date");
         var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
                      state.habits.find(function(h){ return h.id === taskId; });
         if (target) {
           if (!target.subtasks) target.subtasks = [];
-          target.subtasks.push({ id: uid(), text: text.trim(), done: false });
+          /* Agregamos la fecha actual como día de nacimiento de la subtarea */
+          target.subtasks.push({ id: uid(), text: text.trim(), done: false, createdAt: ds });
           persist(); renderActiveTab();
         }
       }
+      
     } else if (action === "delete-subtask"){
       var taskId = el.getAttribute("data-id");
       var subId  = el.getAttribute("data-subid");
-      var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
-                   state.habits.find(function(h){ return h.id === taskId; });
-      if (target && target.subtasks) {
-          target.subtasks = target.subtasks.filter(function(s){ return s.id !== subId; });
+      var ds     = el.getAttribute("data-date");
+      
+      var oneoff = state.oneoff.find(function(o){ return o.id === taskId; });
+      if (oneoff && oneoff.subtasks) {
+          /* En tareas únicas (oneoff), la borramos definitivamente */
+          oneoff.subtasks = oneoff.subtasks.filter(function(s){ return s.id !== subId; });
+      } else {
+          var habit = state.habits.find(function(h){ return h.id === taskId; });
+          if (habit && habit.subtasks) {
+              /* En Hábitos, solo la "archivamos" en este día para que el pasado no se borre */
+              var sub = habit.subtasks.find(function(s){ return s.id === subId; });
+              if (sub) sub.archivedAt = ds;
+          }
       }
+      
       if (state.tracking.subtaskId === subId) pauseTask();
       persist(); renderActiveTab();
       
