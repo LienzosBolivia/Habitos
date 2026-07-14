@@ -1418,7 +1418,7 @@
   /* ===================== Estado global ===================== */
   var state = null;
   var activeTab = "hoy";
-  /* --- Motor de Audio (Reinicio Inteligente y Anti-Notificaciones Fantasma) --- */
+  var statsOffsetDays = 0; /* Controla la navegación en las estadísticas */
   
   /* PON AQUÍ EL NOMBRE EXACTO DEL AUDIO QUE SUBISTE A GITHUB: */
   var nombreDeMiAudio = "BLUE HORIZON FUNK_256k.mp3"; 
@@ -1894,11 +1894,23 @@
     state.oneoff.forEach(function(o){
       if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff", subtasks: o.subtasks });
     });
-    /* Rutinas semanales */
+    /* Rutinas semanales (ahora con subtareas viajeras) */
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
       if (r.days && r.days.indexOf(dayOfWeek) !== -1){
-        tasks.push({ id:r.id, text:r.text, type:"routine", routineTime: r.time || null });
+        var routineSubs = [];
+        if (r.subtasks) {
+          routineSubs = r.subtasks.filter(function(s){
+            var created = s.createdAt || "2020-01-01";
+            var archived = s.archivedAt || null;
+            if (ds < created) return false;
+            if (archived && ds >= archived) return false;
+            return true;
+          }).map(function(s){
+            return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
+          });
+        }
+        tasks.push({ id:r.id, text:r.text, type:"routine", routineTime: r.time || null, subtasks: routineSubs });
       }
     });
     return tasks;
@@ -2499,7 +2511,7 @@
                   (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
 
     /* Controles de tiempo (tareas oneoff y hábitos, no completadas, del día de hoy) */
-    var showTimeControls = ((t.type === "oneoff" || t.type === "habit") && status !== "done" && !isFuture && ds === todayStr());
+var showTimeControls = ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status !== "done" && !isFuture && ds === todayStr());
     var stampOrTimeHtml;
     if (showTimeControls){
       var isActiveTask = (state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds);
@@ -2526,7 +2538,7 @@
 
     /* Lógica: Extraer el tiempo si la tarea ya está finalizada */
     var timeLoggedHtml = "";
-    if ((t.type === "oneoff" || t.type === "habit") && status === "done") {
+if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status === "done") {
       var totalSecs = getTaskLiveSeconds(ds, t.id);
       if (totalSecs > 0) {
         timeLoggedHtml = '<span style="margin-left:auto; margin-right:6px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 7px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + formatDuration(totalSecs) + '</span>';
@@ -2574,7 +2586,7 @@
 
     /* --- INYECCIÓN DE SUBTAREAS --- */
     var subtasksHtml = "";
-    if ((t.type === "oneoff" || t.type === "habit") && status !== "done") {
+if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status !== "done") {
       var subs = t.subtasks || [];
       /* Le pasamos la fecha actual (ds) al botón de crear */
       var btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
@@ -3254,8 +3266,11 @@
 
     var today  = todayStr();
 
-    /* --- NUEVO: Motor de Gráfica Histórica (7 Días) de Tiempo --- */
+    /* --- NUEVO: Motor de Gráfica Histórica (Navegable) --- */
     var dObj = new Date();
+    if (typeof statsOffsetDays !== 'undefined' && statsOffsetDays !== 0) {
+      dObj.setDate(dObj.getDate() + statsOffsetDays);
+    }
     var maxSecs = 1; 
     var chartData = [];
     
@@ -3291,7 +3306,17 @@
              '</div>';
     }).join("");
 
+    var navArrows = 
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+        '<button class="btn-secondary" data-action="stats-prev-week" style="padding:5px 10px; font-size:11px;">&larr; Semana ant.</button>' +
+        '<span style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:600;">' + 
+          (statsOffsetDays === 0 ? 'Últimos 7 días' : (Math.abs(statsOffsetDays)/7) + ' sem. atrás') + 
+        '</span>' +
+        '<button class="btn-secondary" data-action="stats-next-week" style="padding:5px 10px; font-size:11px;" ' + (statsOffsetDays >= 0 ? 'disabled style="opacity:0.3;cursor:not-allowed;"' : '') + '>Sig. semana &rarr;</button>' +
+      '</div>';
+
     var timeChartHtml = 
+      navArrows +
       '<div class="time-chart-wrapper">' +
         '<div class="time-chart">' + columnsHtml + '</div>' +
       '</div>' +
@@ -4121,6 +4146,7 @@
     var navBtn = e.target.closest(".nav-btn");
     if (navBtn && navBtn.hasAttribute("data-tab")){
       activeTab = navBtn.getAttribute("data-tab");
+      if (activeTab === "estadisticas") statsOffsetDays = 0;
       openReminderPanel = null;
       document.querySelectorAll(".nav-btn").forEach(function(b){ b.classList.toggle("active", b === navBtn); });
       renderActiveTab();
@@ -4253,16 +4279,25 @@
     } else if (action === "play-subtask"){
       playTask(el.getAttribute("data-date"), el.getAttribute("data-id"), el.getAttribute("data-subid"));
 
+    } else if (action === "stats-prev-week"){
+      statsOffsetDays -= 7;
+      renderActiveTab();
+      
+    } else if (action === "stats-next-week"){
+      statsOffsetDays += 7;
+      if (statsOffsetDays > 0) statsOffsetDays = 0;
+      renderActiveTab();
+
     } else if (action === "add-subtask"){
       var text = prompt("Escribe la nueva subtarea:");
       if (text && text.trim() !== "") {
         var taskId = el.getAttribute("data-id");
         var ds = el.getAttribute("data-date");
         var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
-                     state.habits.find(function(h){ return h.id === taskId; });
+                     state.habits.find(function(h){ return h.id === taskId; }) ||
+                     state.routines.find(function(r){ return r.id === taskId; });
         if (target) {
           if (!target.subtasks) target.subtasks = [];
-          /* Agregamos la fecha actual como día de nacimiento de la subtarea */
           target.subtasks.push({ id: uid(), text: text.trim(), done: false, createdAt: ds });
           persist(); renderActiveTab();
         }
@@ -4275,13 +4310,12 @@
       
       var oneoff = state.oneoff.find(function(o){ return o.id === taskId; });
       if (oneoff && oneoff.subtasks) {
-          /* En tareas únicas (oneoff), la borramos definitivamente */
           oneoff.subtasks = oneoff.subtasks.filter(function(s){ return s.id !== subId; });
       } else {
-          var habit = state.habits.find(function(h){ return h.id === taskId; });
-          if (habit && habit.subtasks) {
-              /* En Hábitos, solo la "archivamos" en este día para que el pasado no se borre */
-              var sub = habit.subtasks.find(function(s){ return s.id === subId; });
+          var target = state.habits.find(function(h){ return h.id === taskId; }) ||
+                       state.routines.find(function(r){ return r.id === taskId; });
+          if (target && target.subtasks) {
+              var sub = target.subtasks.find(function(s){ return s.id === subId; });
               if (sub) sub.archivedAt = ds;
           }
       }
@@ -4300,17 +4334,19 @@
         var sub = oneoff.subtasks.find(function(s){ return s.id === subId; });
         if (sub) sub.done = isDone;
       } else {
-        var habit = state.habits.find(function(h){ return h.id === taskId; });
-        if (habit && habit.subtasks) {
+        var target = state.habits.find(function(h){ return h.id === taskId; }) ||
+                     state.routines.find(function(r){ return r.id === taskId; });
+        if (target && target.subtasks) {
             if (isDone) {
                 if (!state.log[ds]) state.log[ds] = {};
-                /* Si se marca, lo guarda en el día para que mañana amanezca destildado */
                 state.log[ds][subId] = true;
             } else {
                 if (state.log[ds]) delete state.log[ds][subId];
             }
         }
       }
+      if (state.tracking.subtaskId === subId && isDone) pauseTask();
+      persist(); renderActiveTab();
       /* Detener cronómetro de la subtarea automáticamente si la completas */
       if (state.tracking.subtaskId === subId && isDone) pauseTask();
       persist(); renderActiveTab();
