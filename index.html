@@ -495,6 +495,13 @@
   .subtask-item.is-done .subtask-text { text-decoration: line-through; color: var(--text-muted); }
   .btn-add-subtask { background: none; border: none; color: var(--brass-300); font-size: 11.5px; cursor: pointer; display: flex; align-items: center; padding: 0; font-weight: 600; opacity: 0.8; }
   .btn-add-subtask:hover { opacity: 1; text-decoration: underline; }
+  .btn-toggle-subtasks {
+    background: rgba(0,0,0,0.2); border: 1px solid var(--ink-700); border-radius: 4px;
+    color: var(--text-faint); font-size: 10.5px; font-family: var(--font-mono);
+    cursor: pointer; padding: 4px 8px; display: inline-flex; align-items: center; gap: 4px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .btn-toggle-subtasks:hover { color: var(--brass-300); border-color: var(--ink-650); }
   .subtask-del-btn {
     background: none; border: none; color: var(--text-faint); font-size: 18px; line-height: 1;
     cursor: pointer; padding: 0 4px; display: flex; align-items: center; justify-content: center;
@@ -1462,6 +1469,8 @@
       }
     }
   }
+  /* Memoria para saber qué pestañas de subtareas están abiertas */
+  var openSubtasks = {};
   var selectedCalendarDate = null;
   var calendarViewDate = new Date();
   var openReminderPanel = null;
@@ -2586,9 +2595,9 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
 
     /* --- INYECCIÓN DE SUBTAREAS --- */
     var subtasksHtml = "";
-if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status !== "done") {
+    if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status !== "done") {
       var subs = t.subtasks || [];
-      /* Le pasamos la fecha actual (ds) al botón de crear */
+      var isOpen = !!openSubtasks[t.id];
       var btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
       
       if (subs.length > 0) {
@@ -2596,6 +2605,9 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
         var pct = Math.round((subsDone / subs.length) * 100);
         var barColor = pct === 100 ? "var(--done)" : "var(--brass-500)";
         
+        var toggleIcon = isOpen ? "▲" : "▼";
+        var toggleBtnHtml = '<button class="btn-toggle-subtasks" data-action="toggle-subtasks-view" data-id="' + t.id + '">↳ Subtareas (' + subsDone + '/' + subs.length + ') ' + toggleIcon + '</button>';
+
         var listHtml = subs.map(function(s){
           var checked = s.done ? "checked" : "";
           var doneCls = s.done ? " is-done" : "";
@@ -2617,8 +2629,6 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
             }
           }
           var timeBadge = (totalSubSecs > 0) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
-          
-          /* Le pasamos la fecha actual (ds) al botón de borrar */
           var delBtn = '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
 
           return '<div class="subtask-item' + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
@@ -2629,11 +2639,14 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
         }).join("");
 
         subtasksHtml = 
-          '<div class="subtasks-wrapper">' +
-            '<div class="subtask-progress-bar"><div class="subtask-progress-fill" style="width:' + pct + '%; background:' + barColor + ';"></div></div>' +
-            '<div class="subtask-progress-text">' + pct + '% completado (' + subsDone + '/' + subs.length + ')</div>' +
-            '<div class="subtask-list">' + listHtml + '</div>' +
-            btnAddSub +
+          '<div style="width:100%; margin-top:8px;">' +
+            toggleBtnHtml +
+            '<div class="subtasks-wrapper" style="display:' + (isOpen ? 'block' : 'none') + ';">' +
+              '<div class="subtask-progress-bar"><div class="subtask-progress-fill" style="width:' + pct + '%; background:' + barColor + ';"></div></div>' +
+              '<div class="subtask-progress-text">' + pct + '% completado (' + subsDone + '/' + subs.length + ')</div>' +
+              '<div class="subtask-list">' + listHtml + '</div>' +
+              btnAddSub +
+            '</div>' +
           '</div>';
       } else {
         subtasksHtml = '<div class="subtasks-wrapper" style="border:none; padding:0; margin-top:4px;">' + btnAddSub + '</div>';
@@ -4302,8 +4315,31 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
           persist(); renderActiveTab();
         }
       }
+    } else if (action === "add-subtask"){
+      var text = prompt("Escribe la nueva subtarea:");
+      if (text && text.trim() !== "") {
+        var taskId = el.getAttribute("data-id");
+        var ds = el.getAttribute("data-date");
+        var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
+                     state.habits.find(function(h){ return h.id === taskId; }) ||
+                     state.routines.find(function(r){ return r.id === taskId; });
+        if (target) {
+          if (!target.subtasks) target.subtasks = [];
+          target.subtasks.push({ id: uid(), text: text.trim(), done: false, createdAt: ds });
+          openSubtasks[taskId] = true; /* <--- Abre la pestaña al añadir */
+          persist(); renderActiveTab();
+        }
+      }
+      
+    } else if (action === "toggle-subtasks-view"){
+      var tid = el.getAttribute("data-id");
+      openSubtasks[tid] = !openSubtasks[tid];
+      renderActiveTab();
       
     } else if (action === "delete-subtask"){
+      /* --- ADVERTENCIA DE ELIMINACIÓN --- */
+      if (!window.confirm("¿Seguro que quieres eliminar esta subtarea?")) return;
+      
       var taskId = el.getAttribute("data-id");
       var subId  = el.getAttribute("data-subid");
       var ds     = el.getAttribute("data-date");
