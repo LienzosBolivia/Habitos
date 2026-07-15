@@ -2595,10 +2595,14 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
 
     /* --- INYECCIÓN DE SUBTAREAS --- */
     var subtasksHtml = "";
-    if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status !== "done") {
+    /* Le quitamos la restricción de "status !== done" para que siempre aparezcan */
+    if (t.type === "oneoff" || t.type === "habit" || t.type === "routine") {
       var subs = t.subtasks || [];
       var isOpen = !!openSubtasks[t.id];
-      var btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
+      var isTaskDone = (status === "done");
+      
+      /* Ocultamos el botón de añadir si la tarea ya está finalizada */
+      var btnAddSub = isTaskDone ? '' : '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
       
       if (subs.length > 0) {
         var subsDone = subs.filter(function(s){ return s.done; }).length;
@@ -2621,7 +2625,7 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
           }
           
           var timeBtn = "";
-          if (!s.done && showTimeControls) {
+          if (!s.done && showTimeControls && !isTaskDone) {
             if (isTrackingThis) {
                timeBtn = '<button class="task-time-btn pause" style="width:24px;height:24px;min-width:24px;" data-action="pause-task" title="Pausar subtarea">' + ICON_PAUSE + '</button>';
             } else {
@@ -2629,10 +2633,13 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
             }
           }
           var timeBadge = (totalSubSecs > 0) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
-          var delBtn = '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
+          
+          /* Ocultamos botón de borrar y bloqueamos la casilla si la tarea está finalizada */
+          var delBtn = isTaskDone ? '' : '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
+          var disabledAttr = isTaskDone ? 'disabled' : '';
 
           return '<div class="subtask-item' + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
-                   '<input type="checkbox" data-action="toggle-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' />' +
+                   '<input type="checkbox" data-action="toggle-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' ' + disabledAttr + ' />' +
                    '<span class="subtask-text" style="flex:1;">' + escapeHtml(s.text) + '</span>' +
                    timeBadge + timeBtn + delBtn +
                  '</div>';
@@ -2648,19 +2655,19 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
               btnAddSub +
             '</div>' +
           '</div>';
-      } else {
+      } else if (!isTaskDone) {
         subtasksHtml = '<div class="subtasks-wrapper" style="border:none; padding:0; margin-top:4px;">' + btnAddSub + '</div>';
       }
     }
 
     var hasExtra = reminderBadge || panelHtml || subtasksHtml;
+    
     return (
       '<div class="task-item' + (hasExtra ? " has-reminder" : "") + '">' +
         mainRow + subtasksHtml + reminderBadge + panelHtml +
       '</div>'
     );
   }
-
   function renderTaskList(ds, opts){
     var tasks = getTasksForDate(ds);
     if (tasks.length === 0){
