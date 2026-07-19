@@ -270,7 +270,7 @@
   .task-time-btn.pause{ background:var(--ink-700); }
   .task-time-btn.stop{ background:var(--done); border-color:var(--done); color:var(--ink-900); }
 
-  /* ===== Tren de Enfoque (Locomotora Hiperrealista, SVG) ===== */
+  /* ===== Tren de Enfoque (Locoa Hiperrealista, SVG) ===== */
   .train-track-container {
     position: relative; width: 100%; height: 145px;
     border-bottom: 2px solid var(--ink-700);
@@ -1585,6 +1585,7 @@
 
   var trainAudio = new Audio(nombreDeMiAudio);
   trainAudio.loop = true;
+  /* Por defecto inicia silenciado (true) a menos que lo enciendas explícitamente ("false") */
   var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
   var audioUnlocked = false;
 
@@ -1604,7 +1605,7 @@
 
   function syncTrainAudio() {
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
-      /* Si el audio fue borrado para quitar la notificación, lo recargamos */
+      /* Si debe sonar y no tiene origen, se lo ponemos */
       if (!trainAudio.src || trainAudio.src === "" || trainAudio.src === window.location.href) {
         trainAudio.src = nombreDeMiAudio;
         trainAudio.load();
@@ -1613,15 +1614,13 @@
         trainAudio.play().catch(function(e){ console.warn("Audio bloqueado:", e); });
       }
     } else {
-      /* APAGADO TOTAL: Pausamos, reiniciamos a 0 y borramos la fuente para matar la notificación de Android */
-      if (!trainAudio.paused || trainAudio.src) {
+      /* Si debe callarse, solo lo pausamos suavemente, sin destruir la etiqueta src */
+      if (!trainAudio.paused) {
         trainAudio.pause();
-        trainAudio.currentTime = 0;
-        trainAudio.removeAttribute('src'); 
-        trainAudio.load(); 
       }
     }
   }
+
   /* Memoria para saber qué pestañas de subtareas están abiertas */
   var openSubtasks = {};
   var selectedCalendarDate = null;
@@ -2076,13 +2075,13 @@ function defaultState(){
     if (selectedProjId){
       var p = state.projects.find(function(x){ return x.id === selectedProjId; });
       if (p && p.status === "active" && p.deadline >= ds){
-        /* Inyectar CADA tarea del proyecto como una tarea principal en el día */
         (p.tasks || []).forEach(function(pt){
            tasks.push({
-             id: pt.id, 
+             id: pt.id,
              projectId: p.id,
-             text: "📁 [" + p.text + "] " + pt.text, /* Prefix con el nombre del proyecto */
-             type: "project-task", /* Nuevo tipo para heredar controles de tiempo */
+             projectName: p.text, /* Guardamos el nombre del proyecto como variable separada */
+             text: pt.text,       /* Nombre de la tarea 100% limpio */
+             type: "project-task", 
              subtasks: pt.subtasks || []
            });
         });
@@ -2682,7 +2681,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var badgeHtml = "";
     if (t.type === "habit")   badgeHtml = '<span class="badge">hábito</span>';
     if (t.type === "routine") badgeHtml = '<span class="badge badge-routine">rutina</span>';
-    if (t.type === "project") badgeHtml = '<span class="project-task-badge">📁 proyecto</span>';
+    if (t.type === "project-task") badgeHtml = '<span class="project-task-badge" style="font-size:9.5px; border-color:var(--ink-700); background:rgba(0,0,0,0.25); color:var(--text-faint); margin-left:6px;">📁 ' + escapeHtml(t.projectName) + '</span>';
 
     /* Ojo y Lápiz de evidencia (solo si done) */
     var eyeBtn = status === "done"
@@ -2703,8 +2702,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
                   '" data-date="' + ds + '" data-id="' + t.id + '" title="' +
                   (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
 
-    /* Controles de tiempo (tareas oneoff, hábitos, rutinas y proyectos, no completadas, del día de hoy) */
-    var showTimeControls = ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project") && status !== "done" && !isFuture && ds === todayStr());
+    /* Controles de tiempo */
+    var showTimeControls = ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project-task") && status !== "done" && !isFuture && ds === todayStr());
     var stampOrTimeHtml;
     if (showTimeControls){
       var isActiveTask = (state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds);
@@ -2729,9 +2728,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           '" title="' + (isFuture ? "Aún no ha llegado este día" : "") + '">' + icon + '</button>';
     }
 
-    /* Lógica: Extraer el tiempo si la tarea ya está finalizada */
     var timeLoggedHtml = "";
-    if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project") && status === "done") {
+    if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project-task") && status === "done") {
       var totalSecs = getTaskLiveSeconds(ds, t.id);
       if (totalSecs > 0) {
         timeLoggedHtml = '<span style="margin-left:auto; margin-right:6px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 7px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + formatDuration(totalSecs) + '</span>';
@@ -2744,8 +2742,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         '<span class="task-text' + (status === "done" ? " is-done" : "") + '">' + escapeHtml(t.text) +
           (t.routineTime ? ' <small style="font-size:11px;color:var(--brass-300);font-family:var(--font-mono);">(' + escapeHtml(t.routineTime) + ')</small>' : '') +
         '</span>' +
-        badgeHtml +
         (timeLoggedHtml ? timeLoggedHtml : '<div style="margin-left:auto;"></div>') +
+        badgeHtml +
         eyeBtn +
         bellBtn +
         del +
@@ -2779,22 +2777,13 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
     /* --- INYECCIÓN DE SUBTAREAS --- */
     var subtasksHtml = "";
-    /* Le quitamos la restricción de "status !== done" para que siempre aparezcan */
-    if (t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project") {
+    if (t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project-task") {
       var subs = t.subtasks || [];
       var isOpen = !!openSubtasks[t.id];
       var isTaskDone = (status === "done");
       
-      /* Ocultamos el botón de añadir si la tarea ya está finalizada */
-      var btnAddSub = '';
-      if (!isTaskDone) {
-        if (t.type === "project") {
-          btnAddSub = '<button class="btn-add-proj-subtask-inline" data-action="add-proj-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir tarea al proyecto</button>';
-        } else {
-          btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
-        }
-      }
- 
+      var btnAddSub = isTaskDone ? '' : '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
+      
       if (subs.length > 0) {
         var subsDone = subs.filter(function(s){ return s.done; }).length;
         var pct = Math.round((subsDone / subs.length) * 100);
@@ -2807,7 +2796,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           var checked = s.done ? "checked" : "";
           var doneCls = s.done ? " is-done" : "";
           
-          /* Tiempo de la subtarea */
           var log = state.timeLog[ds];
           var totalSubSecs = (log && log.subtasks && log.subtasks[s.id]) || 0;
           var isTrackingThis = (state.tracking.status === "task" && state.tracking.subtaskId === s.id && state.tracking.taskDs === ds);
@@ -2816,30 +2804,20 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           }
           
           var timeBtn = "";
-          if (!s.done && showTimeControls && !isTaskDone && t.type !== "project") {
+          if (!s.done && showTimeControls && !isTaskDone) {
             if (isTrackingThis) {
                timeBtn = '<button class="task-time-btn pause" style="width:24px;height:24px;min-width:24px;" data-action="pause-task" title="Pausar subtarea">' + ICON_PAUSE + '</button>';
             } else {
                timeBtn = '<button class="task-time-btn play" style="width:24px;height:24px;min-width:24px;" data-action="play-subtask" data-date="'+ds+'" data-id="'+t.id+'" data-subid="'+s.id+'" title="Empezar subtarea">' + ICON_PLAY + '</button>';
             }
           }
-          var timeBadge = (totalSubSecs > 0 && t.type !== "project") ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
+          var timeBadge = (totalSubSecs > 0) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
           
-          /* Ocultamos botón de borrar y bloqueamos la casilla si la tarea está finalizada */
-          var delBtn = '';
+          var delBtn = isTaskDone ? '' : '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
           var disabledAttr = isTaskDone ? 'disabled' : '';
-          if (!isTaskDone && t.type !== "project") {
-            delBtn = '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
-          }
 
-          var itemClass = t.type === "project" ? "project-subtask-item-proj" : "subtask-item";
-          var dataAction = t.type === "project" ? "toggle-proj-task" : "toggle-subtask";
-          var dataAttrs = t.type === "project" 
-            ? 'data-action="' + dataAction + '" data-pid="' + t.id + '" data-tid="' + s.id + '"'
-            : 'data-action="' + dataAction + '" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '"';
-          
-          return '<div class="' + itemClass + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
-                   '<input type="checkbox" ' + dataAttrs + ' ' + checked + ' ' + disabledAttr + ' />' +
+          return '<div class="subtask-item' + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
+                   '<input type="checkbox" data-action="toggle-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' ' + disabledAttr + ' />' +
                    '<span class="subtask-text" style="flex:1;">' + escapeHtml(s.text) + '</span>' +
                    timeBadge + timeBtn + delBtn +
                  '</div>';
@@ -2868,6 +2846,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       '</div>'
     );
   }
+
   function renderTaskList(ds, opts){
     var tasks = getTasksForDate(ds);
     if (tasks.length === 0){
@@ -4820,73 +4799,91 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (state.tracking.subtaskId === subId && isDone) pauseTask();
       persist(); renderActiveTab();
 
-    /* --- MOTOR DE INTELIGENCIA ARTIFICIAL (AGENTE GEMINI) --- */
+    /* --- MOTOR DE INTELIGENCIA ARTIFICIAL (AGENTE GROQ DINÁMICO) --- */
     } else if (action === "ai-plan-start") {
       var pID = el.getAttribute("data-id");
       var proj = state.projects.find(function(x){ return x.id === pID; });
       if (!proj) return;
 
-      /* 1. Pedir y Guardar la API Key de Gemini */
-      if (!state.geminiApiKey) {
-        var key = prompt("🤖 Configuración de IA (Gemini)\n\nConsigue tu API Key en aistudio.google.com.\n\nPega tu API Key aquí:");
+      /* 1. Pedir y Guardar la API Key de Groq */
+      if (!state.groqApiKey) {
+        var key = prompt("🤖 Configuración de IA (Groq Dinámico)\n\nPara que la IA nunca se vuelva a desactualizar, el código buscará los servidores activos automáticamente.\n\nPega tu API Key de Groq aquí (empieza con 'gsk_'):");
         if (!key || !key.trim()) { showToast("Necesitas una API Key para usar la IA."); return; }
-        state.geminiApiKey = key.trim();
+        state.groqApiKey = key.trim();
         persist();
       }
 
-      /* Función Helper con "Rayos X" para leer el error exacto de Google */
-      async function askGemini(promptTxt) {
-        /* VOLVEMOS a v1beta porque Google aún no ha pasado el modelo 1.5 a v1 */
-        var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + state.geminiApiKey;
+      /* Función Helper con Búsqueda Automática de Modelos Vivos */
+      async function askGroq(promptTxt) {
+        var modelsUrl = "https://api.groq.com/openai/v1/models";
+        var modelsRes = await fetch(modelsUrl, {
+          headers: { "Authorization": "Bearer " + state.groqApiKey }
+        });
+        
+        if (!modelsRes.ok) {
+           if (modelsRes.status === 401 || modelsRes.status === 403) throw new Error("API_KEY_ERROR|Clave inválida al verificar modelos.");
+           throw new Error("No se pudo obtener la lista de modelos de Groq.");
+        }
+        
+        var modelsData = await modelsRes.json();
+        var modelToUse = "llama-3.3-70b-versatile"; /* Fallback extremo por si acaso */
+        
+        if (modelsData && modelsData.data && modelsData.data.length > 0) {
+           var llamaModels = modelsData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
+           if (llamaModels.length > 0) {
+               var model70b = llamaModels.find(function(m){ return m.id.includes("70b"); });
+               modelToUse = model70b ? model70b.id : llamaModels[0].id;
+           } else {
+               modelToUse = modelsData.data[0].id;
+           }
+        }
+
+        var url = "https://api.groq.com/openai/v1/chat/completions";
         var reqBody = {
-          contents: [{ parts: [{ text: promptTxt }] }],
-          generationConfig: { temperature: 0.7 }
+          model: modelToUse,
+          messages: [{ role: "user", content: promptTxt }],
+          temperature: 0.7
         };
+        
         var res = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + state.groqApiKey
+          },
           body: JSON.stringify(reqBody)
         });
         
         if (!res.ok) {
-           var errorDetalle = "Causa desconocida";
-           try {
-               /* Intentamos atrapar el JSON de error que manda Google */
-               var errorJson = await res.json();
-               errorDetalle = errorJson.error.message;
-           } catch(e) {
-               /* Si no es JSON, atrapamos el texto crudo */
-               errorDetalle = await res.text();
-           }
-           
-           if (res.status === 400 || res.status === 403) {
-               throw new Error("API_KEY_ERROR|" + errorDetalle); 
-           }
-           throw new Error("Error " + res.status + " de Google:\n\n" + errorDetalle);
+           var errorDetalle = await res.text();
+           if (res.status === 401 || res.status === 403) throw new Error("API_KEY_ERROR|La API Key fue rechazada al generar texto.");
+           throw new Error("Error " + res.status + " de Groq:\n" + errorDetalle);
         }
         var data = await res.json();
-        return data.candidates[0].content.parts[0].text;
+        return data.choices[0].message.content;
       }
 
       var originalBtnText = el.innerHTML;
-      el.innerHTML = "⏳ Analizando proyecto...";
+      el.innerHTML = "⏳ Escaneando servidores de IA...";
       el.disabled = true;
 
       /* Ejecutamos asíncronamente */
       (async function(){
         try {
-          var promptPreguntas = "Actúa como un project manager experto. El usuario quiere planificar un proyecto llamado '" + proj.text + "'. Tu objetivo será estructurar este proyecto en tareas y subtareas. Pero antes, OBLIGATORIAMENTE hazle al usuario máximo 3 preguntas clave, directas y concisas, para averiguar plazos, recursos, contexto o detalles específicos que necesites saber. Devuelve ÚNICAMENTE las preguntas en texto plano, separadas por viñetas, sin saludos ni introducciones.";
+          /* --- LE PASAMOS LA FECHA LÍMITE (proj.deadline) Y LE PROHIBIMOS PREGUNTAR POR PLAZOS --- */
+          var promptPreguntas = "Actúa como un project manager experto. El usuario quiere planificar un proyecto llamado '" + proj.text + "'. La fecha límite (deadline) establecida para este proyecto es el " + proj.deadline + ", así que NO preguntes sobre plazos de tiempo ni estimaciones de finalización. Tu objetivo será estructurar este proyecto en tareas y subtareas. Pero antes, OBLIGATORIAMENTE hazle al usuario máximo 3 preguntas clave, directas y concisas, para averiguar recursos, contexto o detalles específicos que necesites saber. Devuelve ÚNICAMENTE las preguntas en texto plano, separadas por viñetas, sin saludos ni introducciones.";
           
-          var preguntasIA = await askGemini(promptPreguntas);
+          var preguntasIA = await askGroq(promptPreguntas);
           
-          var respuestas = prompt("🤖 Gemini necesita unos detalles para planificar '" + proj.text + "':\n\n" + preguntasIA + "\n\nEscribe tus respuestas aquí (o deja en blanco para que asuma lo general):");
+          var respuestas = prompt("🤖 La IA necesita unos detalles para planificar '" + proj.text + "':\n\n" + preguntasIA + "\n\nEscribe tus respuestas aquí (o deja en blanco para que asuma lo general):");
           if (respuestas === null) throw new Error("Cancelaste la planificación.");
 
           el.innerHTML = "⏳ Estructurando tareas...";
 
-          var promptFinal = "Eres un project manager. Proyecto: '" + proj.text + "'. Mis preguntas fueron: '" + preguntasIA + "'. Respuestas del usuario: '" + respuestas + "'. \nCrea un plan estructurado basándote en el nombre del proyecto y las respuestas. \nOBLIGATORIO: Debes responder EXCLUSIVAMENTE con un objeto JSON válido, sin formato markdown, sin comillas triples y sin texto adicional. Usa estrictamente esta estructura:\n{\"tasks\": [ {\"text\": \"Nombre de Tarea\", \"subtasks\": [\"Subtarea 1\", \"Subtarea 2\"]} ]}";
+          /* Le recordamos la fecha límite al construir el plan final */
+          var promptFinal = "Eres un project manager. Proyecto: '" + proj.text + "'. Fecha límite: " + proj.deadline + ". Mis preguntas fueron: '" + preguntasIA + "'. Respuestas del usuario: '" + respuestas + "'. \nCrea un plan estructurado basándote en toda esta información. \nOBLIGATORIO: Debes responder EXCLUSIVAMENTE con un objeto JSON válido, sin formato markdown, sin comillas triples y sin texto adicional. Usa estrictamente esta estructura exacta:\n{\"tasks\": [ {\"text\": \"Nombre de Tarea\", \"subtasks\": [\"Subtarea 1\", \"Subtarea 2\"]} ]}";
           
-          var respuestaIA = await askGemini(promptFinal);
+          var respuestaIA = await askGroq(promptFinal);
           
           var jsonLimpio = respuestaIA.replace(/```json/gi, "").replace(/```/gi, "").trim();
           var plan;
@@ -4921,12 +4918,12 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           console.error("Error de IA:", error);
           if (error.message.startsWith("API_KEY_ERROR")) {
               var detalleError = error.message.split("|")[1];
-              alert("⚠️ Google rechazó la conexión.\n\nDetalle oficial de Google: " + detalleError + "\n\nLa API Key se ha borrado de tu sistema para que intentes con otra.");
-              state.geminiApiKey = null; 
+              alert("⚠️ Groq rechazó la conexión.\n\nDetalle: " + detalleError + "\n\nLa API Key se ha borrado de tu sistema para que intentes con otra.");
+              state.groqApiKey = null; 
               persist();
           } else if (error.message !== "Cancelaste la planificación.") {
-              alert("⚠️ Diagnóstico de Google:\n\n" + error.message + "\n\nLa clave se ha borrado por precaución.");
-              state.geminiApiKey = null; 
+              alert("⚠️ Diagnóstico:\n\n" + error.message + "\n\nLa clave se ha borrado por precaución.");
+              state.groqApiKey = null; 
               persist();
           }
         } finally {
@@ -4937,6 +4934,13 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       isTrainMuted = !isTrainMuted;
       localStorage.setItem("bitacora_train_muted", isTrainMuted);
+      syncTrainAudio();
+      renderActiveTab();
+    
+    } else if (action === "toggle-mute") {
+      isTrainMuted = !isTrainMuted;
+      /* Lo guardamos exactamente como string "true" o "false" para que no se trabe en Android */
+      localStorage.setItem("bitacora_train_muted", isTrainMuted ? "true" : "false");
       syncTrainAudio();
       renderActiveTab();
 
