@@ -1307,6 +1307,149 @@
     text-align:center; padding:24px; color:var(--text-muted); font-size:13px;
     border:1px dashed var(--ink-700); border-radius:var(--radius-md);
   }
+  /* ---------- Proyecto como Tarea Ejecutable ---------- */
+  .project-select-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .project-select-row label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .project-select-control {
+    background: var(--ink-800-solid);
+    border: 1px solid var(--ink-700);
+    color: var(--text-light);
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-family: var(--font-body);
+    flex: 1;
+    min-width: 180px;
+    cursor: pointer;
+    color-scheme: dark;
+  }
+  .project-select-control:focus {
+    outline: 2px solid var(--brass-300);
+    outline-offset: 2px;
+  }
+  .project-select-control option {
+    background: var(--ink-850);
+    color: var(--text-light);
+  }
+  .project-task-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--brass-300);
+    border: 1px solid var(--brass-600);
+    border-radius: 20px;
+    padding: 2px 8px;
+    margin-left: 6px;
+  }
+  .project-subtask-item-proj {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-light);
+    margin-bottom: 5px;
+    padding: 5px 8px;
+    background: var(--ink-800);
+    border-radius: 4px;
+    border: 1px solid var(--ink-700);
+  }
+  .project-subtask-item-proj.is-done {
+    opacity: 0.5;
+  }
+  .project-subtask-item-proj.is-done .subtask-text {
+    text-decoration: line-through;
+    color: var(--text-muted);
+  }
+  .project-subtask-item-proj input[type="checkbox"] {
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    border: 1px solid var(--text-faint);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .project-subtask-item-proj input[type="checkbox"]:checked {
+    background: var(--done);
+    border-color: var(--done);
+  }
+  .project-subtask-item-proj input[type="checkbox"]:checked::after {
+    content: '✔';
+    position: absolute;
+    top: -1px;
+    left: 3px;
+    font-size: 11px;
+    color: var(--ink-900);
+  }
+  .btn-add-proj-subtask-inline {
+    background: none;
+    border: none;
+    color: var(--brass-300);
+    font-size: 11.5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 0;
+    font-weight: 600;
+    opacity: 0.8;
+    margin-top: 6px;
+  }
+  .btn-add-proj-subtask-inline:hover {
+    opacity: 1;
+    text-decoration: underline;
+  }
+  .btn-rm-project-selection {
+    background: var(--ink-700);
+    border: 1px solid var(--ink-650);
+    color: var(--text-faint);
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-rm-project-selection:hover {
+    color: var(--missed);
+    border-color: var(--missed);
+  }
+  .project-progress-bar-mini {
+    width: 100%;
+    height: 6px;
+    background: var(--ink-850);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 8px 0;
+    border: 1px solid var(--ink-700);
+  }
+  .project-progress-bar-mini-fill {
+    height: 100%;
+    transition: width 0.3s ease, background 0.3s;
+  }
+  .project-progress-text-mini {
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    text-align: right;
+    margin-bottom: 6px;
+  }
 </style>
 </head>
 <body>
@@ -1346,12 +1489,22 @@
 </div>
 
 <div id="projectNoteModal" class="modal-overlay" role="dialog" aria-modal="true">
-  <div class="modal-box">
+  <div class="modal-box project-plan-modal">
     <h3 style="font-size:17px; color:var(--brass-300); margin-bottom:6px;">📝 Planificar Proyecto</h3>
-    <p class="modal-hint">Anota aquí los pasos, ideas o la planificación de tu proyecto.</p>
-    <textarea id="projectNoteInput" class="modal-textarea" placeholder="Escribe aquí tu plan..." rows="6"></textarea>
-    <div class="modal-actions">
-      <button class="primary" id="projectNoteSaveBtn">Guardar nota</button>
+    <p class="modal-hint">Organiza las tareas de tu proyecto. Estas aparecerán como subtareas cuando ejecutes el proyecto.</p>
+    
+    <div id="projectPlanContent"></div>
+    
+    <div class="project-plan-section">
+      <div class="project-plan-section-title">➕ Añadir nueva tarea al proyecto</div>
+      <div class="project-plan-form">
+        <input type="text" id="newProjectTaskInput" class="project-task-input" placeholder="Nombre de la tarea…" maxlength="120" />
+        <button class="primary" id="btnAddProjectTask" style="padding:8px 14px; font-size:12.5px;">Añadir tarea</button>
+      </div>
+    </div>
+    
+    <div class="modal-actions" style="margin-top:18px;">
+      <button class="primary" id="projectNoteSaveBtn">Guardar cambios</button>
       <button class="btn-secondary" id="projectNoteCancelBtn">Cancelar</button>
     </div>
   </div>
@@ -1585,7 +1738,7 @@
     });
   }
 
-  function defaultState(){
+function defaultState(){
     return {
       firstUseDate: todayStr(),
       habits: [],
@@ -1595,7 +1748,8 @@
       projects: [],
       routines: [],
       timeLog: {},
-      tracking: { status: "inactive", taskId: null, taskDs: null, startTime: null }
+      tracking: { status: "inactive", taskId: null, taskDs: null, startTime: null },
+      selectedProjectByDate: {}
     };
   }
 
@@ -1711,6 +1865,9 @@
       if (typeof state.tracking.taskId    === "undefined") state.tracking.taskId    = null;
       if (typeof state.tracking.taskDs    === "undefined") state.tracking.taskDs    = null;
       if (typeof state.tracking.startTime === "undefined") state.tracking.startTime = null;
+      if (typeof state.selectedProjectByDate === "undefined") state.selectedProjectByDate = {};
+      /* Normalizar proyectos: asegurar que todos tengan array tasks */
+      state.projects.forEach(function(p){ if (!p.tasks) p.tasks = []; });
       selectedCalendarDate = todayStr();
       persist();
       scheduleTodayReminders();
@@ -1878,24 +2035,19 @@
   /* ===================== Lógica de tareas ===================== */
   function getTasksForDate(ds){
     var tasks = [];
-    /* Hábitos diarios (ahora con subtareas independientes por fecha) */
+    /* Hábitos diarios */
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
       if (ds >= h.createdAt) {
-        var habitSubs = [];
-        if (h.subtasks) {
-          habitSubs = h.subtasks.filter(function(s){
-            var created = s.createdAt || h.createdAt || "2020-01-01";
+        var habitSubs = h.subtasks ? h.subtasks.filter(function(s){
+            var created = s.createdAt || "2020-01-01";
             var archived = s.archivedAt || null;
-            /* No mostrar si el día que estamos viendo es anterior a cuando se creó la subtarea */
             if (ds < created) return false;
-            /* No mostrar si la subtarea fue borrada/archivada hoy o antes de hoy */
             if (archived && ds >= archived) return false;
             return true;
-          }).map(function(s){
+        }).map(function(s){
             return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
-          });
-        }
+        }) : [];
         tasks.push({ id:h.id, text:h.text, type:"habit", subtasks: habitSubs });
       }
     });
@@ -1903,29 +2055,49 @@
     state.oneoff.forEach(function(o){
       if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff", subtasks: o.subtasks });
     });
-    /* Rutinas semanales (ahora con subtareas viajeras) */
+    /* Rutinas semanales */
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
       if (r.days && r.days.indexOf(dayOfWeek) !== -1){
-        var routineSubs = [];
-        if (r.subtasks) {
-          routineSubs = r.subtasks.filter(function(s){
+        var routineSubs = r.subtasks ? r.subtasks.filter(function(s){
             var created = s.createdAt || "2020-01-01";
             var archived = s.archivedAt || null;
             if (ds < created) return false;
             if (archived && ds >= archived) return false;
             return true;
-          }).map(function(s){
+        }).map(function(s){
             return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
-          });
-        }
+        }) : [];
         tasks.push({ id:r.id, text:r.text, type:"routine", routineTime: r.time || null, subtasks: routineSubs });
       }
     });
+    /* Proyecto seleccionado para este día (INYECCIÓN DE TAREAS) */
+    var selectedProjId = state.selectedProjectByDate && state.selectedProjectByDate[ds];
+    if (selectedProjId){
+      var p = state.projects.find(function(x){ return x.id === selectedProjId; });
+      if (p && p.status === "active" && p.deadline >= ds){
+        /* Inyectar CADA tarea del proyecto como una tarea principal en el día */
+        (p.tasks || []).forEach(function(pt){
+           tasks.push({
+             id: pt.id, 
+             projectId: p.id,
+             text: "📁 [" + p.text + "] " + pt.text, /* Prefix con el nombre del proyecto */
+             type: "project-task", /* Nuevo tipo para heredar controles de tiempo */
+             subtasks: pt.subtasks || []
+           });
+        });
+      }
+    }
     return tasks;
   }
 
   function getStatus(ds, id){
+    /* ¿Es una tarea de proyecto? */
+    for(var i=0; i<state.projects.length; i++){
+      var pt = state.projects[i].tasks && state.projects[i].tasks.find(function(x){ return x.id === id; });
+      if (pt) return pt.done ? "done" : "pending";
+    }
+    /* Comprobación normal */
     if (state.log[ds] && state.log[ds][id]) return "done";
     if (ds < todayStr()) return "missed";
     return "pending";
@@ -1938,18 +2110,16 @@
     return { total: tasks.length, done: done };
   }
 
-   /**
-   * Marcar como hecha o completada.
-   * Llamado desde saveEvidence() después de guardar en IDB.
-   */
   function markDone(ds, id){
+    var isProjTask = false;
+    state.projects.forEach(function(p){
+       var t = p.tasks && p.tasks.find(function(x){ return x.id === id; });
+       if (t) { t.done = true; isProjTask = true; }
+    });
     if (ds === "project") {
       var p = state.projects.find(function(x){ return x.id === id; });
-      if (p){ 
-        p.status = "completed"; 
-        p.completedAt = todayStr(); 
-      }
-    } else {
+      if (p){ p.status = "completed"; p.completedAt = todayStr(); }
+    } else if (!isProjTask) {
       if (!state.log[ds]) state.log[ds] = {};
       state.log[ds][id] = true;
     }
@@ -1957,12 +2127,16 @@
     renderActiveTab();
   }
 
-  /**
-   * Desmarcar (toggle off). Directo, sin evidencia.
-   */
   function unmarkDone(ds, id){
-    if (state.log[ds]) delete state.log[ds][id];
-    if (state.log[ds] && Object.keys(state.log[ds]).length === 0) delete state.log[ds];
+    var isProjTask = false;
+    state.projects.forEach(function(p){
+       var t = p.tasks && p.tasks.find(function(x){ return x.id === id; });
+       if (t) { t.done = false; isProjTask = true; }
+    });
+    if (!isProjTask) {
+      if (state.log[ds]) delete state.log[ds][id];
+      if (state.log[ds] && Object.keys(state.log[ds]).length === 0) delete state.log[ds];
+    }
     persist();
     renderActiveTab();
   }
@@ -2448,15 +2622,24 @@
   /* Bindear botones del modal de evidencia y proyectos */
   document.getElementById("evidenceSaveBtn").addEventListener("click", saveEvidence);
   
-  document.getElementById("projectNoteSaveBtn").addEventListener("click", function(){
-    var pid = this.getAttribute("data-id");
-    if (!pid) return;
-    var p = state.projects.find(function(x){ return x.id === pid; });
-    if (p) {
-      p.notes = document.getElementById("projectNoteInput").value.trim();
-      persist(); renderActiveTab();
-    }
+document.getElementById("projectNoteSaveBtn").addEventListener("click", function(){
     document.getElementById("projectNoteModal").classList.remove("open");
+    showToast("Proyecto actualizado.");
+  });
+
+  document.getElementById("btnAddProjectTask").addEventListener("click", function(){
+    var pid = document.getElementById("projectNoteSaveBtn").getAttribute("data-id");
+    var input = document.getElementById("newProjectTaskInput");
+    var text = (input.value || "").trim();
+    if (!pid || !text) { showToast("Escribe el nombre de la tarea."); return; }
+    var p = state.projects.find(function(x){ return x.id === pid; });
+    if (!p) return;
+    if (!p.tasks) p.tasks = [];
+    p.tasks.push({ id: uid(), text: text, done: false, createdAt: todayStr() });
+    input.value = "";
+    persist();
+    renderProjectPlanModal(pid);
+    showToast("Tarea añadida al proyecto.");
   });
   document.getElementById("projectNoteCancelBtn").addEventListener("click", function(){
     document.getElementById("projectNoteModal").classList.remove("open");
@@ -2499,6 +2682,7 @@
     var badgeHtml = "";
     if (t.type === "habit")   badgeHtml = '<span class="badge">hábito</span>';
     if (t.type === "routine") badgeHtml = '<span class="badge badge-routine">rutina</span>';
+    if (t.type === "project") badgeHtml = '<span class="project-task-badge">📁 proyecto</span>';
 
     /* Ojo y Lápiz de evidencia (solo si done) */
     var eyeBtn = status === "done"
@@ -2519,8 +2703,8 @@
                   '" data-date="' + ds + '" data-id="' + t.id + '" title="' +
                   (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
 
-    /* Controles de tiempo (tareas oneoff y hábitos, no completadas, del día de hoy) */
-var showTimeControls = ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status !== "done" && !isFuture && ds === todayStr());
+    /* Controles de tiempo (tareas oneoff, hábitos, rutinas y proyectos, no completadas, del día de hoy) */
+    var showTimeControls = ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project") && status !== "done" && !isFuture && ds === todayStr());
     var stampOrTimeHtml;
     if (showTimeControls){
       var isActiveTask = (state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds);
@@ -2547,7 +2731,7 @@ var showTimeControls = ((t.type === "oneoff" || t.type === "habit" || t.type ===
 
     /* Lógica: Extraer el tiempo si la tarea ya está finalizada */
     var timeLoggedHtml = "";
-if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && status === "done") {
+    if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project") && status === "done") {
       var totalSecs = getTaskLiveSeconds(ds, t.id);
       if (totalSecs > 0) {
         timeLoggedHtml = '<span style="margin-left:auto; margin-right:6px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 7px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + formatDuration(totalSecs) + '</span>';
@@ -2596,14 +2780,21 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
     /* --- INYECCIÓN DE SUBTAREAS --- */
     var subtasksHtml = "";
     /* Le quitamos la restricción de "status !== done" para que siempre aparezcan */
-    if (t.type === "oneoff" || t.type === "habit" || t.type === "routine") {
+    if (t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project") {
       var subs = t.subtasks || [];
       var isOpen = !!openSubtasks[t.id];
       var isTaskDone = (status === "done");
       
       /* Ocultamos el botón de añadir si la tarea ya está finalizada */
-      var btnAddSub = isTaskDone ? '' : '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
-      
+      var btnAddSub = '';
+      if (!isTaskDone) {
+        if (t.type === "project") {
+          btnAddSub = '<button class="btn-add-proj-subtask-inline" data-action="add-proj-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir tarea al proyecto</button>';
+        } else {
+          btnAddSub = '<button class="btn-add-subtask" data-action="add-subtask" data-date="' + ds + '" data-id="' + t.id + '">+ Añadir subtarea</button>';
+        }
+      }
+ 
       if (subs.length > 0) {
         var subsDone = subs.filter(function(s){ return s.done; }).length;
         var pct = Math.round((subsDone / subs.length) * 100);
@@ -2625,21 +2816,30 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
           }
           
           var timeBtn = "";
-          if (!s.done && showTimeControls && !isTaskDone) {
+          if (!s.done && showTimeControls && !isTaskDone && t.type !== "project") {
             if (isTrackingThis) {
                timeBtn = '<button class="task-time-btn pause" style="width:24px;height:24px;min-width:24px;" data-action="pause-task" title="Pausar subtarea">' + ICON_PAUSE + '</button>';
             } else {
                timeBtn = '<button class="task-time-btn play" style="width:24px;height:24px;min-width:24px;" data-action="play-subtask" data-date="'+ds+'" data-id="'+t.id+'" data-subid="'+s.id+'" title="Empezar subtarea">' + ICON_PLAY + '</button>';
             }
           }
-          var timeBadge = (totalSubSecs > 0) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
+          var timeBadge = (totalSubSecs > 0 && t.type !== "project") ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
           
           /* Ocultamos botón de borrar y bloqueamos la casilla si la tarea está finalizada */
-          var delBtn = isTaskDone ? '' : '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
+          var delBtn = '';
           var disabledAttr = isTaskDone ? 'disabled' : '';
+          if (!isTaskDone && t.type !== "project") {
+            delBtn = '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
+          }
 
-          return '<div class="subtask-item' + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
-                   '<input type="checkbox" data-action="toggle-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" ' + checked + ' ' + disabledAttr + ' />' +
+          var itemClass = t.type === "project" ? "project-subtask-item-proj" : "subtask-item";
+          var dataAction = t.type === "project" ? "toggle-proj-task" : "toggle-subtask";
+          var dataAttrs = t.type === "project" 
+            ? 'data-action="' + dataAction + '" data-pid="' + t.id + '" data-tid="' + s.id + '"'
+            : 'data-action="' + dataAction + '" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '"';
+          
+          return '<div class="' + itemClass + doneCls + '" style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
+                   '<input type="checkbox" ' + dataAttrs + ' ' + checked + ' ' + disabledAttr + ' />' +
                    '<span class="subtask-text" style="flex:1;">' + escapeHtml(s.text) + '</span>' +
                    timeBadge + timeBtn + delBtn +
                  '</div>';
@@ -2674,6 +2874,56 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
       return '<div class="empty-state"><strong>La bitácora de este día está en blanco.</strong>Anota tu primera tarea para empezar.</div>';
     }
     return '<div class="task-list">' + tasks.map(function(t){ return renderTaskItem(t, ds, opts); }).join("") + '</div>';
+  }
+
+/* ===================== Selector de Proyecto (Tarea Ejecutable) ===================== */
+  function renderProjectSelector(ds){
+    var today = todayStr();
+    var isFuture = ds > today;
+    /* Solo mostrar selector si no es futuro y hay proyectos activos válidos */
+    if (isFuture) return "";
+    
+    var currentSelected = state.selectedProjectByDate && state.selectedProjectByDate[ds];
+    var activeProjects = state.projects.filter(function(p){
+      return p.status === "active" && p.deadline >= ds;
+    });
+    
+    if (activeProjects.length === 0 && !currentSelected) return "";
+    
+    /* Si hay un proyecto seleccionado, mostrar opción de quitarlo */
+    if (currentSelected){
+      var p = state.projects.find(function(x){ return x.id === currentSelected; });
+      var pName = p ? p.text : "Proyecto";
+      return (
+        '<div style="margin-bottom:12px; padding:10px 14px; background:var(--ink-800-solid); border:1px solid var(--brass-600); border-radius:var(--radius-md);">' +
+          '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">' +
+            '<div>' +
+              '<div style="font-size:11px; color:var(--brass-300); text-transform:uppercase; letter-spacing:0.08em; font-weight:600; margin-bottom:3px;">📁 Proyecto seleccionado</div>' +
+              '<div style="font-size:14px; color:var(--text-light); font-weight:500;">' + escapeHtml(pName) + '</div>' +
+            '</div>' +
+            '<button class="btn-rm-project-selection" data-action="unselect-project" data-date="' + ds + '">Quitar proyecto</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+    
+    /* Selector de proyecto */
+    var options = '<option value="">— Seleccionar proyecto para trabajar hoy —</option>';
+    activeProjects.forEach(function(p){
+      var taskCount = p.tasks ? p.tasks.length : 0;
+      var doneCount = p.tasks ? p.tasks.filter(function(t){ return t.done; }).length : 0;
+      var progress = taskCount ? Math.round((doneCount/taskCount)*100) : 0;
+      options += '<option value="' + p.id + '">' + escapeHtml(p.text) + ' (' + doneCount + '/' + taskCount + ' tareas, ' + progress + '%) · Vence ' + formatDateShort(p.deadline) + '</option>';
+    });
+    
+    return (
+      '<div class="project-select-row">' +
+        '<label for="proj-select-' + ds + '">📁 Proyecto:</label>' +
+        '<select id="proj-select-' + ds + '" class="project-select-control" data-action="select-project" data-date="' + ds + '">' +
+          options +
+        '</select>' +
+      '</div>'
+    );
   }
 
   function addFormHtml(date, withRepeat){
@@ -2858,6 +3108,7 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
       renderMasterSwitch() +
       '<section class="block">' +
         '<div class="block-title">Agregar tarea de hoy</div>' +
+        renderProjectSelector(today) +
         addFormHtml(today, true) +
         renderTaskList(today) +
       '</section>'
@@ -2935,6 +3186,7 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
         '<h3>' + capitalize(formatDateLong(sel)) + '</h3>' +
         timeSummaryHtml +
         (isFuture ? '<div class="future-note">Puedes programar tareas para este día. Podrás marcarlas como cumplidas cuando llegue.</div>' : '') +
+        renderProjectSelector(sel) +
         addFormHtml(sel, true) +
         renderTaskList(sel) +
       '</div>';
@@ -3062,6 +3314,67 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
   }
 
   /* ===================== Render: pestaña Proyectos ===================== */
+/* ===================== Planificación de Proyectos (Modal 3 Niveles e IA) ===================== */
+  function renderProjectPlanModal(pid){
+    var p = state.projects.find(function(x){ return x.id === pid; });
+    if (!p) return;
+    var content = document.getElementById("projectPlanContent");
+    if (!content) return;
+    
+    var html = '<div style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">' +
+                 '<div style="font-weight:600; color:var(--text-light);">' + escapeHtml(p.text) + '</div>' +
+                 '<button class="primary" data-action="ai-plan-start" data-id="' + p.id + '" style="padding:6px 12px; font-size:11px; background:linear-gradient(135deg, #a4508b 0%, #5f0a87 100%); color:#fff; border-radius:20px;">✨ Planificar con IA</button>' +
+               '</div>';
+               
+    if (!p.tasks || p.tasks.length === 0){
+      html += '<p style="color:var(--text-muted); font-size:13px; text-align:center; padding:20px;">Este proyecto está vacío.<br>Añade tareas manualmente o usa la IA.</p>';
+    } else {
+      var totalTasks = p.tasks.length;
+      var doneTasks = p.tasks.filter(function(t){ return t.done; }).length;
+      var pct = Math.round((doneTasks / totalTasks) * 100);
+      var barColor = pct === 100 ? "var(--done)" : "var(--brass-500)";
+      
+      html += '<div style="margin-bottom:12px;">' +
+        '<div class="project-progress-bar-mini"><div class="project-progress-bar-mini-fill" style="width:' + pct + '%; background:' + barColor + ';"></div></div>' +
+        '<div class="project-progress-text-mini">' + doneTasks + '/' + totalTasks + ' tareas · ' + pct + '% completado</div>' +
+      '</div>';
+      
+      html += p.tasks.map(function(t){
+        var checkIcon = t.done ? '✔' : '';
+        var doneCls = t.done ? ' is-done' : '';
+        
+        /* Renderizar Subtareas dentro del modal */
+        var subsHtml = "";
+        var subs = t.subtasks || [];
+        if (subs.length > 0) {
+           subsHtml = '<div style="margin-top:8px; padding-left:14px; border-left:2px solid var(--ink-700);">' + 
+             subs.map(function(s){
+               var sCheck = s.done ? 'checked' : '';
+               var sDoneCls = s.done ? ' text-decoration:line-through; color:var(--text-muted);' : 'color:var(--text-light);';
+               return '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:12px;">' +
+                        '<input type="checkbox" data-action="toggle-proj-subtask-modal" data-pid="'+pid+'" data-tid="'+t.id+'" data-subid="'+s.id+'" '+sCheck+' style="width:14px; height:14px; accent-color:var(--done);" />' +
+                        '<span style="flex:1; '+sDoneCls+'">' + escapeHtml(s.text) + '</span>' +
+                        '<button class="subtask-del-btn" data-action="del-proj-subtask-modal" data-pid="'+pid+'" data-tid="'+t.id+'" data-subid="'+s.id+'">×</button>' +
+                      '</div>';
+             }).join("") +
+           '</div>';
+        }
+
+        return '<div class="project-task-item" style="background:var(--ink-800); border:1px solid var(--ink-700); padding:10px; border-radius:6px; margin-bottom:8px;">' +
+          '<div class="project-task-header" style="display:flex; align-items:flex-start; gap:8px;">' +
+            '<span class="pt-check" style="margin-top:2px; width:18px;height:18px;border-radius:50%;border:2px solid ' + (t.done ? 'var(--done)' : 'var(--text-faint)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;color:' + (t.done ? 'var(--ink-900)' : 'transparent') + ';cursor:pointer;" ' +
+            'data-action="toggle-proj-task" data-pid="' + pid + '" data-tid="' + t.id + '">' + checkIcon + '</span>' +
+            '<span class="project-task-text' + doneCls + '" style="flex:1; font-weight:500;">' + escapeHtml(t.text) + '</span>' +
+            '<button class="btn-delete-project-task" data-action="delete-project-task" data-pid="' + pid + '" data-tid="' + t.id + '" style="background:none; border:none; color:var(--text-faint); font-size:16px; cursor:pointer;">×</button>' +
+          '</div>' +
+          subsHtml +
+          '<button class="btn-add-subtask" data-action="add-proj-subtask-modal" data-pid="'+pid+'" data-tid="'+t.id+'" style="margin-top:8px; margin-left:26px;">+ Añadir subtarea</button>' +
+        '</div>';
+      }).join("");
+    }
+    content.innerHTML = html;
+  }
+
   function renderProyectos(){
     var active    = state.projects.filter(function(p){ return p.status === "active"; });
     var completed = state.projects.filter(function(p){ return p.status === "completed"; });
@@ -3073,7 +3386,6 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
       var isCompleted = p.status === "completed";
       var deadlineBadge = "";
       
-      /* 1. Lógica para la etiqueta de la fecha (se mantiene igual) */
       if (!isCompleted){
         var diff = daysUntil(p.deadline);
         var cls  = diff < 0 ? "urgent" : diff <= 7 ? "soon" : "ok";
@@ -3085,11 +3397,22 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
         deadlineBadge = '<span class="project-deadline-badge done-badge">✔ Completado el ' + (p.completedAt ? formatDateShort(p.completedAt) : "—") + '</span>';
       }
 
-      /* 2. Botón del ojo y lápiz condicionales */
       var eyeBtn = isCompleted
         ? '<button class="task-eye-btn" data-action="view-evidence" data-date="project" data-id="' + p.id + '" title="Ver evidencia" style="display:inline-block; margin-left:8px; vertical-align:middle;">' + ICON_EYE + '</button>' +
           '<button class="task-pencil-btn" data-action="edit-evidence" data-date="project" data-id="' + p.id + '" title="Editar evidencia" style="display:inline-block; margin-left:4px; vertical-align:middle;">' + ICON_PENCIL + '</button>'
         : "";
+
+      /* Barra de progreso del proyecto */
+      var taskCount = p.tasks ? p.tasks.length : 0;
+      var doneCount = p.tasks ? p.tasks.filter(function(t){ return t.done; }).length : 0;
+      var progressHtml = "";
+      if (taskCount > 0) {
+        var pct = Math.round((doneCount / taskCount) * 100);
+        var barColor = pct === 100 ? "var(--done)" : "var(--brass-500)";
+        progressHtml = 
+          '<div class="project-progress-bar-mini"><div class="project-progress-bar-mini-fill" style="width:' + pct + '%; background:' + barColor + ';"></div></div>' +
+          '<div class="project-progress-text-mini">' + doneCount + '/' + taskCount + ' tareas completadas · ' + pct + '%</div>';
+      }
 
       var noteHtml = p.notes ? '<div class="project-note-display">' + escapeHtml(p.notes) + '</div>' : '';
 
@@ -3101,7 +3424,6 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
             '<button class="btn-delete-project" data-action="delete-project" data-id="' + p.id + '">Eliminar</button>'
           );
           
-      /* 3. Renderizamos el HTML final, inyectando el eyeBtn al lado del título */
       return (
         '<div class="project-item' + (isCompleted ? " is-completed" : "") + '">' +
           '<div class="project-header">' +
@@ -3112,6 +3434,7 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
             deadlineBadge +
             '<span style="font-size:11px;color:var(--text-faint);">Creado: ' + formatDateShort(p.createdAt) + '</span>' +
           '</div>' +
+          progressHtml +
           noteHtml +
         '</div>'
       );
@@ -4207,11 +4530,10 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
     } else if (action === "delete-routine"){
       deleteRoutine(el.getAttribute("data-id"));
 
-    } else if (action === "plan-project"){
+} else if (action === "plan-project"){
       var pid = el.getAttribute("data-id");
       document.getElementById("projectNoteSaveBtn").setAttribute("data-id", pid);
-      var p = state.projects.find(function(x){ return x.id === pid; });
-      document.getElementById("projectNoteInput").value = p.notes || "";
+      renderProjectPlanModal(pid);
       document.getElementById("projectNoteModal").classList.add("open");
 
     } else if (action === "complete-project"){
@@ -4219,8 +4541,62 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
          para que la base de datos sepa cómo clasificar esta evidencia */
       openEvidenceModal("project", el.getAttribute("data-id"));
 
-    } else if (action === "delete-project"){
+} else if (action === "delete-project"){
       deleteProject(el.getAttribute("data-id"));
+
+    } else if (action === "select-project"){
+      var selDs = el.getAttribute("data-date");
+      var projId = el.value;
+      if (!projId) return;
+      if (!state.selectedProjectByDate) state.selectedProjectByDate = {};
+      state.selectedProjectByDate[selDs] = projId;
+      persist(); renderActiveTab();
+      showToast("Proyecto seleccionado para hoy.");
+
+    } else if (action === "unselect-project"){
+      var unselDs = el.getAttribute("data-date");
+      if (state.selectedProjectByDate && state.selectedProjectByDate[unselDs]){
+        delete state.selectedProjectByDate[unselDs];
+      }
+      persist(); renderActiveTab();
+      showToast("Proyecto removido.");
+
+    } else if (action === "toggle-proj-task"){
+      var tpid = el.getAttribute("data-pid");
+      var ttid = el.getAttribute("data-tid");
+      var pp = state.projects.find(function(x){ return x.id === tpid; });
+      if (pp && pp.tasks){
+        var tt = pp.tasks.find(function(x){ return x.id === ttid; });
+        if (tt) {
+          tt.done = !tt.done;
+          persist(); renderActiveTab();
+        }
+      }
+
+    } else if (action === "add-proj-subtask"){
+      var apsDs = el.getAttribute("data-date");
+      var apsPid = el.getAttribute("data-id");
+      var apsText = prompt("Nombre de la nueva tarea para el proyecto:");
+      if (!apsText || !apsText.trim()) return;
+      var apsP = state.projects.find(function(x){ return x.id === apsPid; });
+      if (apsP) {
+        if (!apsP.tasks) apsP.tasks = [];
+        apsP.tasks.push({ id: uid(), text: apsText.trim(), done: false, createdAt: apsDs });
+        persist(); renderActiveTab();
+        showToast("Tarea añadida al proyecto.");
+      }
+
+    } else if (action === "delete-project-task"){
+      var dptPid = el.getAttribute("data-pid");
+      var dptTid = el.getAttribute("data-tid");
+      var dptP = state.projects.find(function(x){ return x.id === dptPid; });
+      if (dptP && dptP.tasks){
+        dptP.tasks = dptP.tasks.filter(function(x){ return x.id !== dptTid; });
+        persist(); renderProjectPlanModal(dptPid); renderActiveTab();
+        showToast("Tarea eliminada del proyecto.");
+      }
+
+    } else if (action === "reset-all"){
 
     } else if (action === "reset-all"){
       resetAll();
@@ -4255,7 +4631,7 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
     } else if (action === "export-ics"){
       var icsDs   = el.getAttribute("data-date");
       var icsId   = el.getAttribute("data-id");
-      var icsTasks = getTasksForDate(icsDs);
+      var icsTasks = (icsDs);
       var icsTask  = icsTasks.find(function(t){ return t.id === icsId; });
       if (icsTask) exportToIcs(icsTask.text, icsDs, getReminder(icsDs, icsId));
 
@@ -4308,20 +4684,46 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
       if (statsOffsetDays > 0) statsOffsetDays = 0;
       renderActiveTab();
 
-    } else if (action === "add-subtask"){
-      var text = prompt("Escribe la nueva subtarea:");
-      if (text && text.trim() !== "") {
-        var taskId = el.getAttribute("data-id");
-        var ds = el.getAttribute("data-date");
-        var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
-                     state.habits.find(function(h){ return h.id === taskId; }) ||
-                     state.routines.find(function(r){ return r.id === taskId; });
-        if (target) {
-          if (!target.subtasks) target.subtasks = [];
-          target.subtasks.push({ id: uid(), text: text.trim(), done: false, createdAt: ds });
-          persist(); renderActiveTab();
-        }
+    } else if (action === "add-proj-subtask-modal"){
+      var mPid = el.getAttribute("data-pid");
+      var mTid = el.getAttribute("data-tid");
+      var textSub = prompt("Nombre de la subtarea:");
+      if (!textSub || !textSub.trim()) return;
+      var pObj = state.projects.find(function(x){ return x.id === mPid; });
+      if (pObj && pObj.tasks) {
+         var tObj = pObj.tasks.find(function(x){ return x.id === mTid; });
+         if (tObj) {
+            if (!tObj.subtasks) tObj.subtasks = [];
+            tObj.subtasks.push({ id: uid(), text: textSub.trim(), done: false });
+            persist(); renderProjectPlanModal(mPid);
+         }
       }
+    } else if (action === "toggle-proj-subtask-modal"){
+      var mPid = el.getAttribute("data-pid");
+      var mTid = el.getAttribute("data-tid");
+      var mSid = el.getAttribute("data-subid");
+      var pObj = state.projects.find(function(x){ return x.id === mPid; });
+      if (pObj && pObj.tasks) {
+         var tObj = pObj.tasks.find(function(x){ return x.id === mTid; });
+         if (tObj && tObj.subtasks) {
+            var sObj = tObj.subtasks.find(function(x){ return x.id === mSid; });
+            if (sObj) { sObj.done = el.checked; persist(); renderProjectPlanModal(mPid); }
+         }
+      }
+    } else if (action === "del-proj-subtask-modal"){
+      var mPid = el.getAttribute("data-pid");
+      var mTid = el.getAttribute("data-tid");
+      var mSid = el.getAttribute("data-subid");
+      var pObj = state.projects.find(function(x){ return x.id === mPid; });
+      if (pObj && pObj.tasks) {
+         var tObj = pObj.tasks.find(function(x){ return x.id === mTid; });
+         if (tObj && tObj.subtasks) {
+            tObj.subtasks = tObj.subtasks.filter(function(x){ return x.id !== mSid; });
+            persist(); renderProjectPlanModal(mPid);
+         }
+      }
+
+    /* --- Clics Globales en la Vista Diaria --- */
     } else if (action === "add-subtask"){
       var text = prompt("Escribe la nueva subtarea:");
       if (text && text.trim() !== "") {
@@ -4330,10 +4732,16 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
         var target = state.oneoff.find(function(o){ return o.id === taskId; }) || 
                      state.habits.find(function(h){ return h.id === taskId; }) ||
                      state.routines.find(function(r){ return r.id === taskId; });
+        if (!target) {
+            state.projects.forEach(function(p){
+                var pt = p.tasks && p.tasks.find(function(x){ return x.id === taskId; });
+                if (pt) target = pt;
+            });
+        }
         if (target) {
           if (!target.subtasks) target.subtasks = [];
           target.subtasks.push({ id: uid(), text: text.trim(), done: false, createdAt: ds });
-          openSubtasks[taskId] = true; /* <--- Abre la pestaña al añadir */
+          openSubtasks[taskId] = true;
           persist(); renderActiveTab();
         }
       }
@@ -4344,25 +4752,35 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
       renderActiveTab();
       
     } else if (action === "delete-subtask"){
-      /* --- ADVERTENCIA DE ELIMINACIÓN --- */
       if (!window.confirm("¿Seguro que quieres eliminar esta subtarea?")) return;
-      
       var taskId = el.getAttribute("data-id");
       var subId  = el.getAttribute("data-subid");
       var ds     = el.getAttribute("data-date");
       
+      var isGlobal = false;
       var oneoff = state.oneoff.find(function(o){ return o.id === taskId; });
-      if (oneoff && oneoff.subtasks) {
+      if (oneoff) {
           oneoff.subtasks = oneoff.subtasks.filter(function(s){ return s.id !== subId; });
       } else {
-          var target = state.habits.find(function(h){ return h.id === taskId; }) ||
-                       state.routines.find(function(r){ return r.id === taskId; });
+          var target = null;
+          state.projects.forEach(function(p){
+             var pt = p.tasks && p.tasks.find(function(x){ return x.id === taskId; });
+             if (pt) { target = pt; isGlobal = true; }
+          });
+          if (!target) {
+             target = state.habits.find(function(h){ return h.id === taskId; }) ||
+                      state.routines.find(function(r){ return r.id === taskId; });
+          }
+
           if (target && target.subtasks) {
-              var sub = target.subtasks.find(function(s){ return s.id === subId; });
-              if (sub) sub.archivedAt = ds;
+              if (isGlobal) {
+                  target.subtasks = target.subtasks.filter(function(s){ return s.id !== subId; });
+              } else {
+                  var sub = target.subtasks.find(function(s){ return s.id === subId; });
+                  if (sub) sub.archivedAt = ds;
+              }
           }
       }
-      
       if (state.tracking.subtaskId === subId) pauseTask();
       persist(); renderActiveTab();
       
@@ -4372,28 +4790,143 @@ if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine") && statu
       var ds     = el.getAttribute("data-date");
       var isDone = el.checked;
       
-      var oneoff = state.oneoff.find(function(o){ return o.id === taskId; });
-      if (oneoff && oneoff.subtasks) {
-        var sub = oneoff.subtasks.find(function(s){ return s.id === subId; });
-        if (sub) sub.done = isDone;
-      } else {
-        var target = state.habits.find(function(h){ return h.id === taskId; }) ||
-                     state.routines.find(function(r){ return r.id === taskId; });
-        if (target && target.subtasks) {
-            if (isDone) {
-                if (!state.log[ds]) state.log[ds] = {};
-                state.log[ds][subId] = true;
-            } else {
-                if (state.log[ds]) delete state.log[ds][subId];
-            }
+      var isGlobal = false;
+      var target = state.oneoff.find(function(o){ return o.id === taskId; });
+      if (target) isGlobal = true;
+      if (!target) {
+        state.projects.forEach(function(p){
+           var pt = p.tasks && p.tasks.find(function(x){ return x.id === taskId; });
+           if (pt) { target = pt; isGlobal = true; }
+        });
+      }
+      if (!target) {
+        target = state.habits.find(function(h){ return h.id === taskId; }) ||
+                 state.routines.find(function(r){ return r.id === taskId; });
+      }
+
+      if (target && target.subtasks) {
+        if (isGlobal) {
+          var sub = target.subtasks.find(function(s){ return s.id === subId; });
+          if (sub) sub.done = isDone;
+        } else {
+          if (isDone) {
+            if (!state.log[ds]) state.log[ds] = {};
+            state.log[ds][subId] = true;
+          } else {
+            if (state.log[ds]) delete state.log[ds][subId];
+          }
         }
       }
       if (state.tracking.subtaskId === subId && isDone) pauseTask();
       persist(); renderActiveTab();
-      /* Detener cronómetro de la subtarea automáticamente si la completas */
-      if (state.tracking.subtaskId === subId && isDone) pauseTask();
-      persist(); renderActiveTab();
-    } else if (action === "toggle-mute") {
+
+    /* --- MOTOR DE INTELIGENCIA ARTIFICIAL (AGENTE GEMINI) --- */
+    } else if (action === "ai-plan-start") {
+      var pID = el.getAttribute("data-id");
+      var proj = state.projects.find(function(x){ return x.id === pID; });
+      if (!proj) return;
+
+      /* 1. Pedir y Guardar la API Key de Gemini (Solo la primera vez) */
+      if (!state.geminiApiKey) {
+        var key = prompt("🤖 Configuración de IA (Gemini)\n\nPara usar esta función necesitas una API Key gratuita de Google Gemini (consíguela en aistudio.google.com).\n\nPega tu API Key aquí:");
+        if (!key || !key.trim()) { showToast("Necesitas una API Key para usar la IA."); return; }
+        state.geminiApiKey = key.trim();
+        persist(); /* Se guarda permanentemente en la bitácora */
+      }
+
+      /* Función Helper para consumir la API REST de Gemini con JavaScript puro */
+      async function askGemini(promptTxt) {
+        var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + state.geminiApiKey;
+        var reqBody = {
+          contents: [{ parts: [{ text: promptTxt }] }],
+          generationConfig: { temperature: 0.7 }
+        };
+        var res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reqBody)
+        });
+        if (!res.ok) {
+           if (res.status === 400 || res.status === 403) throw new Error("API Key inválida o denegada.");
+           throw new Error("Error de conexión con Google: " + res.status);
+        }
+        var data = await res.json();
+        return data.candidates[0].content.parts[0].text;
+      }
+
+      var originalBtnText = el.innerHTML;
+      el.innerHTML = "⏳ Analizando proyecto...";
+      el.disabled = true;
+
+      /* Ejecutamos el flujo de la IA de forma asíncrona para no congelar la app */
+      (async function(){
+        try {
+          /* --- FASE 1: La IA analiza el NOMBRE del proyecto y hace preguntas clave --- */
+          var promptPreguntas = "Actúa como un project manager experto. El usuario quiere planificar un proyecto llamado '" + proj.text + "'. Tu objetivo será estructurar este proyecto en tareas y subtareas. Pero antes, OBLIGATORIAMENTE hazle al usuario máximo 3 preguntas clave, directas y concisas, para averiguar plazos, recursos, contexto o detalles específicos que necesites saber para hacer un plan perfecto. Devuelve ÚNICAMENTE las preguntas en texto plano, separadas por viñetas, sin saludos ni introducciones.";
+          
+          var preguntasIA = await askGemini(promptPreguntas);
+          
+          /* El usuario responde a las preguntas en vivo */
+          var respuestas = prompt("🤖 Gemini necesita unos detalles para planificar '" + proj.text + "':\n\n" + preguntasIA + "\n\nEscribe tus respuestas aquí (o deja en blanco para que la IA asuma lo general):");
+          if (respuestas === null) throw new Error("Cancelaste la planificación.");
+
+          el.innerHTML = "⏳ Estructurando tareas...";
+
+          /* --- FASE 2: La IA construye el JSON final --- */
+          var promptFinal = "Eres un project manager. Proyecto: '" + proj.text + "'. Mis preguntas de clarificación fueron: '" + preguntasIA + "'. Respuestas del usuario: '" + respuestas + "'. \nCrea un plan de acción estructurado basándote en el nombre del proyecto y las respuestas. \nOBLIGATORIO: Debes responder EXCLUSIVAMENTE con un objeto JSON válido, sin usar formato markdown, sin comillas triples y sin texto adicional. Usa estrictamente esta estructura exacta:\n{\"tasks\": [ {\"text\": \"Nombre de Tarea\", \"subtasks\": [\"Subtarea 1\", \"Subtarea 2\"]} ]}";
+          
+          var respuestaIA = await askGemini(promptFinal);
+          
+          /* Limpiar el texto por si la IA le añade símbolos raros o markdown */
+          var jsonLimpio = respuestaIA.replace(/```json/gi, "").replace(/```/gi, "").trim();
+          var plan;
+          try {
+            plan = JSON.parse(jsonLimpio);
+          } catch(e) {
+            throw new Error("La IA no devolvió un formato compatible. Intenta de nuevo.");
+          }
+
+          if (!plan.tasks || !Array.isArray(plan.tasks)) throw new Error("Estructura de tareas inválida.");
+
+          /* --- FASE 3: Inyección Automática --- */
+          if (!proj.tasks) proj.tasks = [];
+          
+          plan.tasks.forEach(function(aiTask){
+             var subT = [];
+             if (aiTask.subtasks && Array.isArray(aiTask.subtasks)) {
+                 subT = aiTask.subtasks.map(function(stText){
+                     return { id: uid(), text: stText, done: false, createdAt: todayStr() };
+                 });
+             }
+             proj.tasks.push({
+                 id: uid(),
+                 text: aiTask.text || "Tarea de Proyecto",
+                 done: false,
+                 createdAt: todayStr(),
+                 subtasks: subT
+             });
+          });
+
+          persist();
+          renderProjectPlanModal(pID);
+          showToast("✨ ¡Plan inyectado con éxito!");
+
+        } catch (error) {
+          console.error("Error de IA:", error);
+          if (error.message !== "Cancelaste la planificación.") {
+              alert("⚠️ Hubo un problema: " + error.message);
+          }
+          /* Si la API Key estaba mal, la borramos para que te la vuelva a pedir en el siguiente intento */
+          if (error.message.includes("API Key")) {
+             state.geminiApiKey = null; 
+             persist();
+          }
+        } finally {
+          el.innerHTML = originalBtnText;
+          el.disabled = false;
+        }
+      })();
+
       isTrainMuted = !isTrainMuted;
       localStorage.setItem("bitacora_train_muted", isTrainMuted);
       syncTrainAudio();
