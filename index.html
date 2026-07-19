@@ -1605,7 +1605,7 @@
 
   function syncTrainAudio() {
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
-      /* Si debe sonar y no tiene origen, se lo ponemos */
+      /* Si el audio fue borrado, lo recargamos solo si toca sonar */
       if (!trainAudio.src || trainAudio.src === "" || trainAudio.src === window.location.href) {
         trainAudio.src = nombreDeMiAudio;
         trainAudio.load();
@@ -1614,9 +1614,13 @@
         trainAudio.play().catch(function(e){ console.warn("Audio bloqueado:", e); });
       }
     } else {
-      /* Si debe callarse, solo lo pausamos suavemente, sin destruir la etiqueta src */
-      if (!trainAudio.paused) {
+      /* APAGADO TOTAL: Pausamos, reiniciamos a 0 y DESTRUIMOS la fuente. 
+         Así es imposible que el navegador lo dispare por accidente al hacer clics. */
+      if (!trainAudio.paused || trainAudio.src) {
         trainAudio.pause();
+        trainAudio.currentTime = 0;
+        trainAudio.removeAttribute('src'); 
+        trainAudio.load(); 
       }
     }
   }
