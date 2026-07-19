@@ -4826,18 +4826,18 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       var proj = state.projects.find(function(x){ return x.id === pID; });
       if (!proj) return;
 
-      /* 1. Pedir y Guardar la API Key de Gemini (Solo la primera vez) */
+      /* 1. Pedir y Guardar la API Key de Gemini */
       if (!state.geminiApiKey) {
-        var key = prompt("🤖 Configuración de IA (Gemini)\n\nPara usar esta función necesitas una API Key gratuita de Google Gemini (consíguela en aistudio.google.com).\n\nAsegúrate de copiar SOLO la clave (suele empezar con 'AIza...').\n\nPega tu API Key aquí:");
+        var key = prompt("🤖 Configuración de IA (Gemini)\n\nConsigue tu API Key en aistudio.google.com.\n\nPega tu API Key aquí:");
         if (!key || !key.trim()) { showToast("Necesitas una API Key para usar la IA."); return; }
         state.geminiApiKey = key.trim();
-        persist(); /* Se guarda permanentemente en la bitácora */
+        persist();
       }
 
-      /* Función Helper para consumir la API REST de Gemini con JavaScript puro */
+      /* Función Helper con "Rayos X" para leer el error exacto de Google */
       async function askGemini(promptTxt) {
-        /* Apuntamos a la versión 'latest' para evitar errores 404 de versión */
-        var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=" + state.geminiApiKey;
+        /* VOLVEMOS a v1beta porque Google aún no ha pasado el modelo 1.5 a v1 */
+        var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + state.geminiApiKey;
         var reqBody = {
           contents: [{ parts: [{ text: promptTxt }] }],
           generationConfig: { temperature: 0.7 }
@@ -4848,12 +4848,21 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           body: JSON.stringify(reqBody)
         });
         
-        /* Sistema de autodefensa: si hay error de servidor, forzamos el reinicio de la key */
         if (!res.ok) {
-           if (res.status === 400 || res.status === 403 || res.status === 404) {
-               throw new Error("API_KEY_ERROR"); 
+           var errorDetalle = "Causa desconocida";
+           try {
+               /* Intentamos atrapar el JSON de error que manda Google */
+               var errorJson = await res.json();
+               errorDetalle = errorJson.error.message;
+           } catch(e) {
+               /* Si no es JSON, atrapamos el texto crudo */
+               errorDetalle = await res.text();
            }
-           throw new Error("Error de conexión con Google: " + res.status);
+           
+           if (res.status === 400 || res.status === 403) {
+               throw new Error("API_KEY_ERROR|" + errorDetalle); 
+           }
+           throw new Error("Error " + res.status + " de Google:\n\n" + errorDetalle);
         }
         var data = await res.json();
         return data.candidates[0].content.parts[0].text;
@@ -4863,37 +4872,29 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       el.innerHTML = "⏳ Analizando proyecto...";
       el.disabled = true;
 
-      /* Ejecutamos el flujo de la IA de forma asíncrona para no congelar la app */
+      /* Ejecutamos asíncronamente */
       (async function(){
         try {
-          /* --- FASE 1: La IA analiza el NOMBRE del proyecto y hace preguntas clave --- */
-          var promptPreguntas = "Actúa como un project manager experto. El usuario quiere planificar un proyecto llamado '" + proj.text + "'. Tu objetivo será estructurar este proyecto en tareas y subtareas. Pero antes, OBLIGATORIAMENTE hazle al usuario máximo 3 preguntas clave, directas y concisas, para averiguar plazos, recursos, contexto o detalles específicos que necesites saber para hacer un plan perfecto. Devuelve ÚNICAMENTE las preguntas en texto plano, separadas por viñetas, sin saludos ni introducciones.";
+          var promptPreguntas = "Actúa como un project manager experto. El usuario quiere planificar un proyecto llamado '" + proj.text + "'. Tu objetivo será estructurar este proyecto en tareas y subtareas. Pero antes, OBLIGATORIAMENTE hazle al usuario máximo 3 preguntas clave, directas y concisas, para averiguar plazos, recursos, contexto o detalles específicos que necesites saber. Devuelve ÚNICAMENTE las preguntas en texto plano, separadas por viñetas, sin saludos ni introducciones.";
           
           var preguntasIA = await askGemini(promptPreguntas);
           
-          /* El usuario responde a las preguntas en vivo */
-          var respuestas = prompt("🤖 Gemini necesita unos detalles para planificar '" + proj.text + "':\n\n" + preguntasIA + "\n\nEscribe tus respuestas aquí (o deja en blanco para que la IA asuma lo general):");
+          var respuestas = prompt("🤖 Gemini necesita unos detalles para planificar '" + proj.text + "':\n\n" + preguntasIA + "\n\nEscribe tus respuestas aquí (o deja en blanco para que asuma lo general):");
           if (respuestas === null) throw new Error("Cancelaste la planificación.");
 
           el.innerHTML = "⏳ Estructurando tareas...";
 
-          /* --- FASE 2: La IA construye el JSON final --- */
-          var promptFinal = "Eres un project manager. Proyecto: '" + proj.text + "'. Mis preguntas de clarificación fueron: '" + preguntasIA + "'. Respuestas del usuario: '" + respuestas + "'. \nCrea un plan de acción estructurado basándote en el nombre del proyecto y las respuestas. \nOBLIGATORIO: Debes responder EXCLUSIVAMENTE con un objeto JSON válido, sin usar formato markdown, sin comillas triples y sin texto adicional. Usa estrictamente esta estructura exacta:\n{\"tasks\": [ {\"text\": \"Nombre de Tarea\", \"subtasks\": [\"Subtarea 1\", \"Subtarea 2\"]} ]}";
+          var promptFinal = "Eres un project manager. Proyecto: '" + proj.text + "'. Mis preguntas fueron: '" + preguntasIA + "'. Respuestas del usuario: '" + respuestas + "'. \nCrea un plan estructurado basándote en el nombre del proyecto y las respuestas. \nOBLIGATORIO: Debes responder EXCLUSIVAMENTE con un objeto JSON válido, sin formato markdown, sin comillas triples y sin texto adicional. Usa estrictamente esta estructura:\n{\"tasks\": [ {\"text\": \"Nombre de Tarea\", \"subtasks\": [\"Subtarea 1\", \"Subtarea 2\"]} ]}";
           
           var respuestaIA = await askGemini(promptFinal);
           
-          /* Limpiar el texto por si la IA le añade símbolos raros o markdown */
           var jsonLimpio = respuestaIA.replace(/```json/gi, "").replace(/```/gi, "").trim();
           var plan;
-          try {
-            plan = JSON.parse(jsonLimpio);
-          } catch(e) {
-            throw new Error("La IA no devolvió un formato compatible. Intenta de nuevo.");
-          }
+          try { plan = JSON.parse(jsonLimpio); } 
+          catch(e) { throw new Error("La IA no devolvió un formato compatible. Intenta de nuevo."); }
 
           if (!plan.tasks || !Array.isArray(plan.tasks)) throw new Error("Estructura de tareas inválida.");
 
-          /* --- FASE 3: Inyección Automática --- */
           if (!proj.tasks) proj.tasks = [];
           
           plan.tasks.forEach(function(aiTask){
@@ -4918,13 +4919,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
         } catch (error) {
           console.error("Error de IA:", error);
-          /* Interceptamos el error de clave y la borramos del sistema */
-          if (error.message === "API_KEY_ERROR") {
-              alert("⚠️ La API Key ingresada no es válida, está incompleta o no tiene los permisos necesarios.\n\nLa he borrado de tu sistema para que puedas ingresarla correctamente en tu próximo intento.");
+          if (error.message.startsWith("API_KEY_ERROR")) {
+              var detalleError = error.message.split("|")[1];
+              alert("⚠️ Google rechazó la conexión.\n\nDetalle oficial de Google: " + detalleError + "\n\nLa API Key se ha borrado de tu sistema para que intentes con otra.");
               state.geminiApiKey = null; 
               persist();
           } else if (error.message !== "Cancelaste la planificación.") {
-              alert("⚠️ Hubo un problema: " + error.message);
+              alert("⚠️ Diagnóstico de Google:\n\n" + error.message + "\n\nLa clave se ha borrado por precaución.");
+              state.geminiApiKey = null; 
+              persist();
           }
         } finally {
           el.innerHTML = originalBtnText;
