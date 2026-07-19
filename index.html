@@ -4828,7 +4828,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       /* 1. Pedir y Guardar la API Key de Gemini (Solo la primera vez) */
       if (!state.geminiApiKey) {
-        var key = prompt("🤖 Configuración de IA (Gemini)\n\nPara usar esta función necesitas una API Key gratuita de Google Gemini (consíguela en aistudio.google.com).\n\nPega tu API Key aquí:");
+        var key = prompt("🤖 Configuración de IA (Gemini)\n\nPara usar esta función necesitas una API Key gratuita de Google Gemini (consíguela en aistudio.google.com).\n\nAsegúrate de copiar SOLO la clave (suele empezar con 'AIza...').\n\nPega tu API Key aquí:");
         if (!key || !key.trim()) { showToast("Necesitas una API Key para usar la IA."); return; }
         state.geminiApiKey = key.trim();
         persist(); /* Se guarda permanentemente en la bitácora */
@@ -4836,7 +4836,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       /* Función Helper para consumir la API REST de Gemini con JavaScript puro */
       async function askGemini(promptTxt) {
-        var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + state.geminiApiKey;
+        /* Apuntamos a la versión 'latest' para evitar errores 404 de versión */
+        var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=" + state.geminiApiKey;
         var reqBody = {
           contents: [{ parts: [{ text: promptTxt }] }],
           generationConfig: { temperature: 0.7 }
@@ -4846,8 +4847,12 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(reqBody)
         });
+        
+        /* Sistema de autodefensa: si hay error de servidor, forzamos el reinicio de la key */
         if (!res.ok) {
-           if (res.status === 400 || res.status === 403) throw new Error("API Key inválida o denegada.");
+           if (res.status === 400 || res.status === 403 || res.status === 404) {
+               throw new Error("API_KEY_ERROR"); 
+           }
            throw new Error("Error de conexión con Google: " + res.status);
         }
         var data = await res.json();
@@ -4913,13 +4918,13 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
         } catch (error) {
           console.error("Error de IA:", error);
-          if (error.message !== "Cancelaste la planificación.") {
+          /* Interceptamos el error de clave y la borramos del sistema */
+          if (error.message === "API_KEY_ERROR") {
+              alert("⚠️ La API Key ingresada no es válida, está incompleta o no tiene los permisos necesarios.\n\nLa he borrado de tu sistema para que puedas ingresarla correctamente en tu próximo intento.");
+              state.geminiApiKey = null; 
+              persist();
+          } else if (error.message !== "Cancelaste la planificación.") {
               alert("⚠️ Hubo un problema: " + error.message);
-          }
-          /* Si la API Key estaba mal, la borramos para que te la vuelva a pedir en el siguiente intento */
-          if (error.message.includes("API Key")) {
-             state.geminiApiKey = null; 
-             persist();
           }
         } finally {
           el.innerHTML = originalBtnText;
