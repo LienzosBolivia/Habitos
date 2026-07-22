@@ -1632,6 +1632,7 @@
   var openReminderPanel = null;
   /* Evidencia pendiente de guardar: { ds, id } */
   var pendingEvidence = null;
+  var pendingDeactivationId = null; /* <--- NUEVA LÍNEA: Controla si estamos apagando el sistema */
   /* Año histórico seleccionado en Calendario (null = año actual) */
   var calendarHistoricalYear = null;
   /* Modo edición de evidencia */
@@ -2418,35 +2419,41 @@ function defaultState(){
     reader.readAsDataURL(file);
   }
 
-    function openEvidenceModal(ds, id){
+  function openEvidenceModal(ds, id){
     pendingEvidence  = { ds: ds, id: id };
     isEditingEvidence = false;
     editingPrevImage  = null;
 
-    /* Actualizar título del modal */
     var title = document.getElementById("evidModalTitle");
-    if (title) title.textContent = "📋 Evidencia de cumplimiento";
     var saveBtn = document.getElementById("evidenceSaveBtn");
-    if (saveBtn) saveBtn.textContent = "Guardar y marcar cumplida";
+    var noteInput = document.getElementById("evidenceNote");
+    
+    /* Si estamos intentando apagar el sistema, los textos cambian para dar fricción */
+    if (pendingDeactivationId === id) {
+        if (title) title.textContent = "🛑 Motivo de desactivación";
+        if (saveBtn) saveBtn.textContent = "Apagar sistema";
+        if (noteInput) noteInput.placeholder = "¿Por qué estás apagando el sistema? Escribe tu justificación...";
+    } else {
+        if (title) title.textContent = "📋 Evidencia de cumplimiento";
+        if (saveBtn) saveBtn.textContent = "Guardar y marcar cumplida";
+        if (noteInput) noteInput.placeholder = "¿Cómo lo cumpliste? Escribe una nota...";
+    }
     
     /* Limpiar campos */
-    document.getElementById("evidenceNote").value = "";
+    if (noteInput) noteInput.value = "";
     document.getElementById("evidencePreview").innerHTML = "";
     
-    /* Modificar solo el texto, sin borrar el <input> interno */
     var lbl = document.getElementById("evidenceFileLabel");
-    lbl.childNodes[0].textContent = "📷 Seleccionar foto ";
+    if (lbl && lbl.childNodes[0]) lbl.childNodes[0].textContent = "📷 Seleccionar foto ";
     
-    /* Limpiar el input de archivo y los datos comprimidos anteriores */
     var fileInput = document.getElementById("evidenceFile");
     if (fileInput) {
       fileInput.value = "";
       fileInput.removeAttribute("data-compressed");
     }
     
-    /* Abrir el modal */
     document.getElementById("evidenceModal").classList.add("open");
-    setTimeout(function(){ document.getElementById("evidenceNote").focus(); }, 100);
+    setTimeout(function(){ if(noteInput) noteInput.focus(); }, 100);
   }
 
   function openEditEvidenceModal(ds, id){
@@ -2497,6 +2504,20 @@ function defaultState(){
 
   function closeEvidenceModal(){
     document.getElementById("evidenceModal").classList.remove("open");
+    
+    /* Si el usuario se arrepiente y cancela la desactivación, borramos la tarea fantasma */
+    if (pendingDeactivationId && pendingEvidence && pendingEvidence.id === pendingDeactivationId && !isEditingEvidence) {
+        var ds = pendingEvidence.ds;
+        var id = pendingEvidence.id;
+        /* Si NO está marcada como hecha en el log, es que le dio a Cancelar */
+        if (!state.log[ds] || !state.log[ds][id]) {
+            state.oneoff = state.oneoff.filter(function(o){ return o.id !== id; });
+            persist();
+            renderActiveTab();
+        }
+        pendingDeactivationId = null;
+    }
+    
     pendingEvidence   = null;
     isEditingEvidence = false;
     editingPrevImage  = null;
@@ -2569,8 +2590,21 @@ function defaultState(){
         renderActiveTab();
       } else {
         markDone(ds, id); /* markDone ya llama persist() → scheduleAutoSync() */
+        
+        var isDeactivation = (pendingDeactivationId === id);
+        if (isDeactivation) {
+            /* ¡Pasa la prueba! Apagamos el sistema de verdad */
+            toggleMaster(); 
+            pendingDeactivationId = null;
+        }
+        
         closeEvidenceModal();
-        showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
+        
+        if (isDeactivation) {
+            showToast("Sistema desactivado. Motivo registrado en tu historial.");
+        } else {
+            showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
+        }
       }
     });
   }
@@ -4949,7 +4983,23 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       renderActiveTab();
 
     } else if (action === "toggle-master"){
-      toggleMaster();
+      if (state.tracking.status === "inactive") {
+        /* Si está apagado, lo enciende normalmente sin preguntar */
+        toggleMaster();
+      } else {
+        /* FRICCIÓN: Si está encendido, exige justificación para apagarlo */
+        var ds = todayStr();
+        var newId = uid();
+        /* 1. Creamos una tarea especial de "Desactivación" en las tareas únicas (oneoff) */
+        state.oneoff.push({ id: newId, text: "Desactivación del sistema", date: ds });
+        persist();
+        
+        /* 2. Le avisamos a la app que este ID es para apagar el sistema */
+        pendingDeactivationId = newId;
+        
+        /* 3. Abrimos el modal para exigir la evidencia/justificación */
+        openEvidenceModal(ds, newId);
+      }
 
     } else if (action === "play-task"){
       playTask(el.getAttribute("data-date"), el.getAttribute("data-id"));
