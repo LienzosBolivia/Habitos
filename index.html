@@ -4648,7 +4648,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     } else if (action === "export-ics"){
       var icsDs   = el.getAttribute("data-date");
       var icsId   = el.getAttribute("data-id");
-      var icsTasks = (icsDs);
+      var icsTasks = getTasksForDate(icsDs); /* <-- AQUÍ ESTABA EL ERROR */
       var icsTask  = icsTasks.find(function(t){ return t.id === icsId; });
       if (icsTask) exportToIcs(icsTask.text, icsDs, getReminder(icsDs, icsId));
 
