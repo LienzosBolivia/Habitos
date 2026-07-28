@@ -1950,24 +1950,68 @@ function defaultState(){
       state.tracking.subtaskId = null;
       state.tracking.taskDs    = null;
       state.tracking.startTime = Date.now();
+      state.tracking.targetLimit = null;
     } else {
       state.tracking.status    = "inactive";
       state.tracking.taskId    = null;
       state.tracking.subtaskId = null;
       state.tracking.taskDs    = null;
       state.tracking.startTime = null;
+      state.tracking.targetLimit = null;
     }
     persist();
     renderActiveTab();
   }
 
   function playTask(ds, id, subId){
+    var log = state.timeLog[ds];
+    var elapsed = 0;
+    var existingLimit = null;
+
+    /* Revisamos si la tarea/subtarea ya tenía un límite guardado previamente */
+    if (log) {
+      if (subId) {
+        elapsed = (log.subtasks && log.subtasks[subId]) || 0;
+        if (log.subtaskLimits && log.subtaskLimits[subId]) existingLimit = log.subtaskLimits[subId];
+      } else {
+        elapsed = (log.tasks && log.tasks[id]) || 0;
+        if (log.taskLimits && log.taskLimits[id]) existingLimit = log.taskLimits[id];
+      }
+    }
+
+    var targetSecs = existingLimit;
+
+    /* PREGUNTAMOS SI: no hay límite previo, O el tiempo actual ya superó el límite (quiere un nuevo tiempo tras desmarcar) */
+    if (!existingLimit || elapsed >= existingLimit) {
+      var est = prompt("⏱ ¿Cuántos minutos estimas para esta " + (subId ? "subtarea" : "tarea") + "?\n\n(Deja en blanco o pon 0 para continuar con cronómetro infinito):");
+      if (est === null) return; 
+      var mins = parseFloat(est.replace(",", "."));
+      targetSecs = (mins > 0 && !isNaN(mins)) ? Math.round(mins * 60) : null;
+      
+      if (targetSecs) {
+        if (!state.timeLog[ds]) state.timeLog[ds] = { thinking: 0, tasks: {}, subtasks: {} };
+        var l = state.timeLog[ds];
+        if (subId) {
+          if (!l.subtaskLimits) l.subtaskLimits = {};
+          l.subtaskLimits[subId] = targetSecs;
+        } else {
+          if (!l.taskLimits) l.taskLimits = {};
+          l.taskLimits[id] = targetSecs;
+        }
+      } else if (existingLimit) {
+        /* Borrar el límite si el usuario lo dejó en 0 o vacío en el reintento */
+        if (subId) delete state.timeLog[ds].subtaskLimits[subId];
+        else delete state.timeLog[ds].taskLimits[id];
+      }
+    }
+
     flushTime();
     state.tracking.status    = "task";
     state.tracking.taskId    = id;
     state.tracking.subtaskId = subId || null;
     state.tracking.taskDs    = ds;
     state.tracking.startTime = Date.now();
+    state.tracking.targetLimit = targetSecs;
     persist();
     renderActiveTab();
   }
@@ -1979,6 +2023,7 @@ function defaultState(){
     state.tracking.subtaskId = null;
     state.tracking.taskDs    = null;
     state.tracking.startTime = Date.now();
+    state.tracking.targetLimit = null;
     persist();
     renderActiveTab();
   }
@@ -1990,6 +2035,7 @@ function defaultState(){
     state.tracking.subtaskId = null;
     state.tracking.taskDs    = null;
     state.tracking.startTime = Date.now();
+    state.tracking.targetLimit = null;
     persist();
     openEvidenceModal(ds, id);
   }
@@ -2011,25 +2057,85 @@ function defaultState(){
     }
   });
 
-  /* Refresca los cronómetros visibles en el DOM cada segundo */
+  /* --- Ayudante para marcar subtareas automáticamente cuando se acaba el tiempo --- */
+  function autoMarkSubtaskDone(ds, taskId, subId) {
+    var isGlobal = false;
+    var target = state.oneoff.find(function(o){ return o.id === taskId; });
+    if (target) isGlobal = true;
+    if (!target) {
+      state.projects.forEach(function(p){
+         var pt = p.tasks && p.tasks.find(function(x){ return x.id === taskId; });
+         if (pt) { target = pt; isGlobal = true; }
+      });
+    }
+    if (!target) {
+      target = state.habits.find(function(h){ return h.id === taskId; }) ||
+               state.routines.find(function(r){ return r.id === taskId; });
+    }
+    if (target && target.subtasks) {
+      if (isGlobal) {
+        var sub = target.subtasks.find(function(s){ return s.id === subId; });
+        if (sub) sub.done = true;
+      } else {
+        if (!state.log[ds]) state.log[ds] = {};
+        state.log[ds][subId] = true;
+      }
+    }
+  }
+
+  /* Refresca los cronómetros visibles en el DOM cada segundo y evalúa los límites */
   function updateLiveTimers(){
     if (!state.tracking || state.tracking.status === "inactive") return;
     var today = todayStr();
+    var ds = state.tracking.taskDs || today;
 
     var masterEl = document.querySelector("[data-live-master]");
-    if (masterEl) masterEl.textContent = formatDuration(getThinkingLiveSeconds(state.tracking.taskDs || today));
+    if (masterEl) masterEl.textContent = formatDuration(getThinkingLiveSeconds(ds));
 
-    if (state.tracking.status === "task" && state.tracking.taskId){
-      var taskEl = document.querySelector('[data-live-task="' + state.tracking.taskId + '"]');
-      if (taskEl) taskEl.textContent = formatDuration(getTaskLiveSeconds(state.tracking.taskDs, state.tracking.taskId));
+    var tid = state.tracking.taskId;
+    var sid = state.tracking.subtaskId;
+
+    if (state.tracking.status === "task" && tid){
+      var taskElapsed = getTaskLiveSeconds(ds, tid);
+      var subElapsed = 0;
+      if (sid) {
+        var log = state.timeLog[ds];
+        var baseSub = (log && log.subtasks && log.subtasks[sid]) || 0;
+        subElapsed = baseSub + ((Date.now() - state.tracking.startTime) / 1000);
+      }
+
+      var target = state.tracking.targetLimit;
+      var activeElapsed = sid ? subElapsed : taskElapsed;
+
+      /* --- AUTO-COMPLETAR SI SE CUMPLE EL TIEMPO --- */
+      if (target && activeElapsed >= target) {
+        if (sid) {
+           pauseTask(); /* Frena el timer */
+           autoMarkSubtaskDone(ds, tid, sid); /* Marca el checkbox automáticamente */
+           persist(); renderActiveTab();
+        } else {
+           stopTask(ds, tid); /* Frena y te abre el modal de evidencia */
+        }
+        
+        showToast("¡Tiempo estimado cumplido!");
+        /* Activa el audio de la canción por 3 segundos como alarma */
+        try { 
+           var notifAudio = new Audio(nombreDeMiAudio); 
+           notifAudio.play().catch(function(){}); 
+           setTimeout(function(){ notifAudio.pause(); notifAudio.removeAttribute('src'); }, 3000); 
+        } catch(e){}
+        return;
+      }
+
+      var taskEl = document.querySelector('[data-live-task="' + tid + '"]');
+      if (taskEl) {
+        taskEl.textContent = (!sid && target) ? formatDuration(taskElapsed) + " / " + formatDuration(target) : formatDuration(taskElapsed);
+      }
       
-      if (state.tracking.subtaskId) {
-        var subEl = document.querySelector('[data-live-subtask="' + state.tracking.subtaskId + '"]');
+      if (sid) {
+        var subEl = document.querySelector('[data-live-subtask="' + sid + '"]');
         if (subEl) {
-          var log = state.timeLog[state.tracking.taskDs];
-          var base = (log && log.subtasks && log.subtasks[state.tracking.subtaskId]) || 0;
-          base += (Date.now() - state.tracking.startTime) / 1000;
-          subEl.textContent = formatDuration(base);
+          subEl.textContent = target ? formatDuration(subElapsed) + " / " + formatDuration(target) : formatDuration(subElapsed);
         }
       }
     }
@@ -2721,18 +2827,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (t.type === "routine") badgeHtml = '<span class="badge badge-routine">rutina</span>';
     if (t.type === "project-task") badgeHtml = '<span class="project-task-badge" style="font-size:9.5px; border-color:var(--ink-700); background:rgba(0,0,0,0.25); color:var(--text-faint); margin-left:6px;">📁 ' + escapeHtml(t.projectName) + '</span>';
 
-    /* Ojo y Lápiz de evidencia (solo si done) */
     var eyeBtn = status === "done"
       ? '<button class="task-eye-btn" data-action="view-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Ver evidencia">' + ICON_EYE + '</button>' +
         '<button class="task-pencil-btn" data-action="edit-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Editar evidencia">' + ICON_PENCIL + '</button>'
       : "";
 
-    /* Botón de borrar (solo oneoff) */
     var del = (t.type === "oneoff" && opts.allowDelete !== false)
       ? '<button class="task-delete-btn" data-action="delete-task" data-id="' + t.id + '" aria-label="Eliminar tarea">&times;</button>'
       : "";
 
-    /* Recordatorio */
     var rkey = reminderKey(ds, t.id);
     var existingReminder = getReminder(ds, t.id);
     var bellClass = "task-bell-btn" + (existingReminder ? " has-reminder" : "");
@@ -2740,21 +2843,32 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
                   '" data-date="' + ds + '" data-id="' + t.id + '" title="' +
                   (existingReminder ? "Recordatorio: " + existingReminder : "Agregar recordatorio") + '">' + ICON_BELL + '</button>';
 
-    /* Controles de tiempo */
     var showTimeControls = ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project-task") && status !== "done" && !isFuture && ds === todayStr());
     var stampOrTimeHtml;
+    
+    /* --- NUEVO: Extraemos el límite de tiempo de la tarea principal --- */
+    var timeLog = state.timeLog[ds] || {};
+    var taskLimit = (timeLog.taskLimits && timeLog.taskLimits[t.id]) || null;
+    
     if (showTimeControls){
       var isActiveTask = (state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds);
+      
+      var timeString = formatDuration(getTaskLiveSeconds(ds, t.id));
+      if (taskLimit && (!isActiveTask || !state.tracking.subtaskId)) {
+         timeString += " / " + formatDuration(taskLimit);
+      }
+
       if (isActiveTask){
         stampOrTimeHtml =
           '<div class="task-time-controls">' +
-            '<span class="task-time-badge" data-live-task="' + t.id + '">' + formatDuration(getTaskLiveSeconds(ds, t.id)) + '</span>' +
+            '<span class="task-time-badge" data-live-task="' + t.id + '">' + timeString + '</span>' +
             '<button class="task-time-btn pause" data-action="pause-task" title="Pausar">' + ICON_PAUSE + '</button>' +
             '<button class="task-time-btn stop" data-action="stop-task" data-date="' + ds + '" data-id="' + t.id + '" title="Completar">' + ICON_STOP + '</button>' +
           '</div>';
       } else {
         stampOrTimeHtml =
           '<div class="task-time-controls">' +
+            (taskLimit && getTaskLiveSeconds(ds, t.id) > 0 ? '<span class="task-time-badge" style="background:transparent; border-color:var(--ink-700);">' + timeString + '</span>' : '') +
             '<button class="task-time-btn play" data-action="play-task" data-date="' + ds + '" data-id="' + t.id + '" title="Empezar">' + ICON_PLAY + '</button>' +
           '</div>';
       }
@@ -2770,7 +2884,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if ((t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project-task") && status === "done") {
       var totalSecs = getTaskLiveSeconds(ds, t.id);
       if (totalSecs > 0) {
-        timeLoggedHtml = '<span style="margin-left:auto; margin-right:6px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 7px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + formatDuration(totalSecs) + '</span>';
+        var doneTimeStr = taskLimit ? formatDuration(totalSecs) + " / " + formatDuration(taskLimit) : formatDuration(totalSecs);
+        timeLoggedHtml = '<span style="margin-left:auto; margin-right:6px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 7px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + doneTimeStr + '</span>';
       }
     }
 
@@ -2813,7 +2928,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       );
     }
 
-    /* --- INYECCIÓN DE SUBTAREAS --- */
     var subtasksHtml = "";
     if (t.type === "oneoff" || t.type === "habit" || t.type === "routine" || t.type === "project-task") {
       var subs = t.subtasks || [];
@@ -2834,13 +2948,17 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           var checked = s.done ? "checked" : "";
           var doneCls = s.done ? " is-done" : "";
           
-          var log = state.timeLog[ds];
-          var totalSubSecs = (log && log.subtasks && log.subtasks[s.id]) || 0;
+          var totalSubSecs = (timeLog.subtasks && timeLog.subtasks[s.id]) || 0;
           var isTrackingThis = (state.tracking.status === "task" && state.tracking.subtaskId === s.id && state.tracking.taskDs === ds);
           if (isTrackingThis && state.tracking.startTime){
             totalSubSecs += (Date.now() - state.tracking.startTime) / 1000;
           }
           
+          /* --- NUEVO: Extraemos el límite de tiempo de la subtarea --- */
+          var subLimit = (timeLog.subtaskLimits && timeLog.subtaskLimits[s.id]) || null;
+          var subTimeStr = formatDuration(totalSubSecs);
+          if (subLimit) subTimeStr += " / " + formatDuration(subLimit);
+
           var timeBtn = "";
           if (!s.done && showTimeControls && !isTaskDone) {
             if (isTrackingThis) {
@@ -2849,7 +2967,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
                timeBtn = '<button class="task-time-btn play" style="width:24px;height:24px;min-width:24px;" data-action="play-subtask" data-date="'+ds+'" data-id="'+t.id+'" data-subid="'+s.id+'" title="Empezar subtarea">' + ICON_PLAY + '</button>';
             }
           }
-          var timeBadge = (totalSubSecs > 0) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + formatDuration(totalSubSecs) + '</span>' : '';
+          var timeBadge = (totalSubSecs > 0 || subLimit) ? '<span class="task-time-badge" style="font-size:10px; padding:2px 5px; min-width:42px; margin-right:6px;" data-live-subtask="' + s.id + '">' + subTimeStr + '</span>' : '';
           
           var delBtn = isTaskDone ? '' : '<button class="subtask-del-btn" data-action="delete-subtask" data-date="' + ds + '" data-id="' + t.id + '" data-subid="' + s.id + '" title="Eliminar subtarea">&times;</button>';
           var disabledAttr = isTaskDone ? 'disabled' : '';
