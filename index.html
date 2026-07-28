@@ -1913,12 +1913,24 @@ function defaultState(){
       state.timeLog[ds].thinking = (state.timeLog[ds].thinking || 0) + elapsedSec;
     } else if (state.tracking.status === "task" && state.tracking.taskId){
       var tid = state.tracking.taskId;
+      var sid = state.tracking.subtaskId;
+      var target = state.tracking.targetLimit;
+
+      /* --- MAGIA: Recortar tiempo muerto si nos pasamos de los 10 min de gracia --- */
+      if (target) {
+        var activeBase = sid ? (state.timeLog[ds].subtasks[sid] || 0) : (state.timeLog[ds].tasks[tid] || 0);
+        /* Si la suma del tiempo base más lo que pasó durmiendo supera el límite + gracia */
+        if ((activeBase + elapsedSec) > (target + 600)) {
+           elapsedSec = (target + 600) - activeBase; /* Recortamos el exceso matemático */
+           if (elapsedSec < 0) elapsedSec = 0;
+        }
+      }
+
       state.timeLog[ds].tasks[tid] = (state.timeLog[ds].tasks[tid] || 0) + elapsedSec;
       
       /* Vuelca tiempo también a la subtarea si hay una activa */
-      if (state.tracking.subtaskId) {
-         var stid = state.tracking.subtaskId;
-         state.timeLog[ds].subtasks[stid] = (state.timeLog[ds].subtasks[stid] || 0) + elapsedSec;
+      if (sid) {
+         state.timeLog[ds].subtasks[sid] = (state.timeLog[ds].subtasks[sid] || 0) + elapsedSec;
       }
     }
     state.tracking.startTime = now;
@@ -2079,6 +2091,96 @@ function defaultState(){
       } else {
         if (!state.log[ds]) state.log[ds] = {};
         state.log[ds][subId] = true;
+      }
+    }
+  }
+
+  /* --- NUEVO: Ayudante para auto-completar tareas principales silenciosamente --- */
+  function autoMarkMainTaskDone(ds, taskId) {
+    var taskText = "Tarea";
+    var taskSubtasks = [];
+    var allT = getTasksForDate(ds);
+    var t = allT.find(function(x){ return x.id === taskId; });
+    
+    if (t) {
+      taskText = t.text;
+      if (t.type === "oneoff") {
+        var orig = state.oneoff.find(function(x){ return x.id === taskId; });
+        if (orig && orig.subtasks) taskSubtasks = orig.subtasks;
+      }
+    }
+    
+    /* Creamos la evidencia fantasma para que no rompa el sistema */
+    var evidence = JSON.stringify({
+      taskName: taskText,
+      subtasks: taskSubtasks,
+      note: "Completada automáticamente (Se superó el tiempo estimado + 10 min de gracia).",
+      image: null,
+      savedAt: new Date().toISOString()
+    });
+    
+    var key = ds + "_" + taskId;
+    dbSet(key, evidence).catch(function(){}).then(function(){
+      markDone(ds, taskId);
+    });
+  }
+
+  /* Refresca los cronómetros visibles en el DOM cada segundo y evalúa los límites */
+  function updateLiveTimers(){
+    if (!state.tracking || state.tracking.status === "inactive") return;
+    var today = todayStr();
+    var ds = state.tracking.taskDs || today;
+
+    var masterEl = document.querySelector("[data-live-master]");
+    if (masterEl) masterEl.textContent = formatDuration(getThinkingLiveSeconds(ds));
+
+    var tid = state.tracking.taskId;
+    var sid = state.tracking.subtaskId;
+
+    if (state.tracking.status === "task" && tid){
+      var taskElapsed = getTaskLiveSeconds(ds, tid);
+      var subElapsed = 0;
+      if (sid) {
+        var log = state.timeLog[ds];
+        var baseSub = (log && log.subtasks && log.subtasks[sid]) || 0;
+        subElapsed = baseSub + ((Date.now() - state.tracking.startTime) / 1000);
+      }
+
+      var target = state.tracking.targetLimit;
+      var activeElapsed = sid ? subElapsed : taskElapsed;
+
+      /* --- AUTO-COMPLETAR CON 10 MINUTOS (600 SEGUNDOS) DE GRACIA --- */
+      if (target && activeElapsed >= (target + 600)) {
+        if (sid) {
+           pauseTask(); /* Frena el timer de la subtarea */
+           autoMarkSubtaskDone(ds, tid, sid); /* Marca el checkbox automáticamente */
+        } else {
+           pauseTask(); /* Frena el timer de la tarea principal */
+           autoMarkMainTaskDone(ds, tid); /* Crea evidencia fantasma y la marca completada */
+        }
+        persist(); 
+        renderActiveTab();
+        showToast("¡10 min de gracia superados! Completada automáticamente.");
+        
+        /* Activa el audio de la canción por 3 segundos como alarma */
+        try { 
+           var notifAudio = new Audio(nombreDeMiAudio); 
+           notifAudio.play().catch(function(){}); 
+           setTimeout(function(){ notifAudio.pause(); notifAudio.removeAttribute('src'); }, 3000); 
+        } catch(e){}
+        return;
+      }
+
+      var taskEl = document.querySelector('[data-live-task="' + tid + '"]');
+      if (taskEl) {
+        taskEl.textContent = (!sid && target) ? formatDuration(taskElapsed) + " / " + formatDuration(target) : formatDuration(taskElapsed);
+      }
+      
+      if (sid) {
+        var subEl = document.querySelector('[data-live-subtask="' + sid + '"]');
+        if (subEl) {
+          subEl.textContent = target ? formatDuration(subElapsed) + " / " + formatDuration(target) : formatDuration(subElapsed);
+        }
       }
     }
   }
