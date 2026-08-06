@@ -2126,9 +2126,71 @@ function defaultState(){
   }
 
   /* Refresca los cronómetros visibles en el DOM cada segundo y evalúa los límites */
+  /* Refresca los cronómetros visibles y evalúa Autoinicios obligatorios */
   function updateLiveTimers(){
-    if (!state.tracking || state.tracking.status === "inactive") return;
     var today = todayStr();
+    var now = new Date();
+
+    /* --- NUEVO: AUTO-INICIO OBLIGATORIO (VIAJE EN EL TIEMPO) --- */
+    var currentTotalMin = now.getHours() * 60 + now.getMinutes();
+    var tasksToday = getTasksForDate(today);
+    
+    for (var i = 0; i < tasksToday.length; i++) {
+      var t = tasksToday[i];
+      if (getStatus(today, t.id) === "done") continue;
+      
+      var rTime = getReminder(today, t.id);
+      if (!rTime) continue;
+
+      var parts = rTime.split(":");
+      var targetH = parseInt(parts[0], 10);
+      var targetM = parseInt(parts[1], 10);
+      var targetTotalMin = targetH * 60 + targetM;
+
+      /* Si ya llegó o pasó la hora programada... */
+      if (currentTotalMin >= targetTotalMin) {
+        var logDay = state.timeLog[today];
+        var hasTime = logDay && logDay.tasks && logDay.tasks[t.id];
+        
+        /* ...y no tiene tiempo registrado, ni la estamos ejecutando ahora mismo */
+        if (!hasTime && !(state.tracking && state.tracking.status === "task" && state.tracking.taskId === t.id)) {
+          
+          /* Ejecutar Viaje en el Tiempo */
+          if (state.tracking && state.tracking.status !== "inactive") {
+             flushTime(); /* Guardar la tarea actual si estaba haciendo otra cosa */
+          }
+          
+          /* Retrocedemos el reloj al momento exacto en que debió empezar */
+          var targetTimeMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetH, targetM, 0, 0).getTime();
+          
+          state.tracking.status = "task";
+          state.tracking.taskId = t.id;
+          state.tracking.subtaskId = null;
+          state.tracking.taskDs = today;
+          state.tracking.startTime = targetTimeMs; /* Inyección retroactiva */
+          
+          /* Cargar límite de tiempo si la tarea lo tenía */
+          state.tracking.targetLimit = (logDay && logDay.taskLimits && logDay.taskLimits[t.id]) ? logDay.taskLimits[t.id] : null;
+          
+          persist();
+          renderActiveTab();
+          showToast("⏳ Ejecución obligatoria: " + t.text);
+          
+          /* Alarma sonora de 3 segundos */
+          try { 
+             var notifAudio = new Audio(nombreDeMiAudio); 
+             notifAudio.play().catch(function(){}); 
+             setTimeout(function(){ notifAudio.pause(); notifAudio.removeAttribute('src'); }, 3000); 
+          } catch(e){}
+          
+          return; /* Salimos de la función. En el próximo segundo ya actualizará el DOM visualmente. */
+        }
+      }
+    }
+    /* ----------------------------------------------------------- */
+
+    /* Lo de abajo es el control normal visual del tiempo */
+    if (!state.tracking || state.tracking.status === "inactive") return;
     var ds = state.tracking.taskDs || today;
 
     var masterEl = document.querySelector("[data-live-master]");
@@ -2152,17 +2214,16 @@ function defaultState(){
       /* --- AUTO-COMPLETAR CON 10 MINUTOS (600 SEGUNDOS) DE GRACIA --- */
       if (target && activeElapsed >= (target + 600)) {
         if (sid) {
-           pauseTask(); /* Frena el timer de la subtarea */
-           autoMarkSubtaskDone(ds, tid, sid); /* Marca el checkbox automáticamente */
+           pauseTask();
+           autoMarkSubtaskDone(ds, tid, sid);
         } else {
-           pauseTask(); /* Frena el timer de la tarea principal */
-           autoMarkMainTaskDone(ds, tid); /* Crea evidencia fantasma y la marca completada */
+           pauseTask();
+           autoMarkMainTaskDone(ds, tid);
         }
         persist(); 
         renderActiveTab();
         showToast("¡10 min de gracia superados! Completada automáticamente.");
         
-        /* Activa el audio de la canción por 3 segundos como alarma */
         try { 
            var notifAudio = new Audio(nombreDeMiAudio); 
            notifAudio.play().catch(function(){}); 
@@ -2184,7 +2245,6 @@ function defaultState(){
       }
     }
   }
-
   /* Refresca los cronómetros visibles en el DOM cada segundo y evalúa los límites */
   function updateLiveTimers(){
     if (!state.tracking || state.tracking.status === "inactive") return;
@@ -2260,7 +2320,7 @@ function defaultState(){
         }).map(function(s){
             return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
         }) : [];
-        tasks.push({ id:h.id, text:h.text, type:"habit", subtasks: habitSubs });
+                tasks.push({ id:h.id, text:h.text, type:"habit", routineTime: h.time || null, subtasks: habitSubs });
       }
     });
     /* Tareas one-off */
@@ -2538,7 +2598,14 @@ function defaultState(){
 
   function reminderKey(ds, taskId){ return ds + "|" + taskId; }
   function getReminder(ds, taskId){
-    return (state.reminders && state.reminders[reminderKey(ds, taskId)]) || null;
+    var r = (state.reminders && state.reminders[reminderKey(ds, taskId)]) || null;
+    if (r) return r;
+    /* NUEVO: Fallback. Si es un hábito o rutina, buscar su hora permanente */
+    var h = state.habits.find(function(x){ return x.id === taskId; });
+    if (h && h.time) return h.time;
+    var rt = state.routines.find(function(x){ return x.id === taskId; });
+    if (rt && rt.time) return rt.time;
+    return null;
   }
   function setReminder(ds, taskId, time){
     if (!state.reminders) state.reminders = {};
@@ -4852,15 +4919,30 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (!timeVal){ showToast("Elegí una hora."); return; }
       requestNotifPermission(function(perm){
         setReminder(saveDs, saveId, timeVal);
+        
+        /* NUEVO: Guardar permanentemente si es hábito o rutina */
+        var h = state.habits.find(function(x){ return x.id === saveId; });
+        if (h) h.time = timeVal;
+        var r = state.routines.find(function(x){ return x.id === saveId; });
+        if (r) r.time = timeVal;
+
         openReminderPanel = null;
         renderActiveTab();
         if (perm === "granted") showToast("Recordatorio guardado para las " + timeVal + ".");
-        else if (perm === "denied") showToast("Guardado. Activá notificaciones en el navegador para recibirlo.");
+        else if (perm === "denied") showToast("Guardado. Activá notificaciones para recibirlo.");
         else showToast("Guardado. Exportá el .ics para agregarlo a tu calendario.");
       });
 
     } else if (action === "clear-reminder"){
-      setReminder(el.getAttribute("data-date"), el.getAttribute("data-id"), null);
+      var clearId = el.getAttribute("data-id");
+      setReminder(el.getAttribute("data-date"), clearId, null);
+      
+      /* Limpiar la regla permanentemente */
+      var h = state.habits.find(function(x){ return x.id === clearId; });
+      if (h) delete h.time;
+      var r = state.routines.find(function(x){ return x.id === clearId; });
+      if (r) delete r.time;
+
       openReminderPanel = null;
       renderActiveTab();
       showToast("Recordatorio eliminado.");
