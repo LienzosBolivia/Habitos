@@ -2069,7 +2069,7 @@ function defaultState(){
     }
   });
 
-  /* --- Ayudante para marcar subtareas automáticamente cuando se acaba el tiempo --- */
+  /* --- Ayudante para marcar subtareas automáticamente --- */
   function autoMarkSubtaskDone(ds, taskId, subId) {
     var isGlobal = false;
     var target = state.oneoff.find(function(o){ return o.id === taskId; });
@@ -2095,7 +2095,7 @@ function defaultState(){
     }
   }
 
-  /* --- NUEVO: Ayudante para auto-completar tareas principales silenciosamente --- */
+  /* --- Ayudante para auto-completar tareas principales --- */
   function autoMarkMainTaskDone(ds, taskId) {
     var taskText = "Tarea";
     var taskSubtasks = [];
@@ -2110,7 +2110,6 @@ function defaultState(){
       }
     }
     
-    /* Creamos la evidencia fantasma para que no rompa el sistema */
     var evidence = JSON.stringify({
       taskName: taskText,
       subtasks: taskSubtasks,
@@ -2125,13 +2124,13 @@ function defaultState(){
     });
   }
 
-  /* Refresca los cronómetros visibles en el DOM cada segundo y evalúa los límites */
-  /* Refresca los cronómetros visibles y evalúa Autoinicios obligatorios */
+  /* Refresca los cronómetros visibles y ejecuta viajes en el tiempo */
   function updateLiveTimers(){
+    if (!state) return; /* Seguridad de arranque */
     var today = todayStr();
     var now = new Date();
 
-    /* --- NUEVO: AUTO-INICIO OBLIGATORIO (VIAJE EN EL TIEMPO) --- */
+    /* --- FASE 1: AUTO-INICIO OBLIGATORIO (VIAJE EN EL TIEMPO) --- */
     var currentTotalMin = now.getHours() * 60 + now.getMinutes();
     var tasksToday = getTasksForDate(today);
     
@@ -2143,34 +2142,37 @@ function defaultState(){
       if (!rTime) continue;
 
       var parts = rTime.split(":");
-      var targetH = parseInt(parts[0], 10);
-      var targetM = parseInt(parts[1], 10);
-      var targetTotalMin = targetH * 60 + targetM;
+      var targetTotalMin = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
 
       /* Si ya llegó o pasó la hora programada... */
       if (currentTotalMin >= targetTotalMin) {
-        var logDay = state.timeLog[today];
-        var hasTime = logDay && logDay.tasks && logDay.tasks[t.id];
+        var logDay = state.timeLog[today] || {};
+        var alreadyAuto = logDay.autoStarts && logDay.autoStarts[t.id];
+        var isRunning = (state.tracking && state.tracking.status === "task" && state.tracking.taskId === t.id);
         
-        /* ...y no tiene tiempo registrado, ni la estamos ejecutando ahora mismo */
-        if (!hasTime && !(state.tracking && state.tracking.status === "task" && state.tracking.taskId === t.id)) {
+        /* ...y no se ha auto-iniciado hoy, ni está corriendo ahora mismo */
+        if (!alreadyAuto && !isRunning) {
           
-          /* Ejecutar Viaje en el Tiempo */
-          if (state.tracking && state.tracking.status !== "inactive") {
-             flushTime(); /* Guardar la tarea actual si estaba haciendo otra cosa */
-          }
+          /* Guardamos la tarea que estuviera corriendo, si la hay */
+          if (state.tracking && state.tracking.status !== "inactive") flushTime();
           
-          /* Retrocedemos el reloj al momento exacto en que debió empezar */
-          var targetTimeMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetH, targetM, 0, 0).getTime();
+          /* Marcamos que ya se auto-inició para que no se repita en bucle si el usuario la pausa */
+          if (!state.timeLog[today]) state.timeLog[today] = { thinking: 0, tasks: {}, subtasks: {} };
+          if (!state.timeLog[today].autoStarts) state.timeLog[today].autoStarts = {};
+          state.timeLog[today].autoStarts[t.id] = true;
           
+          /* Calculamos retroactivamente desde qué momento debió empezar */
+          var targetTimeMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0).getTime();
+          if (now.getTime() - targetTimeMs > 86400000) targetTimeMs = now.getTime(); /* Evitar desfases de días */
+
           state.tracking.status = "task";
           state.tracking.taskId = t.id;
           state.tracking.subtaskId = null;
           state.tracking.taskDs = today;
           state.tracking.startTime = targetTimeMs; /* Inyección retroactiva */
           
-          /* Cargar límite de tiempo si la tarea lo tenía */
-          state.tracking.targetLimit = (logDay && logDay.taskLimits && logDay.taskLimits[t.id]) ? logDay.taskLimits[t.id] : null;
+          /* Le inyectamos su límite de tiempo si lo tenía configurado */
+          state.tracking.targetLimit = (logDay.taskLimits && logDay.taskLimits[t.id]) ? logDay.taskLimits[t.id] : null;
           
           persist();
           renderActiveTab();
@@ -2183,13 +2185,12 @@ function defaultState(){
              setTimeout(function(){ notifAudio.pause(); notifAudio.removeAttribute('src'); }, 3000); 
           } catch(e){}
           
-          return; /* Salimos de la función. En el próximo segundo ya actualizará el DOM visualmente. */
+          return; /* Cortamos aquí para que el DOM se actualice tranquilo este segundo */
         }
       }
     }
-    /* ----------------------------------------------------------- */
 
-    /* Lo de abajo es el control normal visual del tiempo */
+    /* --- FASE 2: CONTROL NORMAL Y CIERRE AUTOMÁTICO (+10 MIN) --- */
     if (!state.tracking || state.tracking.status === "inactive") return;
     var ds = state.tracking.taskDs || today;
 
@@ -2203,15 +2204,15 @@ function defaultState(){
       var taskElapsed = getTaskLiveSeconds(ds, tid);
       var subElapsed = 0;
       if (sid) {
-        var log = state.timeLog[ds];
-        var baseSub = (log && log.subtasks && log.subtasks[sid]) || 0;
+        var slog = state.timeLog[ds];
+        var baseSub = (slog && slog.subtasks && slog.subtasks[sid]) || 0;
         subElapsed = baseSub + ((Date.now() - state.tracking.startTime) / 1000);
       }
 
       var target = state.tracking.targetLimit;
       var activeElapsed = sid ? subElapsed : taskElapsed;
 
-      /* --- AUTO-COMPLETAR CON 10 MINUTOS (600 SEGUNDOS) DE GRACIA --- */
+      /* AUTO-COMPLETAR CON 10 MINUTOS (600 SEGUNDOS) DE GRACIA */
       if (target && activeElapsed >= (target + 600)) {
         if (sid) {
            pauseTask();
@@ -2225,66 +2226,9 @@ function defaultState(){
         showToast("¡10 min de gracia superados! Completada automáticamente.");
         
         try { 
-           var notifAudio = new Audio(nombreDeMiAudio); 
-           notifAudio.play().catch(function(){}); 
-           setTimeout(function(){ notifAudio.pause(); notifAudio.removeAttribute('src'); }, 3000); 
-        } catch(e){}
-        return;
-      }
-
-      var taskEl = document.querySelector('[data-live-task="' + tid + '"]');
-      if (taskEl) {
-        taskEl.textContent = (!sid && target) ? formatDuration(taskElapsed) + " / " + formatDuration(target) : formatDuration(taskElapsed);
-      }
-      
-      if (sid) {
-        var subEl = document.querySelector('[data-live-subtask="' + sid + '"]');
-        if (subEl) {
-          subEl.textContent = target ? formatDuration(subElapsed) + " / " + formatDuration(target) : formatDuration(subElapsed);
-        }
-      }
-    }
-  }
-  /* Refresca los cronómetros visibles en el DOM cada segundo y evalúa los límites */
-  function updateLiveTimers(){
-    if (!state.tracking || state.tracking.status === "inactive") return;
-    var today = todayStr();
-    var ds = state.tracking.taskDs || today;
-
-    var masterEl = document.querySelector("[data-live-master]");
-    if (masterEl) masterEl.textContent = formatDuration(getThinkingLiveSeconds(ds));
-
-    var tid = state.tracking.taskId;
-    var sid = state.tracking.subtaskId;
-
-    if (state.tracking.status === "task" && tid){
-      var taskElapsed = getTaskLiveSeconds(ds, tid);
-      var subElapsed = 0;
-      if (sid) {
-        var log = state.timeLog[ds];
-        var baseSub = (log && log.subtasks && log.subtasks[sid]) || 0;
-        subElapsed = baseSub + ((Date.now() - state.tracking.startTime) / 1000);
-      }
-
-      var target = state.tracking.targetLimit;
-      var activeElapsed = sid ? subElapsed : taskElapsed;
-
-      /* --- AUTO-COMPLETAR SI SE CUMPLE EL TIEMPO --- */
-      if (target && activeElapsed >= target) {
-        if (sid) {
-           pauseTask(); /* Frena el timer */
-           autoMarkSubtaskDone(ds, tid, sid); /* Marca el checkbox automáticamente */
-           persist(); renderActiveTab();
-        } else {
-           stopTask(ds, tid); /* Frena y te abre el modal de evidencia */
-        }
-        
-        showToast("¡Tiempo estimado cumplido!");
-        /* Activa el audio de la canción por 3 segundos como alarma */
-        try { 
-           var notifAudio = new Audio(nombreDeMiAudio); 
-           notifAudio.play().catch(function(){}); 
-           setTimeout(function(){ notifAudio.pause(); notifAudio.removeAttribute('src'); }, 3000); 
+           var notifEnd = new Audio(nombreDeMiAudio); 
+           notifEnd.play().catch(function(){}); 
+           setTimeout(function(){ notifEnd.pause(); notifEnd.removeAttribute('src'); }, 3000); 
         } catch(e){}
         return;
       }
@@ -2320,7 +2264,8 @@ function defaultState(){
         }).map(function(s){
             return { id: s.id, text: s.text, done: !!(state.log[ds] && state.log[ds][s.id]) };
         }) : [];
-                tasks.push({ id:h.id, text:h.text, type:"habit", routineTime: h.time || null, subtasks: habitSubs });
+                        /* Aquí le inyectamos la "routineTime" para que el hábito muestre la hora visualmente */
+        tasks.push({ id:h.id, text:h.text, type:"habit", routineTime: h.time || null, subtasks: habitSubs });
       }
     });
     /* Tareas one-off */
@@ -2600,7 +2545,7 @@ function defaultState(){
   function getReminder(ds, taskId){
     var r = (state.reminders && state.reminders[reminderKey(ds, taskId)]) || null;
     if (r) return r;
-    /* NUEVO: Fallback. Si es un hábito o rutina, buscar su hora permanente */
+    /* Si no hay recordatorio de un solo uso, busca si el hábito o rutina tiene una hora permanente */
     var h = state.habits.find(function(x){ return x.id === taskId; });
     if (h && h.time) return h.time;
     var rt = state.routines.find(function(x){ return x.id === taskId; });
@@ -4917,27 +4862,30 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       var inp     = document.getElementById(inputId);
       var timeVal = inp ? inp.value : "";
       if (!timeVal){ showToast("Elegí una hora."); return; }
-      requestNotifPermission(function(perm){
-        setReminder(saveDs, saveId, timeVal);
-        
-        /* NUEVO: Guardar permanentemente si es hábito o rutina */
-        var h = state.habits.find(function(x){ return x.id === saveId; });
-        if (h) h.time = timeVal;
-        var r = state.routines.find(function(x){ return x.id === saveId; });
-        if (r) r.time = timeVal;
 
-        openReminderPanel = null;
-        renderActiveTab();
-        if (perm === "granted") showToast("Recordatorio guardado para las " + timeVal + ".");
-        else if (perm === "denied") showToast("Guardado. Activá notificaciones para recibirlo.");
-        else showToast("Guardado. Exportá el .ics para agregarlo a tu calendario.");
+      /* 1. GUARDADO FORZOSO E INMEDIATO (Ignorando si Android bloquea notificaciones) */
+      setReminder(saveDs, saveId, timeVal);
+      
+      /* Si es hábito o rutina, lo grabamos en su ADN de por vida */
+      var h = state.habits.find(function(x){ return x.id === saveId; });
+      if (h) h.time = timeVal;
+      var r = state.routines.find(function(x){ return x.id === saveId; });
+      if (r) r.time = timeVal;
+
+      openReminderPanel = null;
+      renderActiveTab();
+      
+      /* 2. Intentar pedir permiso visual, pero si falla, ya está guardado */
+      requestNotifPermission(function(perm){
+         if (perm === "granted") showToast("Guardado. Ejecución obligatoria a las " + timeVal + ".");
+         else showToast("Auto-ejecución guardada (Alertas de Android bloqueadas).");
       });
 
     } else if (action === "clear-reminder"){
       var clearId = el.getAttribute("data-id");
       setReminder(el.getAttribute("data-date"), clearId, null);
       
-      /* Limpiar la regla permanentemente */
+      /* Limpiar memoria permanente del hábito */
       var h = state.habits.find(function(x){ return x.id === clearId; });
       if (h) delete h.time;
       var r = state.routines.find(function(x){ return x.id === clearId; });
@@ -4945,7 +4893,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       openReminderPanel = null;
       renderActiveTab();
-      showToast("Recordatorio eliminado.");
+      showToast("Auto-ejecución eliminada.");
 
     } else if (action === "export-ics"){
       var icsDs   = el.getAttribute("data-date");
