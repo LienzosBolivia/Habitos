@@ -1645,15 +1645,41 @@
   /* ===================== IndexedDB ===================== */
   var db = null;
 
-  function initDB(){
-    return new Promise(function(resolve, reject){
-      if (!window.indexedDB){ reject(new Error("No IndexedDB")); return; }
-      var req = window.indexedDB.open("BitacoraDB", 1);
-      req.onupgradeneeded = function(e){
-        e.target.result.createObjectStore("evidence");
-      };
-      req.onsuccess = function(e){ db = e.target.result; resolve(db); };
-      req.onerror   = function(){ reject(req.error); };
+  function init(){
+    var dbPromise = initDB().catch(function(){ db = null; return null; });
+    var statePromise = storageGet(STORAGE_KEY);
+    Promise.all([statePromise, dbPromise]).then(function(results){
+      var raw = results[0];
+      if (raw){
+        try{ state = JSON.parse(raw); } catch(e){ state = defaultState(); }
+      } else {
+        state = defaultState();
+      }
+      /* Normalizar campos */
+      state.habits       = state.habits       || [];
+      state.oneoff       = state.oneoff       || [];
+      state.log          = state.log          || {};
+      state.firstUseDate = state.firstUseDate || todayStr();
+      state.reminders    = state.reminders    || {};
+      state.projects     = state.projects     || [];
+      state.routines     = state.routines     || [];
+      state.timeLog      = state.timeLog      || {};
+      state.tracking      = state.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
+      state.tracking.status    = state.tracking.status    || "inactive";
+      if (typeof state.tracking.taskId    === "undefined") state.tracking.taskId    = null;
+      if (typeof state.tracking.taskDs    === "undefined") state.tracking.taskDs    = null;
+      if (typeof state.tracking.startTime === "undefined") state.tracking.startTime = null;
+      if (typeof state.selectedProjectByDate === "undefined") state.selectedProjectByDate = {};
+      /* Normalizar proyectos: asegurar que todos tengan array tasks */
+      state.projects.forEach(function(p){ if (!p.tasks) p.tasks = []; });
+      selectedCalendarDate = todayStr();
+      
+      /* AQUÍ ESTÁ EL ARREGLO: Guardamos localmente pero SIN forzar la subida automática a Drive */
+      storageSet(STORAGE_KEY, JSON.stringify(state));
+      
+      scheduleTodayReminders();
+      checkPendingSyncOnLoad();
+      render();
     });
   }
 
@@ -4116,102 +4142,42 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
   }
 
-  /* ===================== importMasterBackup: Importación y Desempaquetado ===================== */
-  async function importMasterBackup(file){
-    var btn      = document.getElementById("btnBackupImport");
-    var statusEl = document.getElementById("backupStatus");
-    if (!file) return;
-    if (btn) btn.disabled = true;
-    if (statusEl){ statusEl.className = "backup-status working"; statusEl.textContent = "⏳ Leyendo archivo de respaldo…"; }
-
-    try {
-      /* BLOQUEO DE SEGURIDAD: Congelamos el reloj para que no sobreescriba la memoria accidentalmente */
-      window.isImportingBackup = true;
-
-      /* 1. Leer el archivo JSON */
-      var text = await new Promise(function(resolve, reject){
-        var reader = new FileReader();
-        reader.onload  = function(e){ resolve(e.target.result); };
-        reader.onerror = function(){ reject(new Error("No se pudo leer el archivo.")); };
-        reader.readAsText(file);
-      });
-
-      var backup;
-      try { backup = JSON.parse(text); } catch(e){ throw new Error("El archivo no es un JSON válido."); }
-
-      if (!backup._meta || !backup.state) throw new Error("El archivo no parece ser un respaldo de Bitácora válido.");
-
-      var ok = window.confirm(
-        "⚠ IMPORTAR RESPALDO\n\n" +
-        "Esto REEMPLAZARÁ toda tu bitácora actual con los datos del archivo:\n" +
-        "· Exportado: " + (backup._meta.exportedAt || "—") + "\n" +
-        "· Evidencias: " + (backup._meta.totalEvidenceKeys || 0) + " registros\n\n" +
-        "¿Deseas continuar?"
-      );
-      if (!ok){
-        window.isImportingBackup = false;
-        if (statusEl){ statusEl.className = "backup-status"; statusEl.style.display = "none"; }
-        if (btn) btn.disabled = false;
-        return;
+  function init(){
+    var dbPromise = initDB().catch(function(){ db = null; return null; });
+    var statePromise = storageGet(STORAGE_KEY);
+    Promise.all([statePromise, dbPromise]).then(function(results){
+      var raw = results[0];
+      if (raw){
+        try{ state = JSON.parse(raw); } catch(e){ state = defaultState(); }
+      } else {
+        state = defaultState();
       }
-
-      if (statusEl) statusEl.textContent = "⏳ Limpiando datos actuales…";
-      try { window.localStorage.removeItem(STORAGE_KEY); } catch(e){}
+      /* Normalizar campos */
+      state.habits       = state.habits       || [];
+      state.oneoff       = state.oneoff       || [];
+      state.log          = state.log          || {};
+      state.firstUseDate = state.firstUseDate || todayStr();
+      state.reminders    = state.reminders    || {};
+      state.projects     = state.projects     || [];
+      state.routines     = state.routines     || [];
+      state.timeLog      = state.timeLog      || {};
+      state.tracking      = state.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
+      state.tracking.status    = state.tracking.status    || "inactive";
+      if (typeof state.tracking.taskId    === "undefined") state.tracking.taskId    = null;
+      if (typeof state.tracking.taskDs    === "undefined") state.tracking.taskDs    = null;
+      if (typeof state.tracking.startTime === "undefined") state.tracking.startTime = null;
+      if (typeof state.selectedProjectByDate === "undefined") state.selectedProjectByDate = {};
+      /* Normalizar proyectos: asegurar que todos tengan array tasks */
+      state.projects.forEach(function(p){ if (!p.tasks) p.tasks = []; });
+      selectedCalendarDate = todayStr();
       
-      if (statusEl) statusEl.textContent = "⏳ Limpiando base de datos de evidencias…";
-      await dbClearAll();
-
-      if (statusEl) statusEl.textContent = "⏳ Restaurando configuración y historial…";
-      var restoredState = backup.state;
-      restoredState.habits       = restoredState.habits       || [];
-      restoredState.oneoff       = restoredState.oneoff       || [];
-      restoredState.log          = restoredState.log          || {};
-      restoredState.firstUseDate = restoredState.firstUseDate || todayStr();
-      restoredState.reminders    = restoredState.reminders    || {};
-      restoredState.projects     = restoredState.projects     || [];
-      restoredState.routines     = restoredState.routines     || [];
-      restoredState.timeLog      = restoredState.timeLog      || {};
-      restoredState.tracking     = restoredState.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
-
-      /* Inyección en memoria viva */
-      state = restoredState;
-      await storageSet(STORAGE_KEY, JSON.stringify(state));
-
-      if (statusEl) statusEl.textContent = "⏳ Restaurando evidencias…";
-      var evidenceByYear = backup.evidenceByYear || {};
-      var years = Object.keys(evidenceByYear);
-      var totalRestored = 0;
-      for (var i = 0; i < years.length; i++){
-        var block = evidenceByYear[years[i]];
-        await dbBulkWrite(block);
-        totalRestored += Object.keys(block).length;
-      }
-
-      if (statusEl){
-        statusEl.className = "backup-status success";
-        statusEl.textContent = "✔ Restaurado: " + totalRestored + " evidencias. Actualizando pantalla…";
-      }
-      showToast("✅ Bitácora restaurada. Actualizando…");
+      /* AQUÍ ESTÁ EL ARREGLO: Guardamos localmente pero SIN forzar la subida automática a Drive */
+      storageSet(STORAGE_KEY, JSON.stringify(state));
       
-      /* Reinicio suave en memoria (sin recargar la pestaña en blanco) */
-      setTimeout(function(){ 
-         window.isImportingBackup = false;
-         selectedCalendarDate = todayStr();
-         scheduleTodayReminders();
-         render(); 
-         window.scrollTo(0,0);
-      }, 1500);
-
-    } catch(err){
-      window.isImportingBackup = false;
-      console.error("Backup import error:", err);
-      if (statusEl){
-        statusEl.className = "backup-status error";
-        statusEl.textContent = "✖ Error: " + (err.message || err);
-      }
-      showToast("Error al importar el respaldo.");
-      if (btn) btn.disabled = false;
-    }
+      scheduleTodayReminders();
+      checkPendingSyncOnLoad();
+      render();
+    });
   }
 
   /* ============= restoreFromDrive: MÁQUINA DEL TIEMPO (Busca la versión intacta) ============= */
