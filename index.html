@@ -4577,6 +4577,97 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     return backup;
   }
 
+  /* ===================== Backup: leer archivo como texto ===================== */
+  function readFileAsText(file){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){ resolve(reader.result); };
+      reader.onerror = function(){ reject(reader.error || new Error("No se pudo leer el archivo")); };
+      reader.readAsText(file);
+    });
+  }
+
+  /* ===================== Backup: IMPORTAR / RESTAURAR (inverso de buildMasterBackupJSON) ===================== */
+  async function importMasterBackup(file){
+    var statusEl = document.getElementById("backupStatus");
+    window.isImportingBackup = true;
+    try {
+      setBackupStatus("working", "⏳ Leyendo archivo de respaldo…");
+      var text = await readFileAsText(file);
+      var backup = JSON.parse(text);
+
+      if (!backup || typeof backup !== "object"){
+        throw new Error("El archivo de respaldo no es válido.");
+      }
+
+      /* 1. Restaurar el estado (hábitos, proyectos, tareas, log, etc.) */
+      setBackupStatus("working", "⏳ Restaurando hábitos, proyectos y tareas…");
+      var restoredState = backup.state || defaultState();
+      restoredState.habits       = restoredState.habits       || [];
+      restoredState.oneoff       = restoredState.oneoff       || [];
+      restoredState.log          = restoredState.log          || {};
+      restoredState.firstUseDate = restoredState.firstUseDate || todayStr();
+      restoredState.reminders    = restoredState.reminders    || {};
+      restoredState.projects     = restoredState.projects     || [];
+      restoredState.routines     = restoredState.routines     || [];
+      restoredState.timeLog      = restoredState.timeLog      || {};
+      restoredState.tracking     = restoredState.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
+      restoredState.selectedProjectByDate = restoredState.selectedProjectByDate || {};
+
+      /* Si el state no trajera el log completo, lo reconstruimos desde logByYear */
+      if ((!restoredState.log || Object.keys(restoredState.log).length === 0) && backup.logByYear){
+        var rebuiltLog = {};
+        Object.keys(backup.logByYear).forEach(function(yr){
+          Object.keys(backup.logByYear[yr]).forEach(function(ds){
+            rebuiltLog[ds] = backup.logByYear[yr][ds];
+          });
+        });
+        restoredState.log = rebuiltLog;
+      }
+
+      /* 2. Restaurar evidencias (fotos) en IndexedDB */
+      var flatEvidence = {};
+      if (backup.evidenceByYear){
+        Object.keys(backup.evidenceByYear).forEach(function(yr){
+          Object.keys(backup.evidenceByYear[yr]).forEach(function(key){
+            flatEvidence[key] = backup.evidenceByYear[yr][key];
+          });
+        });
+      }
+      var totalEv = Object.keys(flatEvidence).length;
+      if (db && totalEv > 0){
+        setBackupStatus("working", "⏳ Restaurando " + totalEv + " evidencias (esto puede tardar unos segundos)…");
+        await dbClearAll();
+        await dbBulkWrite(flatEvidence);
+      }
+
+      /* 3. Guardar el estado restaurado como el estado activo */
+      setBackupStatus("working", "⏳ Guardando…");
+      state = restoredState;
+      await storageSet(STORAGE_KEY, JSON.stringify(state));
+
+      window.isImportingBackup = false;
+      if (statusEl){
+        statusEl.style.background = ""; statusEl.style.border = "";
+        statusEl.className = "backup-status success";
+        statusEl.textContent = "✔ Restaurado correctamente · " + (restoredState.habits.length) + " hábitos · " +
+          (restoredState.projects.length) + " proyectos · " + totalEv + " evidencias";
+      }
+      showToast("✅ Respaldo restaurado. Recargando…");
+      setTimeout(function(){ window.location.reload(); }, 1200);
+
+    } catch(err){
+      window.isImportingBackup = false;
+      console.error("importMasterBackup error:", err);
+      if (statusEl){
+        statusEl.style.background = ""; statusEl.style.border = "";
+        statusEl.className = "backup-status error";
+        statusEl.textContent = "✖ Error al restaurar: " + (err.message || err);
+      }
+      showToast("Error al restaurar el respaldo.");
+    }
+  }
+
   /* ============= syncToDrive: sube el backup a appDataFolder ============= */
   async function syncToDrive(){
     var btnSync    = document.getElementById("btnDriveSync");
@@ -4778,11 +4869,18 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   window.restoreSpecificVersion = async function(btn) {
       btn.innerHTML = "⏳ Restaurando...";
       btn.disabled = true;
-      var encodedText = btn.getAttribute("data-rev-text");
-      var text = decodeURIComponent(encodedText);
-      var blob = new Blob([text], { type: "application/json" });
-      var virtualFile = new File([blob], "backup.json", { type: "application/json" });
-      await importMasterBackup(virtualFile);
+      try {
+        var encodedText = btn.getAttribute("data-rev-text");
+        var text = decodeURIComponent(encodedText);
+        var blob = new Blob([text], { type: "application/json" });
+        var virtualFile = new File([blob], "backup.json", { type: "application/json" });
+        await importMasterBackup(virtualFile);
+      } catch(err){
+        console.error("restoreSpecificVersion error:", err);
+        btn.innerHTML = "✖ Error, intenta de nuevo";
+        btn.disabled = false;
+        showToast("Error al restaurar esta versión.");
+      }
   };
 
   /* Inicializar GIS cuando el script esté disponible */
