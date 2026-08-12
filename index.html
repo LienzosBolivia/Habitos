@@ -4213,7 +4213,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
   }
 
-  /* ============= restoreFromDrive: MÁQUINA DEL TIEMPO (Busca la versión intacta) ============= */
+  /* ============= restoreFromDrive: ESCÁNER DE RAYOS X PARA HISTORIAL DE DRIVE ============= */
   async function restoreFromDrive(){
     var btnSync    = document.getElementById("btnDriveSync");
     var btnRestore = document.getElementById("btnDriveRestore");
@@ -4222,7 +4222,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (btnRestore) btnRestore.disabled = true;
 
     try {
-      setBackupStatus("working", "⏳ Buscando en la bóveda de Google Drive…");
+      setBackupStatus("working", "⏳ Conectando con Google Drive...");
       var searchResp = await fetch(
         DRIVE_API + "?spaces=" + DRIVE_SPACES +
         "&fields=files(id)" +
@@ -4235,8 +4235,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
       var fileId = searchData.files[0].id;
 
-      /* --- MÁQUINA DEL TIEMPO: Buscar versiones anteriores --- */
-      setBackupStatus("working", "⏳ Analizando el historial de versiones en Drive...");
+      setBackupStatus("working", "⏳ Leyendo el historial oculto de versiones...");
       var revResp = await fetch(
         DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime)",
         { headers: { "Authorization": "Bearer " + driveAccessToken } }
@@ -4247,57 +4246,80 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
          throw new Error("No se encontraron versiones del archivo.");
       }
 
-      var goldenJsonText = null;
-      var goldenDate = "";
+      var htmlList = "<div style='font-size:12.5px; color:var(--text-light); margin-bottom:10px; font-weight:bold;'>Archivos encontrados en Drive:</div>";
 
-      /* Revisamos desde la versión más nueva hacia la más vieja */
-      for (var i = revData.revisions.length - 1; i >= 0; i--) {
+      /* Revisamos las últimas 10 versiones */
+      var startIdx = Math.max(0, revData.revisions.length - 10);
+      
+      for (var i = revData.revisions.length - 1; i >= startIdx; i--) {
          var rev = revData.revisions[i];
+         var dateStr = new Date(rev.modifiedTime).toLocaleString("es");
+         
          setBackupStatus("working", "⏳ Escaneando versión de las " + new Date(rev.modifiedTime).toLocaleTimeString() + "...");
          
-         var dlResp = await fetch(
-            DRIVE_API + "/" + fileId + "/revisions/" + rev.id + "?alt=media",
-            { headers: { "Authorization": "Bearer " + driveAccessToken } }
-         );
-         var text = await dlResp.text();
-         
          try {
-            var tempParse = JSON.parse(text);
-            /* Buscamos la primera versión antigua que tenga tus 128 evidencias 
-               (pedimos más de 10 como margen de seguridad para ignorar las vacías por completo) */
-            if (tempParse._meta && tempParse._meta.totalEvidenceKeys > 10) {
-               goldenJsonText = text;
-               goldenDate = new Date(rev.modifiedTime).toLocaleString("es");
-               break; /* ¡Encontramos el archivo intacto! Detenemos la búsqueda */
-            }
-         } catch(e) {}
+             var dlResp = await fetch(
+                DRIVE_API + "/" + fileId + "/revisions/" + rev.id + "?alt=media",
+                { headers: { "Authorization": "Bearer " + driveAccessToken } }
+             );
+             var text = await dlResp.text();
+             var parsed = JSON.parse(text);
+             
+             var numEvid = parsed._meta ? (parsed._meta.totalEvidenceKeys || 0) : 0;
+             var numHabits = (parsed.state && parsed.state.habits) ? parsed.state.habits.length : 0;
+             var numProj = (parsed.state && parsed.state.projects) ? parsed.state.projects.length : 0;
+             var numTasks = (parsed.state && parsed.state.oneoff) ? parsed.state.oneoff.length : 0;
+             
+             /* Verificamos si este archivo está sano (tiene hábitos o proyectos) */
+             var isGood = (numHabits > 0 || numProj > 0);
+             var color = isGood ? "var(--done)" : "var(--missed)";
+             var statusTag = isGood ? "✔ SANO" : "✖ VACÍO";
+             
+             htmlList += "<div style='background:rgba(0,0,0,0.2); border:1px solid " + color + "; padding:10px; margin-bottom:8px; border-radius:6px; text-align:left;'>" +
+                "<div style='color:var(--text-light); font-weight:bold; margin-bottom:4px; font-size:13px;'>" + dateStr + " <span style='float:right; font-size:10px; color:" + color + ";'>" + statusTag + "</span></div>" +
+                "<div style='color:var(--text-muted); margin-bottom:10px; font-size:11px; font-family:var(--font-mono);'>" +
+                "Hábitos: " + numHabits + " | Proyectos: " + numProj + "<br>Tareas: " + numTasks + " | Evidencias: " + numEvid + "</div>" +
+                "<button class='primary' style='font-size:11px; padding:6px 12px; width:100%;' data-rev-text='" + encodeURIComponent(text) + "' onclick='window.restoreSpecificVersion(this)'>Restaurar esta versión</button>" +
+             "</div>";
+         } catch(e) {
+             htmlList += "<div style='color:var(--missed); font-size:11px; margin-bottom:8px;'>Versión " + dateStr + " dañada.</div>";
+         }
       }
 
-      if (!goldenJsonText) {
-         throw new Error("Ninguna versión antigua en Drive tiene tus datos intactos.");
+      /* Inyectamos la lista visual directamente en la caja de estado */
+      if (statusEl) {
+         statusEl.style.display = "block";
+         statusEl.className = "backup-status"; 
+         statusEl.style.background = "transparent";
+         statusEl.style.border = "none";
+         statusEl.innerHTML = "<div style='max-height:400px; overflow-y:auto; padding-right:4px;'>" + htmlList + "</div>";
       }
-
-      setBackupStatus("working", "⏳ ¡Archivo intacto encontrado! (" + goldenDate + "). Restaurando...");
-
-      /* Inyectamos el JSON dorado (intacto) en el restaurador blindado */
-      var blob = new Blob([goldenJsonText], { type: "application/json" });
-      var virtualFile = new File([blob], DRIVE_FILENAME, { type: "application/json" });
-      
-      await importMasterBackup(virtualFile);
 
     } catch(err){
       window.isImportingBackup = false;
       console.error("Drive restore error:", err);
       if (statusEl) {
+         statusEl.style.background = ""; statusEl.style.border = "";
          statusEl.className = "backup-status error";
          statusEl.textContent = "✖ Error: " + (err.message || err);
       }
-      showToast("Error al restaurar desde Google Drive.");
+      showToast("Error al escanear Google Drive.");
     } finally {
       if (btnSync)    btnSync.disabled    = false;
       if (btnRestore) btnRestore.disabled = false;
     }
   }
+
+  /* Helper para inyectar la versión seleccionada al hacer clic en el botón */
+  window.restoreSpecificVersion = async function(btn) {
+      btn.innerHTML = "⏳ Restaurando...";
+      btn.disabled = true;
+      var encodedText = btn.getAttribute("data-rev-text");
+      var text = decodeURIComponent(encodedText);
+      var blob = new Blob([text], { type: "application/json" });
+      var virtualFile = new File([blob], "backup.json", { type: "application/json" });
+      await importMasterBackup(virtualFile);
+  };
 
   /* ===================== Google Drive Sync ===================== */
   var DRIVE_CLIENT_ID   = "24854889316-jrsj155n0noevb59tt6683m13gbcajm5.apps.googleusercontent.com";
