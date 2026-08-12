@@ -4659,64 +4659,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
   }
 
-  /* ============= restoreFromDrive: descarga y restaura el backup ============= */
-  async function restoreFromDrive(){
-    var btnSync    = document.getElementById("btnDriveSync");
-    var btnRestore = document.getElementById("btnDriveRestore");
-    if (btnSync)    btnSync.disabled    = true;
-    if (btnRestore) btnRestore.disabled = true;
-
-    try {
-      /* 1. Buscar el archivo */
-      setBackupStatus("working", "⏳ Buscando respaldo en Google Drive…");
-      var searchResp = await fetch(
-        DRIVE_API + "?spaces=" + DRIVE_SPACES +
-        "&fields=files(id,name,modifiedTime)" +
-        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      if (!searchResp.ok){
-        var errBody = await searchResp.text();
-        throw new Error("Error buscando en Drive (" + searchResp.status + "): " + errBody);
-      }
-      var searchData = await searchResp.json();
-      if (!searchData.files || searchData.files.length === 0){
-        setBackupStatus("error", "✖ No se encontró ningún respaldo previo en Google Drive.");
-        showToast("No se encontró respaldo en Drive.");
-        return;
-      }
-      var file = searchData.files[0];
-      var modDate = file.modifiedTime ? new Date(file.modifiedTime).toLocaleString("es") : "—";
-      setBackupStatus("working", "⏳ Respaldo encontrado (" + modDate + "). Descargando…");
-
-      /* 2. Descargar contenido */
-      var downloadResp = await fetch(
-        DRIVE_API + "/" + file.id + "?alt=media",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      if (!downloadResp.ok){
-        var dlErr = await downloadResp.text();
-        throw new Error("Error descargando de Drive (" + downloadResp.status + "): " + dlErr);
-      }
-      var jsonText = await downloadResp.text();
-
-      /* 3. Convertir a Blob/File e inyectar en importMasterBackup */
-      setBackupStatus("working", "⏳ Restaurando datos…");
-      var blob = new Blob([jsonText], { type: "application/json" });
-      var virtualFile = new File([blob], DRIVE_FILENAME, { type: "application/json" });
-      /* importMasterBackup se encarga de toda la limpieza y restauración en IndexedDB */
-      await importMasterBackup(virtualFile);
-      /* Nota: importMasterBackup ya setea su propio mensaje de éxito y recarga la página */
-
-    } catch(err){
-      console.error("Drive restore error:", err);
-      setBackupStatus("error", "✖ " + (err.message || err));
-      showToast("Error al restaurar desde Google Drive.");
-      if (btnSync)    btnSync.disabled    = false;
-      if (btnRestore) btnRestore.disabled = false;
-    }
-  }
-
   /* Inicializar GIS cuando el script esté disponible */
   function tryInitDriveClient(){
     if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2){
