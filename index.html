@@ -1666,6 +1666,8 @@
         store.put(value, key);
         tx.oncomplete = function(){ resolve(true); };
         tx.onerror    = function(){ reject(tx.error); };
+        /* Seguro contra cortes de memoria en Android */
+        tx.onabort    = function(){ reject(new Error("Transacción abortada por el sistema")); };
       } catch(e){ reject(e); }
     });
   }
@@ -1678,6 +1680,7 @@
         var req = tx.objectStore("evidence").get(key);
         req.onsuccess = function(){ resolve(req.result != null ? req.result : null); };
         req.onerror   = function(){ resolve(null); };
+        tx.onabort    = function(){ resolve(null); };
       } catch(e){ resolve(null); }
     });
   }
@@ -4028,6 +4031,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           }
         };
         req.onerror = function(){ reject(req.error); };
+        tx.onabort  = function(){ reject(new Error("Lectura abortada")); };
       } catch(err){ reject(err); }
     });
   }
@@ -4041,24 +4045,19 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         var req   = tx.objectStore("evidence").clear();
         tx.oncomplete = function(){ resolve(); };
         tx.onerror    = function(){ reject(tx.error); };
+        tx.onabort    = function(){ reject(new Error("Limpieza abortada")); };
       } catch(err){ reject(err); }
     });
   }
 
   /* ===================== Backup: reinyectar evidencias en IndexedDB ===================== */
-  function dbBulkWrite(entriesObj){
-    return new Promise(function(resolve, reject){
-      if (!db || !entriesObj || Object.keys(entriesObj).length === 0){ resolve(); return; }
-      try {
-        var tx    = db.transaction("evidence", "readwrite");
-        var store = tx.objectStore("evidence");
-        Object.keys(entriesObj).forEach(function(key){
-          store.put(entriesObj[key], key);
-        });
-        tx.oncomplete = function(){ resolve(); };
-        tx.onerror    = function(){ reject(tx.error); };
-      } catch(err){ reject(err); }
-    });
+  async function dbBulkWrite(entriesObj){
+    if (!db || !entriesObj) return;
+    var keys = Object.keys(entriesObj);
+    /* Inyectamos UNA POR UNA en bucle rápido para no saturar la RAM del celular */
+    for(var i = 0; i < keys.length; i++){
+       await dbSet(keys[i], entriesObj[keys[i]]);
+    }
   }
 
   /* ===================== Backup: extraer año de clave "YYYY-MM-DD_..." o "project_..." ===================== */
