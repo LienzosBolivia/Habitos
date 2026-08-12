@@ -4192,13 +4192,18 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         totalRestored += Object.keys(block).length;
       }
 
-      /* 6. Mensaje de éxito y recarga */
+      /* 6. Mensaje de éxito y recarga (Reinicio Suave) */
       if (statusEl){
         statusEl.className = "backup-status success";
-        statusEl.textContent = "✔ Restaurado: " + totalRestored + " evidencias en " + years.length + " año(s). Recargando…";
+        statusEl.textContent = "✔ Restaurado: " + totalRestored + " evidencias en " + years.length + " año(s). Actualizando pantalla…";
       }
-      showToast("✅ Bitácora restaurada. Recargando…");
-      setTimeout(function(){ window.location.reload(); }, 1500);
+      showToast("✅ Bitácora restaurada. Actualizando…");
+      
+      /* En lugar de recargar el navegador a la fuerza, relanzamos el motor interno para evitar el pantallazo blanco en Android */
+      setTimeout(function(){ 
+         init(); 
+         window.scrollTo(0,0);
+      }, 1500);
 
     } catch(err){
       console.error("Backup import error:", err);
