@@ -4691,21 +4691,29 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
       var fileId = searchData.files[0].id;
 
-      setBackupStatus("working", "⏳ Leyendo el historial oculto de versiones...");
-      var revResp = await fetch(
-        DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime)",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      var revData = await revResp.json();
+      setBackupStatus("working", "⏳ Leyendo el historial completo de versiones...");
+      /* Traer TODAS las páginas de revisiones (Drive pagina a 200 por defecto) */
+      var allRevisions = [];
+      var pageToken = null;
+      do {
+        var revUrl = DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime),nextPageToken&pageSize=1000" +
+          (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : "");
+        var revResp = await fetch(revUrl, { headers: { "Authorization": "Bearer " + driveAccessToken } });
+        var revPage = await revResp.json();
+        if (revPage.revisions) allRevisions = allRevisions.concat(revPage.revisions);
+        pageToken = revPage.nextPageToken || null;
+      } while (pageToken);
+
+      var revData = { revisions: allRevisions };
       
       if (!revData.revisions || revData.revisions.length === 0) {
          throw new Error("No se encontraron versiones del archivo.");
       }
 
-      var htmlList = "<div style='font-size:12.5px; color:var(--text-light); margin-bottom:10px; font-weight:bold;'>Archivos encontrados en Drive:</div>";
+      var htmlList = "<div style='font-size:12.5px; color:var(--text-light); margin-bottom:10px; font-weight:bold;'>Archivos encontrados en Drive (" + revData.revisions.length + " versiones en total):</div>";
 
-      /* Revisamos las últimas 20 versiones para asegurar que encontramos el bueno */
-      var startIdx = Math.max(0, revData.revisions.length - 20);
+      /* Revisamos TODAS las versiones, de la más nueva a la más vieja, para no perder ningún respaldo sano */
+      var startIdx = 0;
       
       for (var i = revData.revisions.length - 1; i >= startIdx; i--) {
          var rev = revData.revisions[i];
