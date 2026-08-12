@@ -2129,7 +2129,7 @@ function defaultState(){
 
   /* Refresca los cronómetros visibles y ejecuta viajes en el tiempo */
   function updateLiveTimers(){
-    if (!state) return; /* Seguridad de arranque */
+    if (!state || window.isImportingBackup) return; /* Bloqueo de seguridad durante restauraciones */
     var today = todayStr();
     var now = new Date();
 
@@ -4124,6 +4124,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (statusEl){ statusEl.className = "backup-status working"; statusEl.textContent = "⏳ Leyendo archivo de respaldo…"; }
 
     try {
+      /* BLOQUEO DE SEGURIDAD: Congelamos el reloj para que no sobreescriba la memoria accidentalmente */
+      window.isImportingBackup = true;
+
       /* 1. Leer el archivo JSON */
       var text = await new Promise(function(resolve, reject){
         var reader = new FileReader();
@@ -4149,6 +4152,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         "¿Deseas continuar? Esta acción no se puede deshacer."
       );
       if (!ok){
+        window.isImportingBackup = false; /* Soltamos el candado */
         if (statusEl){ statusEl.className = "backup-status"; statusEl.style.display = "none"; }
         if (btn) btn.disabled = false;
         return;
@@ -4165,7 +4169,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (statusEl) statusEl.textContent = "⏳ Limpiando base de datos de evidencias…";
       await dbClearAll();
 
-      /* 4. Reescribir state en localStorage */
+      /* 4. Reescribir state en localStorage Y EN MEMORIA VIVA */
       if (statusEl) statusEl.textContent = "⏳ Restaurando configuración y historial…";
       var restoredState = backup.state;
       /* Normalizar campos por si el backup es de versión anterior */
@@ -4179,7 +4183,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       restoredState.timeLog      = restoredState.timeLog      || {};
       restoredState.tracking     = restoredState.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
 
-      await storageSet(STORAGE_KEY, JSON.stringify(restoredState));
+      /* MAGIA ANTI-BUGS: Sobreescribimos la variable global INMEDIATAMENTE antes de guardar */
+      state = restoredState;
+      await storageSet(STORAGE_KEY, JSON.stringify(state));
 
       /* 5. Reinyectar evidencias de todos los bloques de año */
       if (statusEl) statusEl.textContent = "⏳ Restaurando evidencias…";
@@ -4199,13 +4205,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
       showToast("✅ Bitácora restaurada. Actualizando…");
       
-      /* En lugar de recargar el navegador a la fuerza, relanzamos el motor interno para evitar el pantallazo blanco en Android */
+      /* Relanzamos el motor interno */
       setTimeout(function(){ 
+         window.isImportingBackup = false; /* Soltamos el reloj al terminar */
          init(); 
          window.scrollTo(0,0);
       }, 1500);
 
     } catch(err){
+      window.isImportingBackup = false; /* Soltamos el reloj si falla */
       console.error("Backup import error:", err);
       if (statusEl){
         statusEl.className = "backup-status error";
