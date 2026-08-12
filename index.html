@@ -1876,7 +1876,8 @@ function defaultState(){
       /* Normalizar proyectos: asegurar que todos tengan array tasks */
       state.projects.forEach(function(p){ if (!p.tasks) p.tasks = []; });
       selectedCalendarDate = todayStr();
-      persist();
+      /* CAMBIO CLAVE: Guardamos localmente pero SIN activar la orden automática de subir a Drive */
+      storageSet(STORAGE_KEY, JSON.stringify(state));
       scheduleTodayReminders();
       checkPendingSyncOnLoad();
       render();
@@ -4263,7 +4264,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
          
          try {
             var tempParse = JSON.parse(text);
-            /* LA CLAVE ESTÁ AQUÍ: Buscamos un archivo que tenga TAREAS, HÁBITOS o PROYECTOS, no fotos */
+            /* LA CLAVE: Buscamos un archivo que tenga TAREAS, HÁBITOS o PROYECTOS vivos */
             var numHabits = (tempParse.state && tempParse.state.habits) ? tempParse.state.habits.length : 0;
             var numTasks  = (tempParse.state && tempParse.state.oneoff) ? tempParse.state.oneoff.length : 0;
             var numProjs  = (tempParse.state && tempParse.state.projects) ? tempParse.state.projects.length : 0;
@@ -4277,7 +4278,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
 
       if (!goldenJsonText) {
-         throw new Error("Ninguna versión antigua en Drive tiene tus datos intactos.");
+         throw new Error("Tus respaldos antiguos de Drive también están vacíos. Necesitas importar tu JSON local.");
       }
 
       setBackupStatus("working", "⏳ ¡Archivo intacto encontrado! (" + goldenDate + "). Restaurando...");
