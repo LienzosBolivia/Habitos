@@ -4138,41 +4138,30 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       var backup;
       try { backup = JSON.parse(text); } catch(e){ throw new Error("El archivo no es un JSON válido."); }
 
-      /* Validación mínima */
-      if (!backup._meta || !backup.state){
-        throw new Error("El archivo no parece ser un respaldo de Bitácora válido.");
-      }
+      if (!backup._meta || !backup.state) throw new Error("El archivo no parece ser un respaldo de Bitácora válido.");
 
-      /* Confirmar con el usuario */
       var ok = window.confirm(
         "⚠ IMPORTAR RESPALDO\n\n" +
         "Esto REEMPLAZARÁ toda tu bitácora actual con los datos del archivo:\n" +
         "· Exportado: " + (backup._meta.exportedAt || "—") + "\n" +
         "· Evidencias: " + (backup._meta.totalEvidenceKeys || 0) + " registros\n\n" +
-        "¿Deseas continuar? Esta acción no se puede deshacer."
+        "¿Deseas continuar?"
       );
       if (!ok){
-        window.isImportingBackup = false; /* Soltamos el candado */
+        window.isImportingBackup = false;
         if (statusEl){ statusEl.className = "backup-status"; statusEl.style.display = "none"; }
         if (btn) btn.disabled = false;
         return;
       }
 
-      /* 2. Limpiar localStorage */
       if (statusEl) statusEl.textContent = "⏳ Limpiando datos actuales…";
       try { window.localStorage.removeItem(STORAGE_KEY); } catch(e){}
-      if (typeof window.storage === "object" && window.storage && window.storage.delete){
-        try { await window.storage.delete(STORAGE_KEY, false); } catch(e){}
-      }
-
-      /* 3. Limpiar IndexedDB */
+      
       if (statusEl) statusEl.textContent = "⏳ Limpiando base de datos de evidencias…";
       await dbClearAll();
 
-      /* 4. Reescribir state en localStorage Y EN MEMORIA VIVA */
       if (statusEl) statusEl.textContent = "⏳ Restaurando configuración y historial…";
       var restoredState = backup.state;
-      /* Normalizar campos por si el backup es de versión anterior */
       restoredState.habits       = restoredState.habits       || [];
       restoredState.oneoff       = restoredState.oneoff       || [];
       restoredState.log          = restoredState.log          || {};
@@ -4183,11 +4172,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       restoredState.timeLog      = restoredState.timeLog      || {};
       restoredState.tracking     = restoredState.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
 
-      /* MAGIA ANTI-BUGS: Sobreescribimos la variable global INMEDIATAMENTE antes de guardar */
+      /* Inyección en memoria viva */
       state = restoredState;
       await storageSet(STORAGE_KEY, JSON.stringify(state));
 
-      /* 5. Reinyectar evidencias de todos los bloques de año */
       if (statusEl) statusEl.textContent = "⏳ Restaurando evidencias…";
       var evidenceByYear = backup.evidenceByYear || {};
       var years = Object.keys(evidenceByYear);
@@ -4198,22 +4186,23 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         totalRestored += Object.keys(block).length;
       }
 
-      /* 6. Mensaje de éxito y recarga (Reinicio Suave) */
       if (statusEl){
         statusEl.className = "backup-status success";
-        statusEl.textContent = "✔ Restaurado: " + totalRestored + " evidencias en " + years.length + " año(s). Actualizando pantalla…";
+        statusEl.textContent = "✔ Restaurado: " + totalRestored + " evidencias. Actualizando pantalla…";
       }
       showToast("✅ Bitácora restaurada. Actualizando…");
       
-      /* Relanzamos el motor interno */
+      /* Reinicio suave en memoria (sin recargar la pestaña en blanco) */
       setTimeout(function(){ 
-         window.isImportingBackup = false; /* Soltamos el reloj al terminar */
-         init(); 
+         window.isImportingBackup = false;
+         selectedCalendarDate = todayStr();
+         scheduleTodayReminders();
+         render(); 
          window.scrollTo(0,0);
       }, 1500);
 
     } catch(err){
-      window.isImportingBackup = false; /* Soltamos el reloj si falla */
+      window.isImportingBackup = false;
       console.error("Backup import error:", err);
       if (statusEl){
         statusEl.className = "backup-status error";
@@ -4221,6 +4210,92 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
       showToast("Error al importar el respaldo.");
       if (btn) btn.disabled = false;
+    }
+  }
+
+  /* ============= restoreFromDrive: MÁQUINA DEL TIEMPO (Busca la versión intacta) ============= */
+  async function restoreFromDrive(){
+    var btnSync    = document.getElementById("btnDriveSync");
+    var btnRestore = document.getElementById("btnDriveRestore");
+    var statusEl   = document.getElementById("backupStatus");
+    if (btnSync)    btnSync.disabled    = true;
+    if (btnRestore) btnRestore.disabled = true;
+
+    try {
+      setBackupStatus("working", "⏳ Buscando en la bóveda de Google Drive…");
+      var searchResp = await fetch(
+        DRIVE_API + "?spaces=" + DRIVE_SPACES +
+        "&fields=files(id)" +
+        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
+        { headers: { "Authorization": "Bearer " + driveAccessToken } }
+      );
+      var searchData = await searchResp.json();
+      if (!searchData.files || searchData.files.length === 0){
+        throw new Error("No hay ningún respaldo en Drive.");
+      }
+      var fileId = searchData.files[0].id;
+
+      /* --- MÁQUINA DEL TIEMPO: Buscar versiones anteriores --- */
+      setBackupStatus("working", "⏳ Analizando el historial de versiones en Drive...");
+      var revResp = await fetch(
+        DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime)",
+        { headers: { "Authorization": "Bearer " + driveAccessToken } }
+      );
+      var revData = await revResp.json();
+      
+      if (!revData.revisions || revData.revisions.length === 0) {
+         throw new Error("No se encontraron versiones del archivo.");
+      }
+
+      var goldenJsonText = null;
+      var goldenDate = "";
+
+      /* Revisamos desde la versión más nueva hacia la más vieja */
+      for (var i = revData.revisions.length - 1; i >= 0; i--) {
+         var rev = revData.revisions[i];
+         setBackupStatus("working", "⏳ Escaneando versión de las " + new Date(rev.modifiedTime).toLocaleTimeString() + "...");
+         
+         var dlResp = await fetch(
+            DRIVE_API + "/" + fileId + "/revisions/" + rev.id + "?alt=media",
+            { headers: { "Authorization": "Bearer " + driveAccessToken } }
+         );
+         var text = await dlResp.text();
+         
+         try {
+            var tempParse = JSON.parse(text);
+            /* Buscamos la primera versión antigua que tenga tus 128 evidencias 
+               (pedimos más de 10 como margen de seguridad para ignorar las vacías por completo) */
+            if (tempParse._meta && tempParse._meta.totalEvidenceKeys > 10) {
+               goldenJsonText = text;
+               goldenDate = new Date(rev.modifiedTime).toLocaleString("es");
+               break; /* ¡Encontramos el archivo intacto! Detenemos la búsqueda */
+            }
+         } catch(e) {}
+      }
+
+      if (!goldenJsonText) {
+         throw new Error("Ninguna versión antigua en Drive tiene tus datos intactos.");
+      }
+
+      setBackupStatus("working", "⏳ ¡Archivo intacto encontrado! (" + goldenDate + "). Restaurando...");
+
+      /* Inyectamos el JSON dorado (intacto) en el restaurador blindado */
+      var blob = new Blob([goldenJsonText], { type: "application/json" });
+      var virtualFile = new File([blob], DRIVE_FILENAME, { type: "application/json" });
+      
+      await importMasterBackup(virtualFile);
+
+    } catch(err){
+      window.isImportingBackup = false;
+      console.error("Drive restore error:", err);
+      if (statusEl) {
+         statusEl.className = "backup-status error";
+         statusEl.textContent = "✖ Error: " + (err.message || err);
+      }
+      showToast("Error al restaurar desde Google Drive.");
+    } finally {
+      if (btnSync)    btnSync.disabled    = false;
+      if (btnRestore) btnRestore.disabled = false;
     }
   }
 
