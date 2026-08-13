@@ -1663,44 +1663,6 @@
     });
   }
 
-  function init(){
-    var dbPromise = initDB().catch(function(){ db = null; return null; });
-    var statePromise = storageGet(STORAGE_KEY);
-    Promise.all([statePromise, dbPromise]).then(function(results){
-      var raw = results[0];
-      if (raw){
-        try{ state = JSON.parse(raw); } catch(e){ state = defaultState(); }
-      } else {
-        state = defaultState();
-      }
-      /* Normalizar campos */
-      state.habits       = state.habits       || [];
-      state.oneoff       = state.oneoff       || [];
-      state.log          = state.log          || {};
-      state.firstUseDate = state.firstUseDate || todayStr();
-      state.reminders    = state.reminders    || {};
-      state.projects     = state.projects     || [];
-      state.routines     = state.routines     || [];
-      state.timeLog      = state.timeLog      || {};
-      state.tracking      = state.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
-      state.tracking.status    = state.tracking.status    || "inactive";
-      if (typeof state.tracking.taskId    === "undefined") state.tracking.taskId    = null;
-      if (typeof state.tracking.taskDs    === "undefined") state.tracking.taskDs    = null;
-      if (typeof state.tracking.startTime === "undefined") state.tracking.startTime = null;
-      if (typeof state.selectedProjectByDate === "undefined") state.selectedProjectByDate = {};
-      /* Normalizar proyectos: asegurar que todos tengan array tasks */
-      state.projects.forEach(function(p){ if (!p.tasks) p.tasks = []; });
-      selectedCalendarDate = todayStr();
-      
-      /* AQUÍ ESTÁ EL ARREGLO: Guardamos localmente pero SIN forzar la subida automática a Drive */
-      storageSet(STORAGE_KEY, JSON.stringify(state));
-      
-      scheduleTodayReminders();
-      checkPendingSyncOnLoad();
-      render();
-    });
-  }
-
   function dbSet(key, value){
     return new Promise(function(resolve, reject){
       if (!db){ resolve(false); return; }
@@ -1890,42 +1852,6 @@ function defaultState(){
       console.warn("autoSync error:", err);
       setAutoSyncBadge("error", "Sin sincronizar");
     }
-  }
-
-  function init(){
-    var dbPromise = initDB().catch(function(){ db = null; return null; });
-    var statePromise = storageGet(STORAGE_KEY);
-    Promise.all([statePromise, dbPromise]).then(function(results){
-      var raw = results[0];
-      if (raw){
-        try{ state = JSON.parse(raw); } catch(e){ state = defaultState(); }
-      } else {
-        state = defaultState();
-      }
-      /* Normalizar campos */
-      state.habits       = state.habits       || [];
-      state.oneoff       = state.oneoff       || [];
-      state.log          = state.log          || {};
-      state.firstUseDate = state.firstUseDate || todayStr();
-      state.reminders    = state.reminders    || {};
-      state.projects     = state.projects     || [];
-      state.routines     = state.routines     || [];
-      state.timeLog      = state.timeLog      || {};
-      state.tracking      = state.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
-      state.tracking.status    = state.tracking.status    || "inactive";
-      if (typeof state.tracking.taskId    === "undefined") state.tracking.taskId    = null;
-      if (typeof state.tracking.taskDs    === "undefined") state.tracking.taskDs    = null;
-      if (typeof state.tracking.startTime === "undefined") state.tracking.startTime = null;
-      if (typeof state.selectedProjectByDate === "undefined") state.selectedProjectByDate = {};
-      /* Normalizar proyectos: asegurar que todos tengan array tasks */
-      state.projects.forEach(function(p){ if (!p.tasks) p.tasks = []; });
-      selectedCalendarDate = todayStr();
-      /* CAMBIO CLAVE: Guardamos localmente pero SIN activar la orden automática de subir a Drive */
-      storageSet(STORAGE_KEY, JSON.stringify(state));
-      scheduleTodayReminders();
-      checkPendingSyncOnLoad();
-      render();
-    });
   }
 
   /* ===================== Rastreo de Tiempo (Time Tracking) ===================== */
@@ -4223,11 +4149,19 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       /* --- MÁQUINA DEL TIEMPO: Buscar versiones anteriores --- */
       setBackupStatus("working", "⏳ Analizando el historial de versiones en Drive...");
-      var revResp = await fetch(
-        DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime)",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      var revData = await revResp.json();
+      /* Traer TODAS las páginas de revisiones (Drive pagina a 200 por defecto) */
+      var allRevisions = [];
+      var pageToken = null;
+      do {
+        var revUrl = DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime),nextPageToken&pageSize=1000" +
+          (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : "");
+        var revResp = await fetch(revUrl, { headers: { "Authorization": "Bearer " + driveAccessToken } });
+        var revPage = await revResp.json();
+        if (revPage.revisions) allRevisions = allRevisions.concat(revPage.revisions);
+        pageToken = revPage.nextPageToken || null;
+      } while (pageToken);
+
+      var revData = { revisions: allRevisions };
       
       if (!revData.revisions || revData.revisions.length === 0) {
          throw new Error("No se encontraron versiones del archivo.");
@@ -4287,17 +4221,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (btnRestore) btnRestore.disabled = false;
     }
   }
-
-  /* Helper para inyectar la versión seleccionada al hacer clic en el botón */
-  window.restoreSpecificVersion = async function(btn) {
-      btn.innerHTML = "⏳ Restaurando...";
-      btn.disabled = true;
-      var encodedText = btn.getAttribute("data-rev-text");
-      var text = decodeURIComponent(encodedText);
-      var blob = new Blob([text], { type: "application/json" });
-      var virtualFile = new File([blob], "backup.json", { type: "application/json" });
-      await importMasterBackup(virtualFile);
-  };
 
   /* ===================== Google Drive Sync ===================== */
   var DRIVE_CLIENT_ID   = "24854889316-jrsj155n0noevb59tt6683m13gbcajm5.apps.googleusercontent.com";
@@ -4759,129 +4682,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (btnRestore) btnRestore.disabled = false;
     }
   }
-
-  /* ============= restoreFromDrive: ESCÁNER DE RAYOS X PARA HISTORIAL DE DRIVE ============= */
-  async function restoreFromDrive(){
-    var btnSync    = document.getElementById("btnDriveSync");
-    var btnRestore = document.getElementById("btnDriveRestore");
-    var statusEl   = document.getElementById("backupStatus");
-    if (btnSync)    btnSync.disabled    = true;
-    if (btnRestore) btnRestore.disabled = true;
-
-    try {
-      setBackupStatus("working", "⏳ Conectando con Google Drive...");
-      var searchResp = await fetch(
-        DRIVE_API + "?spaces=" + DRIVE_SPACES +
-        "&fields=files(id)" +
-        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      var searchData = await searchResp.json();
-      if (!searchData.files || searchData.files.length === 0){
-        throw new Error("No hay ningún respaldo en Drive.");
-      }
-      var fileId = searchData.files[0].id;
-
-      setBackupStatus("working", "⏳ Leyendo el historial completo de versiones...");
-      /* Traer TODAS las páginas de revisiones (Drive pagina a 200 por defecto) */
-      var allRevisions = [];
-      var pageToken = null;
-      do {
-        var revUrl = DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime),nextPageToken&pageSize=1000" +
-          (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : "");
-        var revResp = await fetch(revUrl, { headers: { "Authorization": "Bearer " + driveAccessToken } });
-        var revPage = await revResp.json();
-        if (revPage.revisions) allRevisions = allRevisions.concat(revPage.revisions);
-        pageToken = revPage.nextPageToken || null;
-      } while (pageToken);
-
-      var revData = { revisions: allRevisions };
-      
-      if (!revData.revisions || revData.revisions.length === 0) {
-         throw new Error("No se encontraron versiones del archivo.");
-      }
-
-      var htmlList = "<div style='font-size:12.5px; color:var(--text-light); margin-bottom:10px; font-weight:bold;'>Archivos encontrados en Drive (" + revData.revisions.length + " versiones en total):</div>";
-
-      /* Revisamos TODAS las versiones, de la más nueva a la más vieja, para no perder ningún respaldo sano */
-      var startIdx = 0;
-      
-      for (var i = revData.revisions.length - 1; i >= startIdx; i--) {
-         var rev = revData.revisions[i];
-         var dateStr = new Date(rev.modifiedTime).toLocaleString("es");
-         
-         setBackupStatus("working", "⏳ Escaneando versión de las " + new Date(rev.modifiedTime).toLocaleTimeString() + "...");
-         
-         try {
-             var dlResp = await fetch(
-                DRIVE_API + "/" + fileId + "/revisions/" + rev.id + "?alt=media",
-                { headers: { "Authorization": "Bearer " + driveAccessToken } }
-             );
-             var text = await dlResp.text();
-             var parsed = JSON.parse(text);
-             
-             var numEvid = parsed._meta ? (parsed._meta.totalEvidenceKeys || 0) : 0;
-             var numHabits = (parsed.state && parsed.state.habits) ? parsed.state.habits.length : 0;
-             var numProj = (parsed.state && parsed.state.projects) ? parsed.state.projects.length : 0;
-             var numTasks = (parsed.state && parsed.state.oneoff) ? parsed.state.oneoff.length : 0;
-             
-             /* Verificamos si este archivo está sano (tiene hábitos o proyectos) */
-             var isGood = (numHabits > 0 || numProj > 0);
-             var color = isGood ? "var(--done)" : "var(--missed)";
-             var statusTag = isGood ? "✔ SANO" : "✖ VACÍO";
-             
-             htmlList += "<div style='background:rgba(0,0,0,0.2); border:1px solid " + color + "; padding:10px; margin-bottom:8px; border-radius:6px; text-align:left;'>" +
-                "<div style='color:var(--text-light); font-weight:bold; margin-bottom:4px; font-size:13px;'>" + dateStr + " <span style='float:right; font-size:10px; color:" + color + ";'>" + statusTag + "</span></div>" +
-                "<div style='color:var(--text-muted); margin-bottom:10px; font-size:11px; font-family:var(--font-mono);'>" +
-                "Hábitos: " + numHabits + " | Proyectos: " + numProj + "<br>Tareas: " + numTasks + " | Evidencias: " + numEvid + "</div>" +
-                "<button class='primary' style='font-size:11px; padding:6px 12px; width:100%;' data-rev-text='" + encodeURIComponent(text) + "' onclick='window.restoreSpecificVersion(this)'>Restaurar esta versión</button>" +
-             "</div>";
-         } catch(e) {
-             htmlList += "<div style='color:var(--missed); font-size:11px; margin-bottom:8px;'>Versión " + dateStr + " dañada.</div>";
-         }
-      }
-
-      /* Inyectamos la lista visual directamente en la caja de estado */
-      if (statusEl) {
-         statusEl.style.display = "block";
-         statusEl.className = "backup-status"; 
-         statusEl.style.background = "transparent";
-         statusEl.style.border = "none";
-         statusEl.innerHTML = "<div style='max-height:400px; overflow-y:auto; padding-right:4px;'>" + htmlList + "</div>";
-      }
-
-    } catch(err){
-      window.isImportingBackup = false;
-      console.error("Drive restore error:", err);
-      if (statusEl) {
-         statusEl.style.background = ""; statusEl.style.border = "";
-         statusEl.className = "backup-status error";
-         statusEl.textContent = "✖ Error: " + (err.message || err);
-      }
-      showToast("Error al escanear Google Drive.");
-    } finally {
-      if (btnSync)    btnSync.disabled    = false;
-      if (btnRestore) btnRestore.disabled = false;
-    }
-  }
-
-  /* Helper para inyectar la versión seleccionada al hacer clic en el botón */
-  window.restoreSpecificVersion = async function(btn) {
-      btn.innerHTML = "⏳ Restaurando...";
-      btn.disabled = true;
-      try {
-        var encodedText = btn.getAttribute("data-rev-text");
-        var text = decodeURIComponent(encodedText);
-        var blob = new Blob([text], { type: "application/json" });
-        var virtualFile = new File([blob], "backup.json", { type: "application/json" });
-        await importMasterBackup(virtualFile);
-      } catch(err){
-        console.error("restoreSpecificVersion error:", err);
-        btn.innerHTML = "✖ Error, intenta de nuevo";
-        btn.disabled = false;
-        showToast("Error al restaurar esta versión.");
-      }
-  };
 
   /* Inicializar GIS cuando el script esté disponible */
   function tryInitDriveClient(){
