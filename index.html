@@ -1513,12 +1513,21 @@
 <div id="classRecorderModal" class="modal-overlay" role="dialog">
   <div class="modal-box" style="width:100%; max-width:440px;">
     <h3 style="font-size:17px; color:var(--brass-300); margin-bottom:6px;">🎙️ Resumen de Clase con IA</h3>
-    <p class="modal-hint">Graba con la app nativa de tu celular (o elige un audio existente) para evitar cortes. La IA lo transcribirá y resumirá.</p>
+    <p class="modal-hint">Sube un audio existente o graba uno nuevo. La IA lo transcribirá y resumirá en segundos.</p>
     
-    <label class="modal-file-label" id="classAudioLabel" style="margin-top:15px; padding:20px; font-size:14px; background:rgba(0,0,0,0.2);">
-      🎵 Subir audio o Grabar ahora
-      <input type="file" id="classAudioFile" accept="audio/*" capture="microphone" />
-    </label>
+    <div style="display:flex; gap:10px; margin-top:15px; margin-bottom:10px;">
+      <!-- Botón 1: Subir Archivo (Sin capture) -->
+      <label class="modal-file-label" id="classAudioUploadLabel" style="flex:1; padding:15px 5px; font-size:12.5px; background:rgba(0,0,0,0.2); margin-bottom:0;">
+        <span class="lbl-text">📁 Subir archivo</span>
+        <input type="file" id="classAudioUploadFile" accept="audio/*" />
+      </label>
+      
+      <!-- Botón 2: Grabar Ahora (Con capture) -->
+      <label class="modal-file-label" id="classAudioRecordLabel" style="flex:1; padding:15px 5px; font-size:12.5px; background:rgba(201,151,74,0.08); border-color:var(--brass-600); color:var(--brass-300); margin-bottom:0;">
+        <span class="lbl-text">🎙️ Grabar ahora</span>
+        <input type="file" id="classAudioRecordFile" accept="audio/*" capture="microphone" />
+      </label>
+    </div>
     
     <div id="classAudioStatus" style="font-size:11.5px; color:var(--brass-300); text-align:center; margin-bottom:16px; min-height:16px;"></div>
     
@@ -2992,27 +3001,40 @@ function defaultState(){
   /* Bindear botones del modal de evidencia y proyectos */
   document.getElementById("evidenceSaveBtn").addEventListener("click", saveEvidence);
 
-  /* --- Evento para cuando seleccionas el audio --- */
-  document.getElementById("classAudioFile").addEventListener("change", function(){
-      var file = this.files && this.files[0];
+  /* --- Eventos para cuando seleccionas el audio (Dos botones) --- */
+  function handleAudioSelection(file, labelId, otherInputId, otherLabelId, otherLabelText) {
       if (file) {
-          document.getElementById("classAudioLabel").childNodes[0].textContent = "✅ " + file.name.slice(0,30);
+          document.querySelector("#" + labelId + " .lbl-text").textContent = "✅ " + file.name.slice(0, 20);
           document.getElementById("classAudioStatus").textContent = "Audio listo: " + (file.size / 1024 / 1024).toFixed(2) + " MB. (Groq soporta máx 25 MB)";
+
+          /* Limpiamos el otro botón para que no haya conflictos */
+          document.getElementById(otherInputId).value = "";
+          document.querySelector("#" + otherLabelId + " .lbl-text").textContent = otherLabelText;
       }
+  }
+
+  document.getElementById("classAudioUploadFile").addEventListener("change", function(){
+      handleAudioSelection(this.files[0], "classAudioUploadLabel", "classAudioRecordFile", "classAudioRecordLabel", "🎙️ Grabar ahora");
+  });
+
+  document.getElementById("classAudioRecordFile").addEventListener("change", function(){
+      handleAudioSelection(this.files[0], "classAudioRecordLabel", "classAudioUploadFile", "classAudioUploadLabel", "📁 Subir archivo");
   });
 
   /* --- Botón Cancelar --- */
   document.getElementById("btnCancelClass").addEventListener("click", function(){
       document.getElementById("classRecorderModal").classList.remove("open");
-      document.getElementById("classAudioFile").value = "";
-      document.getElementById("classAudioLabel").childNodes[0].textContent = "🎵 Subir audio o Grabar ahora";
+      document.getElementById("classAudioUploadFile").value = "";
+      document.getElementById("classAudioRecordFile").value = "";
+      document.querySelector("#classAudioUploadLabel .lbl-text").textContent = "📁 Subir archivo";
+      document.querySelector("#classAudioRecordLabel .lbl-text").textContent = "🎙️ Grabar ahora";
       document.getElementById("classAudioStatus").textContent = "";
   });
 
   /* --- Botón Procesar (La Magia Doble de Groq) --- */
   document.getElementById("btnProcessClass").addEventListener("click", async function(){
-      var fileInput = document.getElementById("classAudioFile");
-      var file = fileInput.files[0];
+      /* Verificamos cuál de los dos botones tiene el archivo */
+      var file = document.getElementById("classAudioUploadFile").files[0] || document.getElementById("classAudioRecordFile").files[0];
 
       if (!file) {
           showToast("Debes seleccionar o grabar un audio primero.");
@@ -3108,10 +3130,7 @@ function defaultState(){
           renderActiveTab();
 
           /* Limpiar modal */
-          document.getElementById("classRecorderModal").classList.remove("open");
-          document.getElementById("classAudioFile").value = "";
-          document.getElementById("classAudioLabel").childNodes[0].textContent = "🎵 Subir audio o Grabar ahora";
-          document.getElementById("classAudioStatus").textContent = "";
+          document.getElementById("btnCancelClass").click();
 
           showToast("¡Clase procesada y guardada en tu Bitácora!");
           openViewEvidenceModal(ds, taskId);
