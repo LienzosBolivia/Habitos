@@ -1511,14 +1511,19 @@
 </div>
 
 <div id="classRecorderModal" class="modal-overlay" role="dialog">
-  <div class="modal-box" style="width:100%; max-width:500px;">
-    <h3 style="font-size:17px; color:var(--brass-300); margin-bottom:6px;">🎙️ Grabadora de Clases (IA)</h3>
-    <p class="modal-hint">El micrófono se reiniciará solo si hay pausas. Deja la pantalla encendida sobre la mesa.</p>
-    <div id="classLiveText" style="width:100%; height:200px; background:var(--ink-900); border:1px solid var(--ink-700); border-radius:var(--radius-sm); color:var(--text-light); font-size:13px; padding:12px; overflow-y:auto; margin-bottom:14px; line-height:1.5;">
-      <i>Esperando para escuchar...</i>
-    </div>
+  <div class="modal-box" style="width:100%; max-width:440px;">
+    <h3 style="font-size:17px; color:var(--brass-300); margin-bottom:6px;">🎙️ Resumen de Clase con IA</h3>
+    <p class="modal-hint">Graba con la app nativa de tu celular (o elige un audio existente) para evitar cortes. La IA lo transcribirá y resumirá.</p>
+    
+    <label class="modal-file-label" id="classAudioLabel" style="margin-top:15px; padding:20px; font-size:14px; background:rgba(0,0,0,0.2);">
+      🎵 Subir audio o Grabar ahora
+      <input type="file" id="classAudioFile" accept="audio/*" capture="microphone" />
+    </label>
+    
+    <div id="classAudioStatus" style="font-size:11.5px; color:var(--brass-300); text-align:center; margin-bottom:16px; min-height:16px;"></div>
+    
     <div class="modal-actions">
-      <button class="primary" id="btnStopClass">⏹ Detener y Resumir</button>
+      <button class="primary" id="btnProcessClass">Procesar y Resumir</button>
       <button class="btn-secondary" id="btnCancelClass">Cancelar</button>
     </div>
   </div>
@@ -1655,64 +1660,6 @@
   /* Auto-sync Drive */
   var autoSyncDebounceTimer = null;
   var lastAutoSyncTime      = null;
-
-  /* ===================== Asistente de Clases (Variables) ===================== */
-  var classRec = null;
-  var classTranscript = "";
-  var classIsRecording = false;
-  var classWakeLock = null;
-
-  async function openClassRecorder() {
-      var SpeechReq = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechReq) {
-          showToast("Tu navegador no soporta grabación de voz nativa.");
-          return;
-      }
-
-      classTranscript = "";
-      classIsRecording = true;
-      document.getElementById("classLiveText").innerHTML = "<i>Iniciando micrófono de Google...</i>";
-      document.getElementById("classRecorderModal").classList.add("open");
-
-      /* TRUCO: Evitar que la pantalla se apague mientras dura la clase */
-      try {
-          if ('wakeLock' in navigator) classWakeLock = await navigator.wakeLock.request('screen');
-      } catch (e) { console.warn("Wake lock falló"); }
-
-      classRec = new SpeechReq();
-      classRec.continuous = true;
-      classRec.interimResults = true;
-      classRec.lang = "es-ES"; /* Español universal */
-
-      classRec.onresult = function(e) {
-          var interim = "";
-          var finalTxt = "";
-          for (var i = e.resultIndex; i < e.results.length; ++i) {
-              if (e.results[i].isFinal) finalTxt += e.results[i][0].transcript + " ";
-              else interim += e.results[i][0].transcript;
-          }
-          classTranscript += finalTxt;
-          var box = document.getElementById("classLiveText");
-          box.innerHTML = escapeHtml(classTranscript) + "<i style='color:var(--text-faint);'>" + escapeHtml(interim) + "</i>";
-          box.scrollTop = box.scrollHeight; /* Auto-scroll hacia abajo */
-      };
-
-      /* TRUCO MAESTRO: Si Google apaga el micrófono por silencio, lo forzamos a prenderse de nuevo */
-      classRec.onend = function() {
-          if (classIsRecording) {
-              try { classRec.start(); } catch(e){}
-          }
-      };
-
-      classRec.onerror = function(e) {
-          if (e.error === 'not-allowed') {
-              classIsRecording = false;
-              showToast("Permiso de micrófono denegado.");
-          }
-      };
-
-      try { classRec.start(); } catch(e){}
-  }
 
   /* ===================== IndexedDB ===================== */
   var db = null;
@@ -3045,27 +2992,39 @@ function defaultState(){
   /* Bindear botones del modal de evidencia y proyectos */
   document.getElementById("evidenceSaveBtn").addEventListener("click", saveEvidence);
 
-  document.getElementById("btnCancelClass").addEventListener("click", function(){
-      classIsRecording = false;
-      if (classRec) classRec.stop();
-      if (classWakeLock) { classWakeLock.release().catch(function(){}); classWakeLock = null; }
-      document.getElementById("classRecorderModal").classList.remove("open");
+  /* --- Evento para cuando seleccionas el audio --- */
+  document.getElementById("classAudioFile").addEventListener("change", function(){
+      var file = this.files && this.files[0];
+      if (file) {
+          document.getElementById("classAudioLabel").childNodes[0].textContent = "✅ " + file.name.slice(0,30);
+          document.getElementById("classAudioStatus").textContent = "Audio listo: " + (file.size / 1024 / 1024).toFixed(2) + " MB. (Groq soporta máx 25 MB)";
+      }
   });
 
-  document.getElementById("btnStopClass").addEventListener("click", async function(){
-      classIsRecording = false;
-      if (classRec) classRec.stop();
-      if (classWakeLock) { classWakeLock.release().catch(function(){}); classWakeLock = null; }
+  /* --- Botón Cancelar --- */
+  document.getElementById("btnCancelClass").addEventListener("click", function(){
+      document.getElementById("classRecorderModal").classList.remove("open");
+      document.getElementById("classAudioFile").value = "";
+      document.getElementById("classAudioLabel").childNodes[0].textContent = "🎵 Subir audio o Grabar ahora";
+      document.getElementById("classAudioStatus").textContent = "";
+  });
 
-      if (classTranscript.trim().length < 20) {
-          showToast("No se grabó suficiente texto para resumir.");
-          document.getElementById("classRecorderModal").classList.remove("open");
+  /* --- Botón Procesar (La Magia Doble de Groq) --- */
+  document.getElementById("btnProcessClass").addEventListener("click", async function(){
+      var fileInput = document.getElementById("classAudioFile");
+      var file = fileInput.files[0];
+
+      if (!file) {
+          showToast("Debes seleccionar o grabar un audio primero.");
+          return;
+      }
+      if (file.size > 26214400) { // 25 MB max limit de Groq
+          showToast("El audio es muy pesado (Máx 25MB). Baja la calidad de tu grabadora.");
           return;
       }
 
-      var btn = document.getElementById("btnStopClass");
+      var btn = document.getElementById("btnProcessClass");
       var origTxt = btn.innerHTML;
-      btn.innerHTML = "⏳ La IA está resumiendo la clase...";
       btn.disabled = true;
 
       try {
@@ -3076,50 +3035,67 @@ function defaultState(){
               persist();
           }
 
-          var promptTxt = "Actúa como el mejor estudiante de la universidad. Acabas de grabar la siguiente transcripción de una clase magistral. Tu trabajo es hacer un resumen espectacular, altamente estructurado y fácil de estudiar. Extrae los temas principales, crea una lista de conceptos clave (bullet points) y destaca cualquier tarea o examen que el profesor haya mencionado. Aquí está la clase:\n\n" + classTranscript;
+          /* FASE 1: TRANSCRIBIR AUDIO A TEXTO (Whisper-large-v3) */
+          btn.innerHTML = "⏳ Escuchando clase (Whisper)...";
 
-          /* Lógica inteligente para usar el modelo más capaz (Llama 3.3 70B de 128k tokens) */
-          var modelsUrl = "https://api.groq.com/openai/v1/models";
-          var modelsRes = await fetch(modelsUrl, { headers: { "Authorization": "Bearer " + state.groqApiKey } });
-          var modelToUse = "llama-3.3-70b-versatile";
-          if (modelsRes.ok) {
-              var mData = await modelsRes.json();
-              var llamas = mData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
-              if(llamas.length > 0) {
-                  var m70 = llamas.find(function(m){ return m.id.includes("70b"); });
-                  modelToUse = m70 ? m70.id : llamas[0].id;
-              }
+          var formData = new FormData();
+          formData.append("file", file);
+          formData.append("model", "whisper-large-v3");
+          formData.append("response_format", "json");
+          formData.append("language", "es"); // Forzamos español para mayor precisión
+
+          var transRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+              method: "POST",
+              headers: { "Authorization": "Bearer " + state.groqApiKey },
+              body: formData
+          });
+
+          if (!transRes.ok) {
+            if (transRes.status === 401) { state.groqApiKey = null; persist(); }
+            throw new Error("Error en Whisper (" + transRes.status + "). Quizás la API Key no es válida.");
           }
 
-          var res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          var transData = await transRes.json();
+          var transcriptText = transData.text;
+
+          if (!transcriptText || transcriptText.trim().length < 15) {
+              throw new Error("No se detectó suficiente voz en el audio.");
+          }
+
+          /* FASE 2: RESUMIR EL TEXTO (Llama 3.3 70B) */
+          btn.innerHTML = "⏳ Escribiendo resumen (Llama 3)...";
+          var promptTxt = "Actúa como el mejor estudiante de la universidad. Acabas de grabar la siguiente transcripción de una clase magistral. Tu trabajo es hacer un resumen espectacular, altamente estructurado y fácil de estudiar. Extrae los temas principales, crea una lista de conceptos clave (bullet points) y destaca cualquier tarea o examen que el profesor haya mencionado. Aquí está la clase:\n\n" + transcriptText;
+
+          var sumRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.groqApiKey },
               body: JSON.stringify({
-                  model: modelToUse,
+                  model: "llama-3.3-70b-versatile",
                   messages: [{ role: "user", content: promptTxt }],
                   temperature: 0.3
               })
           });
 
-          if (!res.ok) {
-            if (res.status === 401) { state.groqApiKey = null; persist(); }
-            throw new Error("Rechazo de API Groq (" + res.status + "). Revisa tu llave.");
+          if (!sumRes.ok) {
+            if (sumRes.status === 401) { state.groqApiKey = null; persist(); }
+            throw new Error("Error generando el resumen con Llama (" + sumRes.status + ").");
           }
-          var data = await res.json();
-          var resumen = data.choices[0].message.content;
+          var sumData = await sumRes.json();
+          var resumen = sumData.choices[0].message.content;
 
+          /* FASE 3: GUARDAR EN LA BITÁCORA */
           var ds = todayStr();
           var taskId = uid();
           var taskName = prompt("¡Resumen completado! Escribe un título para guardar esta clase:", "Clase Magistral - " + formatDateShort(ds));
           if (!taskName) taskName = "Clase Grabada";
 
-          /* Inyección automática en la base de datos (Archivo Interno de Evidencia) */
+          /* Inyección automática en las tareas de hoy */
           state.oneoff.push({ id: taskId, text: taskName, date: ds });
 
           var evidence = JSON.stringify({
               taskName: taskName,
               subtasks: [],
-              note: "📝 **RESUMEN INTELIGENTE:**\n\n" + resumen + "\n\n---\n🎙️ **TRANSCRIPCIÓN COMPLETA DE LA CLASE:**\n\n" + classTranscript,
+              note: "📝 **RESUMEN INTELIGENTE:**\n\n" + resumen + "\n\n---\n🎙️ **TRANSCRIPCIÓN COMPLETA:**\n\n" + transcriptText,
               image: null,
               savedAt: new Date().toISOString()
           });
@@ -3130,9 +3106,14 @@ function defaultState(){
 
           persist();
           renderActiveTab();
-          document.getElementById("classRecorderModal").classList.remove("open");
-          showToast("¡Clase procesada y guardada en tu Bitácora!");
 
+          /* Limpiar modal */
+          document.getElementById("classRecorderModal").classList.remove("open");
+          document.getElementById("classAudioFile").value = "";
+          document.getElementById("classAudioLabel").childNodes[0].textContent = "🎵 Subir audio o Grabar ahora";
+          document.getElementById("classAudioStatus").textContent = "";
+
+          showToast("¡Clase procesada y guardada en tu Bitácora!");
           openViewEvidenceModal(ds, taskId);
 
       } catch(e) {
@@ -5613,7 +5594,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
 
     } else if (action === "open-class-recorder"){
-      openClassRecorder();
+      document.getElementById("classRecorderModal").classList.add("open");
 
     } else if (action === "play-task"){
       playTask(el.getAttribute("data-date"), el.getAttribute("data-id"));
