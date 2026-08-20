@@ -3031,17 +3031,18 @@ function defaultState(){
       document.getElementById("classAudioStatus").textContent = "";
   });
 
-  /* --- Botón Procesar (La Magia Doble de Groq) --- */
+  /* --- Botón Procesar (La Magia Doble de Groq con Partición de Textos) --- */
   document.getElementById("btnProcessClass").addEventListener("click", async function(){
-      /* Verificamos cuál de los dos botones tiene el archivo */
       var file = document.getElementById("classAudioUploadFile").files[0] || document.getElementById("classAudioRecordFile").files[0];
       
       if (!file) {
           showToast("Debes seleccionar o grabar un audio primero.");
           return;
       }
-      if (file.size > 26214400) { // 25 MB max limit de Groq
-          alert("🛑 EL AUDIO PESA " + (file.size / 1024 / 1024).toFixed(1) + " MB\n\nGroq tiene un límite estricto de 25 MB.\n\n💡 EL TRUCO RÁPIDO:\nEnvíate este audio por WhatsApp a ti mismo y descárgalo. WhatsApp lo comprimirá a unos 5MB automáticamente.\n\nPARA TUS PRÓXIMAS CLASES:\nAbre los ajustes de la Grabadora nativa de tu celular y baja la 'Calidad de grabación'. La voz no necesita HD. Así 2 horas pesarán solo 15MB.");
+      
+      /* BLOQUEO DE SEGURIDAD (Evita que el navegador colapse) */
+      if (file.size > 26214400) { // 25 MB
+          alert("🛑 EL AUDIO PESA " + (file.size / 1024 / 1024).toFixed(1) + " MB\n\nGroq tiene un límite de 25 MB.\n\n💡 PARA ESTE AUDIO:\nComprímelo usando Termux o envíatelo por WhatsApp para bajar su peso.\n\n💡 PARA EL FUTURO:\nVe a los ajustes de la Grabadora de tu celular y cambia la calidad a 'Baja' o 'Estándar'. Así 2 horas pesarán menos de 15MB.");
           return;
       }
 
@@ -3057,8 +3058,49 @@ function defaultState(){
               persist();
           }
 
-          /* FASE 2 y 3: RESUMEN INTELIGENTE POR PARTES (ANTI-COLAPSO DE MEMORIA) */
-          /* Si la clase es muy larga, Llama 3 colapsa (Error 400). La partimos en pedazos de 12,000 caracteres. */
+          /* FASE 1: TRANSCRIBIR AUDIO A TEXTO (Whisper-large-v3) */
+          btn.innerHTML = "⏳ Escuchando clase (Whisper)...";
+          
+          var formData = new FormData();
+          formData.append("file", file);
+          formData.append("model", "whisper-large-v3"); 
+
+          var transRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+              method: "POST",
+              headers: { "Authorization": "Bearer " + state.groqApiKey },
+              body: formData
+          });
+
+          if (!transRes.ok) {
+              var err1 = await transRes.text();
+              throw new Error("Transcriptor Whisper falló (Código " + transRes.status + "):\n" + err1);
+          }
+          
+          var transData = await transRes.json();
+          var transcriptText = transData.text; // ¡AQUÍ ESTÁ LA VARIABLE QUE FALTABA!
+
+          if (!transcriptText || transcriptText.trim().length < 15) {
+              throw new Error("No se detectó voz o el audio está vacío.");
+          }
+
+          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO */
+          btn.innerHTML = "⏳ Buscando motor de IA...";
+          var modelsUrl = "https://api.groq.com/openai/v1/models";
+          var modelsRes = await fetch(modelsUrl, { headers: { "Authorization": "Bearer " + state.groqApiKey } });
+          var modelToUse = "llama-3.1-8b-instant"; /* Fallback al modelo más rápido y estable */
+          
+          if (modelsRes.ok) {
+              var mData = await modelsRes.json();
+              if (mData && mData.data) {
+                  var llamas = mData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
+                  if(llamas.length > 0) {
+                      var m70 = llamas.find(function(m){ return m.id.includes("70b"); });
+                      modelToUse = m70 ? m70.id : llamas[0].id;
+                  }
+              }
+          }
+
+          /* FASE 3: PARTICIÓN Y RESUMEN DE TEXTO (CHUNKING PARA EVITAR ERROR 400) */
           btn.innerHTML = "⏳ Preparando resumen...";
           
           var chunkSize = 12000; 
@@ -3068,8 +3110,6 @@ function defaultState(){
           }
 
           var resumenFinal = "";
-          /* Usamos un modelo oficial más veloz y optimizado para la API gratuita */
-          var modelToUse = "llama-3.1-8b-instant"; 
 
           for (var i = 0; i < chunks.length; i++) {
               if (chunks.length > 1) {
@@ -3078,7 +3118,8 @@ function defaultState(){
                   btn.innerHTML = "⏳ Escribiendo resumen...";
               }
 
-              var systemPrompt = "Eres un asistente experto en resumir transcripciones de voz. Tu objetivo es crear un resumen claro y estructurado. A continuación te pasaré " + (chunks.length > 1 ? "la PARTE " + (i+1) + " de la transcripción de una clase larga" : "la transcripción de un audio") + ". Extrae los temas principales, crea viñetas con conceptos clave y destaca tareas o exámenes. Si el texto es muy corto o casual, simplemente resume de qué trata en una línea.";
+              /* Válvula de escape anti-alucinaciones */
+              var systemPrompt = "Eres un asistente experto en resumir transcripciones de voz. Tu objetivo es crear un resumen claro y estructurado. A continuación te pasaré " + (chunks.length > 1 ? "la PARTE " + (i+1) + " de la transcripción de una clase larga" : "la transcripción de un audio") + ". Extrae los temas principales, crea viñetas con conceptos clave y destaca tareas o exámenes. Si el texto es muy corto o casual, simplemente resume de qué trata en una sola línea ignorando las repeticiones.";
               
               var sumRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                   method: "POST",
@@ -3095,7 +3136,7 @@ function defaultState(){
 
               if (!sumRes.ok) {
                   var err2 = await sumRes.text();
-                  throw new Error("Llama 3 (Código " + sumRes.status + "):\n" + err2);
+                  throw new Error("Error de Llama 3 (Código " + sumRes.status + "):\n" + err2);
               }
               var sumData = await sumRes.json();
               
@@ -3105,33 +3146,11 @@ function defaultState(){
                   resumenFinal = sumData.choices[0].message.content;
               }
 
-              /* Pausa de 3 segundos entre pedazos para no activar la alarma de límite de velocidad (Rate Limit) de Groq */
+              /* Pausa de 3 segundos entre pedazos para no activar la alarma de spam de Groq */
               if (i < chunks.length - 1) {
                   await new Promise(r => setTimeout(r, 3000));
               }
           }
-          var resumen = resumenFinal;
-
-          /* FASE 3: RESUMIR EL TEXTO */
-          btn.innerHTML = "⏳ Escribiendo resumen...";
-          var promptTxt = "Actúa como el mejor estudiante de la universidad. Acabas de grabar la siguiente transcripción de una clase magistral. Tu trabajo es hacer un resumen espectacular, altamente estructurado y fácil de estudiar. Extrae los temas principales, crea una lista de conceptos clave (bullet points) y destaca cualquier tarea o examen que el profesor haya mencionado. Aquí está la transcripción:\n\n" + transcriptText;
-          
-          var sumRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.groqApiKey },
-              body: JSON.stringify({
-                  model: modelToUse,
-                  messages: [{ role: "user", content: promptTxt }],
-                  temperature: 0.3
-              })
-          });
-
-          if (!sumRes.ok) {
-              var err2 = await sumRes.text();
-              throw new Error("Llama 3 (Código " + sumRes.status + "):\n" + err2);
-          }
-          var sumData = await sumRes.json();
-          var resumen = sumData.choices[0].message.content;
 
           /* FASE 4: GUARDAR EN LA BITÁCORA */
           var ds = todayStr();
@@ -3145,7 +3164,7 @@ function defaultState(){
           var evidence = JSON.stringify({
               taskName: taskName,
               subtasks: [],
-              note: "📝 **RESUMEN INTELIGENTE:**\n\n" + resumen + "\n\n---\n🎙️ **TRANSCRIPCIÓN COMPLETA:**\n\n" + transcriptText,
+              note: "📝 **RESUMEN INTELIGENTE:**\n\n" + resumenFinal + "\n\n---\n🎙️ **TRANSCRIPCIÓN COMPLETA:**\n\n" + transcriptText,
               image: null,
               savedAt: new Date().toISOString()
           });
@@ -3164,12 +3183,11 @@ function defaultState(){
           openViewEvidenceModal(ds, taskId);
 
       } catch(e) {
-          if (e.message.includes("Código 401") || e.message.includes("Código 403")) {
+          if (e.message && (e.message.includes("Código 401") || e.message.includes("Código 403"))) {
               alert("⚠️ API Key rechazada.\n\nDetalle:\n" + e.message + "\n\nLa clave se ha borrado de tu sistema para que intentes con otra.");
               state.groqApiKey = null;
               persist();
-          } else if (!e.message.includes("Cancelado por falta")) {
-              /* Este mensaje detallado nos dirá exactamente dónde chocó el código si vuelve a fallar */
+          } else if (e.message && !e.message.includes("Cancelado por falta")) {
               alert("⚠️ Diagnóstico del Error:\n\n" + e.message);
           }
       } finally {
