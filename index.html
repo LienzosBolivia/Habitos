@@ -3106,15 +3106,30 @@ function defaultState(){
               throw new Error("No se detectó voz o el audio está vacío.");
           }
 
-          /* FASE 2: MODELO FIJO Y SEGURO */
-          /* NO buscaremos dinámicamente porque Groq puede estar devolviendo modelos restringidos. Usaremos el oficial estable directamente. */
-          btn.innerHTML = "⏳ Preparando modelo...";
-          var modelToUse = "llama-3.1-8b-instant";
+          /* FASE 2: BÚSQUEDA DINÁMICA (AHORA SÍ, 100% AUTOMÁTICA Y A PRUEBA DE 404) */
+          btn.innerHTML = "⏳ Buscando motor de IA disponible...";
+          var modelToUse = "llama3-8b-8192"; /* Fallback universal por si falla la red */
+          try {
+              var modelsUrl = "https://api.groq.com/openai/v1/models";
+              var modelsRes = await fetch(modelsUrl, { headers: { "Authorization": "Bearer " + state.groqApiKey } });
+              if (modelsRes.ok) {
+                  var mData = await modelsRes.json();
+                  if (mData && mData.data && mData.data.length > 0) {
+                      /* Agarramos LITERALMENTE el primer modelo de Llama que Groq nos diga que está encendido y disponible hoy */
+                      var llamas = mData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
+                      if(llamas.length > 0) {
+                          modelToUse = llamas[0].id; 
+                      } else {
+                          modelToUse = mData.data[0].id; /* Si no hay Llama, agarra el que sea que esté vivo */
+                      }
+                  }
+              }
+          } catch(e) { console.warn("Fallo al buscar modelos, usando fallback"); }
 
           /* FASE 3: PARTICIÓN (CHUNKING) ULTRA-CONSERVADORA */
           btn.innerHTML = "⏳ Cortando texto en bloques...";
           
-          var chunkSize = 3000; /* Reducimos a 3000 caracteres (~700 tokens) para JAMÁS tocar el límite */
+          var chunkSize = 3000; /* 3000 caracteres para asegurar que entra en la memoria de cualquier modelo */
           var chunks = [];
           for (var i = 0; i < transcriptText.length; i += chunkSize) {
               chunks.push(transcriptText.substring(i, i + chunkSize));
@@ -3129,7 +3144,7 @@ function defaultState(){
                   btn.innerHTML = "⏳ Escribiendo resumen...";
               }
 
-              var systemPrompt = "Eres un asistente experto. Resume la siguiente parte de una clase. Extrae conceptos clave y tareas importantes. Sé estructurado y conciso.";
+              var systemPrompt = "Eres un asistente experto. Resume la siguiente parte de una clase. Extrae conceptos clave y tareas importantes. Sé estructurado y conciso. Si es texto casual, resúmelo en una línea.";
               
               var bodyJson = JSON.stringify({
                       model: modelToUse,
@@ -3138,14 +3153,14 @@ function defaultState(){
                           { role: "user", content: "Texto a resumir:\n\n" + chunks[i] }
                       ],
                       temperature: 0.3,
-                      max_tokens: 1000 /* EL CANDADO: Evita el Error 400 forzando un límite matemático claro para Groq */
+                      max_tokens: 512 /* EL CANDADO: Evita el Error 400 forzando un límite matemático claro para Groq */
               });
 
               var sumRes = await fetchGroqInteligente("https://api.groq.com/openai/v1/chat/completions", bodyJson, false);
 
               if (!sumRes.ok) {
                   var err2 = await sumRes.text();
-                  throw new Error("Error de IA (Código " + sumRes.status + "):\n" + err2);
+                  throw new Error("Error de IA (" + modelToUse + " Código " + sumRes.status + "):\n" + err2);
               }
               var sumData = await sumRes.json();
               
@@ -3155,9 +3170,9 @@ function defaultState(){
                   resumenFinal = sumData.choices[0].message.content;
               }
 
-              /* Pausa de 4 segundos. La API gratuita penaliza rápido si le disparamos sin descanso. */
+              /* Pausa de 3.5 segundos. La API gratuita penaliza rápido si le disparamos sin descanso. */
               if (i < chunks.length - 1) {
-                  await new Promise(r => setTimeout(r, 4000));
+                  await new Promise(r => setTimeout(r, 3500));
               }
           }
 
