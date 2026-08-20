@@ -3083,27 +3083,29 @@ function defaultState(){
               throw new Error("No se detectó voz o el audio está vacío.");
           }
 
-          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO */
-          btn.innerHTML = "⏳ Buscando motor de IA...";
+          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO (Volvemos al CEREBRO GIGANTE de 70B) */
+          btn.innerHTML = "⏳ Buscando motor de IA (70B)...";
           var modelsUrl = "https://api.groq.com/openai/v1/models";
           var modelsRes = await fetch(modelsUrl, { headers: { "Authorization": "Bearer " + state.groqApiKey } });
-          var modelToUse = "llama-3.1-8b-instant"; /* Fallback al modelo más rápido y estable */
+          var modelToUse = "llama-3.3-70b-versatile"; /* Tu cerebro original y más inteligente */
           
           if (modelsRes.ok) {
               var mData = await modelsRes.json();
               if (mData && mData.data) {
                   var llamas = mData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
                   if(llamas.length > 0) {
+                      /* Forzamos encontrar el modelo de 70 billones */
                       var m70 = llamas.find(function(m){ return m.id.includes("70b"); });
                       modelToUse = m70 ? m70.id : llamas[0].id;
                   }
               }
           }
 
-          /* FASE 3: PARTICIÓN Y RESUMEN DE TEXTO (CHUNKING PARA EVITAR ERROR 400) */
+          /* FASE 3: PARTICIÓN EXTREMA Y RESUMEN (LA IDEA DEL USUARIO) */
           btn.innerHTML = "⏳ Preparando resumen...";
           
-          var chunkSize = 12000; 
+          /* CORTAMOS MÁS PEQUEÑO: 3500 caracteres por bloque para que el 70B lo procese sobrado y no tire el Error 400 */
+          var chunkSize = 3500; 
           var chunks = [];
           for (var i = 0; i < transcriptText.length; i += chunkSize) {
               chunks.push(transcriptText.substring(i, i + chunkSize));
@@ -3113,13 +3115,12 @@ function defaultState(){
 
           for (var i = 0; i < chunks.length; i++) {
               if (chunks.length > 1) {
-                  btn.innerHTML = "⏳ Resumiendo parte " + (i + 1) + " de " + chunks.length + "...";
+                  btn.innerHTML = "⏳ 70B Resumiendo parte " + (i + 1) + " de " + chunks.length + "...";
               } else {
-                  btn.innerHTML = "⏳ Escribiendo resumen...";
+                  btn.innerHTML = "⏳ Escribiendo resumen (70B)...";
               }
 
-              /* Válvula de escape anti-alucinaciones */
-              var systemPrompt = "Eres un asistente experto en resumir transcripciones de voz. Tu objetivo es crear un resumen claro y estructurado. A continuación te pasaré " + (chunks.length > 1 ? "la PARTE " + (i+1) + " de la transcripción de una clase larga" : "la transcripción de un audio") + ". Extrae los temas principales, crea viñetas con conceptos clave y destaca tareas o exámenes. Si el texto es muy corto o casual, simplemente resume de qué trata en una sola línea ignorando las repeticiones.";
+              var systemPrompt = "Eres un estudiante universitario brillante y un experto en tomar apuntes. Te pasaré " + (chunks.length > 1 ? "la PARTE " + (i+1) + " de la transcripción de una clase" : "una transcripción de clase") + ". Tu objetivo es crear un resumen muy estructurado. Extrae los temas principales, crea viñetas con conceptos clave y destaca cualquier tarea o examen mencionado. OJO: Si el texto es muy corto, informal o no parece una clase, ignora las reglas estrictas y solo resume de qué trata en una sola línea.";
               
               var sumRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                   method: "POST",
@@ -3130,13 +3131,14 @@ function defaultState(){
                           { role: "system", content: systemPrompt },
                           { role: "user", content: "Texto a resumir:\n\n" + chunks[i] }
                       ],
-                      temperature: 0.3
+                      temperature: 0.3,
+                      max_tokens: 1000 /* Le damos margen suficiente para que escriba un buen resumen */
                   })
               });
 
               if (!sumRes.ok) {
                   var err2 = await sumRes.text();
-                  throw new Error("Error de Llama 3 (Código " + sumRes.status + "):\n" + err2);
+                  throw new Error("Error de Llama 3 70B (Código " + sumRes.status + "):\n" + err2);
               }
               var sumData = await sumRes.json();
               
@@ -3146,9 +3148,9 @@ function defaultState(){
                   resumenFinal = sumData.choices[0].message.content;
               }
 
-              /* Pausa de 3 segundos entre pedazos para no activar la alarma de spam de Groq */
+              /* Pausa de 4.5 segundos entre pedazos para evitar bloqueos por límite de velocidad (Rate Limit 429) */
               if (i < chunks.length - 1) {
-                  await new Promise(r => setTimeout(r, 3000));
+                  await new Promise(r => setTimeout(r, 4500));
               }
           }
 
