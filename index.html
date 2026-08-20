@@ -3106,34 +3106,15 @@ function defaultState(){
               throw new Error("No se detectó voz o el audio está vacío.");
           }
 
-          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO (CORREGIDA ANTI-TRAMPAS) */
-          btn.innerHTML = "⏳ Buscando motor de IA disponible...";
-          var modelToUse = "llama-3.1-8b-instant"; /* Fallback universal moderno */
-          try {
-              var modelsUrl = "https://api.groq.com/openai/v1/models";
-              var modelsRes = await fetch(modelsUrl, { headers: { "Authorization": "Bearer " + state.groqApiKey } });
-              if (modelsRes.ok) {
-                  var mData = await modelsRes.json();
-                  if (mData && mData.data && mData.data.length > 0) {
-                      /* Filtramos "llama", pero IGNORAMOS los modelos de seguridad ("guard") o herramientas ("tool") */
-                      var llamasReales = mData.data.filter(function(m){ 
-                          var id = m.id.toLowerCase();
-                          return id.includes("llama") && !id.includes("guard") && !id.includes("vision") && !id.includes("tool"); 
-                      });
-                      if(llamasReales.length > 0) {
-                          /* Intentamos agarrar el 70B primero, si no, el 8B, si no, el primero válido */
-                          var m70 = llamasReales.find(function(m){ return m.id.includes("70b"); });
-                          var m8 = llamasReales.find(function(m){ return m.id.includes("8b"); });
-                          modelToUse = m70 ? m70.id : (m8 ? m8.id : llamasReales[0].id);
-                      }
-                  }
-              }
-          } catch(e) { console.warn("Fallo al buscar modelos, usando fallback"); }
+          /* FASE 2: CEREBRO FIJO UNIVERSAL (CERO BÚSQUEDAS) */
+          btn.innerHTML = "⏳ Preparando motor de IA...";
+          /* Este es el modelo original y base de Groq. Todas las API keys tienen acceso. */
+          var modelToUse = "llama3-8b-8192"; 
 
-          /* FASE 3: PARTICIÓN (CHUNKING) ULTRA-CONSERVADORA */
+          /* FASE 3: PARTICIÓN (CHUNKING) CONSERVADORA */
           btn.innerHTML = "⏳ Cortando texto en bloques...";
           
-          var chunkSize = 3000; /* 3000 caracteres para asegurar que entra en la memoria de cualquier modelo */
+          var chunkSize = 3000; /* Bloques pequeños para no saturar la memoria */
           var chunks = [];
           for (var i = 0; i < transcriptText.length; i += chunkSize) {
               chunks.push(transcriptText.substring(i, i + chunkSize));
@@ -3157,7 +3138,7 @@ function defaultState(){
                           { role: "user", content: "Texto a resumir:\n\n" + chunks[i] }
                       ],
                       temperature: 0.3,
-                      max_tokens: 512 /* EL CANDADO: Evita el Error 400 forzando un límite matemático claro para Groq */
+                      max_tokens: 512 /* Candado de respuesta para evitar el Error 400 */
               });
 
               var sumRes = await fetchGroqInteligente("https://api.groq.com/openai/v1/chat/completions", bodyJson, false);
@@ -3174,7 +3155,7 @@ function defaultState(){
                   resumenFinal = sumData.choices[0].message.content;
               }
 
-              /* Pausa de 3.5 segundos. La API gratuita penaliza rápido si le disparamos sin descanso. */
+              /* Pausa de 3.5 segundos entre peticiones */
               if (i < chunks.length - 1) {
                   await new Promise(r => setTimeout(r, 3500));
               }
