@@ -3106,25 +3106,15 @@ function defaultState(){
               throw new Error("No se detectó voz o el audio está vacío.");
           }
 
-          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO */
-          btn.innerHTML = "⏳ Buscando motor de IA (8B)...";
-          var modelsRes = await fetch("https://api.groq.com/openai/v1/models", { headers: { "Authorization": "Bearer " + state.groqApiKey } });
-          var modelToUse = "llama-3.1-8b-instant"; 
-          
-          if (modelsRes.ok) {
-              var mData = await modelsRes.json();
-              if (mData && mData.data) {
-                  var llamas = mData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
-                  if(llamas.length > 0) {
-                      var m8 = llamas.find(function(m){ return m.id.includes("8b"); });
-                      modelToUse = m8 ? m8.id : llamas[0].id;
-                  }
-              }
-          }
+          /* FASE 2: MODELO FIJO Y SEGURO */
+          /* NO buscaremos dinámicamente porque Groq puede estar devolviendo modelos restringidos. Usaremos el oficial estable directamente. */
+          btn.innerHTML = "⏳ Preparando modelo...";
+          var modelToUse = "llama-3.1-8b-instant";
 
-          /* FASE 3: PARTICIÓN Y RESUMEN DE TEXTO (CHUNKING) */
-          btn.innerHTML = "⏳ Preparando resumen...";
-          var chunkSize = 6000; 
+          /* FASE 3: PARTICIÓN (CHUNKING) ULTRA-CONSERVADORA */
+          btn.innerHTML = "⏳ Cortando texto en bloques...";
+          
+          var chunkSize = 3000; /* Reducimos a 3000 caracteres (~700 tokens) para JAMÁS tocar el límite */
           var chunks = [];
           for (var i = 0; i < transcriptText.length; i += chunkSize) {
               chunks.push(transcriptText.substring(i, i + chunkSize));
@@ -3139,7 +3129,7 @@ function defaultState(){
                   btn.innerHTML = "⏳ Escribiendo resumen...";
               }
 
-              var systemPrompt = "Eres un estudiante universitario brillante. Te pasaré " + (chunks.length > 1 ? "la PARTE " + (i+1) + " de la transcripción de una clase larga" : "una transcripción de un audio") + ". Tu objetivo es crear un resumen muy estructurado. Extrae los temas principales, crea viñetas con conceptos clave y destaca tareas o exámenes. Si el texto es muy corto o casual, solo resume de qué trata en una sola línea ignorando las repeticiones.";
+              var systemPrompt = "Eres un asistente experto. Resume la siguiente parte de una clase. Extrae conceptos clave y tareas importantes. Sé estructurado y conciso.";
               
               var bodyJson = JSON.stringify({
                       model: modelToUse,
@@ -3147,14 +3137,15 @@ function defaultState(){
                           { role: "system", content: systemPrompt },
                           { role: "user", content: "Texto a resumir:\n\n" + chunks[i] }
                       ],
-                      temperature: 0.3
+                      temperature: 0.3,
+                      max_tokens: 1000 /* EL CANDADO: Evita el Error 400 forzando un límite matemático claro para Groq */
               });
 
               var sumRes = await fetchGroqInteligente("https://api.groq.com/openai/v1/chat/completions", bodyJson, false);
 
               if (!sumRes.ok) {
                   var err2 = await sumRes.text();
-                  throw new Error("Error de Llama 3 (Código " + sumRes.status + "):\n" + err2);
+                  throw new Error("Error de IA (Código " + sumRes.status + "):\n" + err2);
               }
               var sumData = await sumRes.json();
               
@@ -3164,8 +3155,9 @@ function defaultState(){
                   resumenFinal = sumData.choices[0].message.content;
               }
 
+              /* Pausa de 4 segundos. La API gratuita penaliza rápido si le disparamos sin descanso. */
               if (i < chunks.length - 1) {
-                  await new Promise(r => setTimeout(r, 2500));
+                  await new Promise(r => setTimeout(r, 4000));
               }
           }
 
