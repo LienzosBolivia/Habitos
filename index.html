@@ -3106,21 +3106,25 @@ function defaultState(){
               throw new Error("No se detectó voz o el audio está vacío.");
           }
 
-          /* FASE 2: BÚSQUEDA DINÁMICA (AHORA SÍ, 100% AUTOMÁTICA Y A PRUEBA DE 404) */
+          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO (CORREGIDA ANTI-TRAMPAS) */
           btn.innerHTML = "⏳ Buscando motor de IA disponible...";
-          var modelToUse = "llama3-8b-8192"; /* Fallback universal por si falla la red */
+          var modelToUse = "llama-3.1-8b-instant"; /* Fallback universal moderno */
           try {
               var modelsUrl = "https://api.groq.com/openai/v1/models";
               var modelsRes = await fetch(modelsUrl, { headers: { "Authorization": "Bearer " + state.groqApiKey } });
               if (modelsRes.ok) {
                   var mData = await modelsRes.json();
                   if (mData && mData.data && mData.data.length > 0) {
-                      /* Agarramos LITERALMENTE el primer modelo de Llama que Groq nos diga que está encendido y disponible hoy */
-                      var llamas = mData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
-                      if(llamas.length > 0) {
-                          modelToUse = llamas[0].id; 
-                      } else {
-                          modelToUse = mData.data[0].id; /* Si no hay Llama, agarra el que sea que esté vivo */
+                      /* Filtramos "llama", pero IGNORAMOS los modelos de seguridad ("guard") o herramientas ("tool") */
+                      var llamasReales = mData.data.filter(function(m){ 
+                          var id = m.id.toLowerCase();
+                          return id.includes("llama") && !id.includes("guard") && !id.includes("vision") && !id.includes("tool"); 
+                      });
+                      if(llamasReales.length > 0) {
+                          /* Intentamos agarrar el 70B primero, si no, el 8B, si no, el primero válido */
+                          var m70 = llamasReales.find(function(m){ return m.id.includes("70b"); });
+                          var m8 = llamasReales.find(function(m){ return m.id.includes("8b"); });
+                          modelToUse = m70 ? m70.id : (m8 ? m8.id : llamasReales[0].id);
                       }
                   }
               }
