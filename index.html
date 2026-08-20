@@ -3031,7 +3031,7 @@ function defaultState(){
       document.getElementById("classAudioStatus").textContent = "";
   });
 
-  /* --- Botón Procesar (La Magia Doble de Groq con Partición de Textos) --- */
+  /* --- Botón Procesar (Doble API Key y Chunking 8B) --- */
   document.getElementById("btnProcessClass").addEventListener("click", async function(){
       var file = document.getElementById("classAudioUploadFile").files[0] || document.getElementById("classAudioRecordFile").files[0];
       
@@ -3040,9 +3040,9 @@ function defaultState(){
           return;
       }
       
-      /* BLOQUEO DE SEGURIDAD (Evita que el navegador colapse) */
-      if (file.size > 26214400) { // 25 MB
-          alert("🛑 EL AUDIO PESA " + (file.size / 1024 / 1024).toFixed(1) + " MB\n\nGroq tiene un límite de 25 MB.\n\n💡 PARA ESTE AUDIO:\nComprímelo usando Termux o envíatelo por WhatsApp para bajar su peso.\n\n💡 PARA EL FUTURO:\nVe a los ajustes de la Grabadora de tu celular y cambia la calidad a 'Baja' o 'Estándar'. Así 2 horas pesarán menos de 15MB.");
+      /* BLOQUEO DE SEGURIDAD */
+      if (file.size > 26214400) { 
+          alert("🛑 EL AUDIO PESA " + (file.size / 1024 / 1024).toFixed(1) + " MB\n\nGroq tiene un límite de 25 MB.\n\n💡 PARA ESTE AUDIO:\nComprímelo usando Termux o envíatelo por WhatsApp para bajar su peso.");
           return;
       }
 
@@ -3051,25 +3051,48 @@ function defaultState(){
       btn.disabled = true;
 
       try {
+          /* Petición de las 2 Llaves */
           if (!state.groqApiKey) {
-              var key = prompt("🤖 Necesitas tu API Key de Groq.\nPégala aquí (empieza con 'gsk_'):");
-              if (!key) throw new Error("Cancelado por falta de API Key");
-              state.groqApiKey = key.trim();
+              state.groqApiKey = prompt("🤖 Necesitas tu API Key PRINCIPAL de Groq.\nPégala aquí:");
+              if (!state.groqApiKey) throw new Error("Cancelado por falta de API Key");
               persist();
           }
+          if (!state.groqApiKey2) {
+              var key2 = prompt("🤖 (Recomendado) Pon una SEGUNDA API Key de Groq como respaldo.\nSi la primera se queda sin tokens, el sistema usará esta automáticamente.\n(Si no tienes otra, dale a Aceptar dejándolo en blanco):");
+              if (key2) { state.groqApiKey2 = key2.trim(); persist(); }
+          }
 
-          /* FASE 1: TRANSCRIBIR AUDIO A TEXTO (Whisper-large-v3) */
+          /* HELPER MAESTRO: Hace la petición y si falla por tokens (429), cambia de llave y reintenta */
+          async function fetchGroqInteligente(url, bodyData, isAudio) {
+              var headers = { "Authorization": "Bearer " + state.groqApiKey };
+              if (!isAudio) headers["Content-Type"] = "application/json";
+              
+              var res = await fetch(url, { method: "POST", headers: headers, body: bodyData });
+              
+              if (!res.ok && (res.status === 429 || res.status === 401 || res.status === 403)) {
+                  if (state.groqApiKey2) {
+                      console.log("Cambiando a llave secundaria...");
+                      /* TRUCO: Intercambiamos la llave principal por la de respaldo */
+                      var temp = state.groqApiKey;
+                      state.groqApiKey = state.groqApiKey2;
+                      state.groqApiKey2 = temp;
+                      persist();
+                      
+                      /* Reintentamos exactamente la misma petición con la nueva llave */
+                      headers["Authorization"] = "Bearer " + state.groqApiKey;
+                      res = await fetch(url, { method: "POST", headers: headers, body: bodyData });
+                  }
+              }
+              return res;
+          }
+
+          /* FASE 1: TRANSCRIBIR AUDIO A TEXTO (Whisper) */
           btn.innerHTML = "⏳ Escuchando clase (Whisper)...";
-          
           var formData = new FormData();
           formData.append("file", file);
           formData.append("model", "whisper-large-v3"); 
 
-          var transRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-              method: "POST",
-              headers: { "Authorization": "Bearer " + state.groqApiKey },
-              body: formData
-          });
+          var transRes = await fetchGroqInteligente("https://api.groq.com/openai/v1/audio/transcriptions", formData, true);
 
           if (!transRes.ok) {
               var err1 = await transRes.text();
@@ -3077,24 +3100,22 @@ function defaultState(){
           }
           
           var transData = await transRes.json();
-          var transcriptText = transData.text; // ¡AQUÍ ESTÁ LA VARIABLE QUE FALTABA!
+          var transcriptText = transData.text;
 
           if (!transcriptText || transcriptText.trim().length < 15) {
               throw new Error("No se detectó voz o el audio está vacío.");
           }
 
-          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO (Cambio al 8B por su límite gigante) */
+          /* FASE 2: BÚSQUEDA DINÁMICA DEL MODELO */
           btn.innerHTML = "⏳ Buscando motor de IA (8B)...";
-          var modelsUrl = "https://api.groq.com/openai/v1/models";
-          var modelsRes = await fetch(modelsUrl, { headers: { "Authorization": "Bearer " + state.groqApiKey } });
-          var modelToUse = "llama-3.1-8b-instant"; /* Fallback al 8B */
+          var modelsRes = await fetch("https://api.groq.com/openai/v1/models", { headers: { "Authorization": "Bearer " + state.groqApiKey } });
+          var modelToUse = "llama-3.1-8b-instant"; 
           
           if (modelsRes.ok) {
               var mData = await modelsRes.json();
               if (mData && mData.data) {
                   var llamas = mData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
                   if(llamas.length > 0) {
-                      /* Forzamos el uso del 8B porque Groq no restringe su memoria como el 70B */
                       var m8 = llamas.find(function(m){ return m.id.includes("8b"); });
                       modelToUse = m8 ? m8.id : llamas[0].id;
                   }
@@ -3103,8 +3124,7 @@ function defaultState(){
 
           /* FASE 3: PARTICIÓN Y RESUMEN DE TEXTO (CHUNKING) */
           btn.innerHTML = "⏳ Preparando resumen...";
-          
-          var chunkSize = 6000; /* Podemos usar bloques grandes porque el 8B sí lo soporta en la capa gratuita */
+          var chunkSize = 6000; 
           var chunks = [];
           for (var i = 0; i < transcriptText.length; i += chunkSize) {
               chunks.push(transcriptText.substring(i, i + chunkSize));
@@ -3119,21 +3139,18 @@ function defaultState(){
                   btn.innerHTML = "⏳ Escribiendo resumen...";
               }
 
-              /* Válvula de escape anti-alucinaciones */
               var systemPrompt = "Eres un estudiante universitario brillante. Te pasaré " + (chunks.length > 1 ? "la PARTE " + (i+1) + " de la transcripción de una clase larga" : "una transcripción de un audio") + ". Tu objetivo es crear un resumen muy estructurado. Extrae los temas principales, crea viñetas con conceptos clave y destaca tareas o exámenes. Si el texto es muy corto o casual, solo resume de qué trata en una sola línea ignorando las repeticiones.";
               
-              var sumRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.groqApiKey },
-                  body: JSON.stringify({
+              var bodyJson = JSON.stringify({
                       model: modelToUse,
                       messages: [
                           { role: "system", content: systemPrompt },
                           { role: "user", content: "Texto a resumir:\n\n" + chunks[i] }
                       ],
                       temperature: 0.3
-                  })
               });
+
+              var sumRes = await fetchGroqInteligente("https://api.groq.com/openai/v1/chat/completions", bodyJson, false);
 
               if (!sumRes.ok) {
                   var err2 = await sumRes.text();
@@ -3147,7 +3164,6 @@ function defaultState(){
                   resumenFinal = sumData.choices[0].message.content;
               }
 
-              /* Pausa de 2.5 segundos para no asustar al servidor */
               if (i < chunks.length - 1) {
                   await new Promise(r => setTimeout(r, 2500));
               }
@@ -3159,7 +3175,6 @@ function defaultState(){
           var taskName = prompt("¡Resumen completado! Escribe un título para guardar esta clase:", "Clase Magistral - " + formatDateShort(ds));
           if (!taskName) taskName = "Clase Grabada";
 
-          /* Inyección automática en las tareas de hoy */
           state.oneoff.push({ id: taskId, text: taskName, date: ds });
           
           var evidence = JSON.stringify({
@@ -3177,16 +3192,15 @@ function defaultState(){
           persist();
           renderActiveTab();
           
-          /* Limpiar modal */
           document.getElementById("btnCancelClass").click();
-          
           showToast("¡Clase procesada y guardada en tu Bitácora!");
           openViewEvidenceModal(ds, taskId);
 
       } catch(e) {
           if (e.message && (e.message.includes("Código 401") || e.message.includes("Código 403"))) {
-              alert("⚠️ API Key rechazada.\n\nDetalle:\n" + e.message + "\n\nLa clave se ha borrado de tu sistema para que intentes con otra.");
+              alert("⚠️ API Keys rechazadas.\n\nDetalle:\n" + e.message + "\n\nLas claves se han borrado de tu sistema para que intentes con unas nuevas.");
               state.groqApiKey = null;
+              state.groqApiKey2 = null;
               persist();
           } else if (e.message && !e.message.includes("Cancelado por falta")) {
               alert("⚠️ Diagnóstico del Error:\n\n" + e.message);
