@@ -3057,32 +3057,6 @@ function defaultState(){
               persist();
           }
 
-          /* FASE 1: TRANSCRIBIR AUDIO A TEXTO (Whisper-large-v3) */
-          btn.innerHTML = "⏳ Escuchando clase (Whisper)...";
-          
-          var formData = new FormData();
-          formData.append("file", file);
-          /* Whisper Large v3 es el modelo oficial y estable de Groq para audio */
-          formData.append("model", "whisper-large-v3"); 
-
-          var transRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-              method: "POST",
-              headers: { "Authorization": "Bearer " + state.groqApiKey },
-              body: formData
-          });
-
-          if (!transRes.ok) {
-              var err1 = await transRes.text();
-              throw new Error("Transcriptor Whisper (Código " + transRes.status + "):\n" + err1);
-          }
-          
-          var transData = await transRes.json();
-          var transcriptText = transData.text;
-
-          if (!transcriptText || transcriptText.trim().length < 15) {
-              throw new Error("No se detectó voz o el audio está vacío.");
-          }
-
           /* FASE 2 y 3: RESUMEN INTELIGENTE POR PARTES (ANTI-COLAPSO DE MEMORIA) */
           /* Si la clase es muy larga, Llama 3 colapsa (Error 400). La partimos en pedazos de 12,000 caracteres. */
           btn.innerHTML = "⏳ Preparando resumen...";
@@ -3137,6 +3111,27 @@ function defaultState(){
               }
           }
           var resumen = resumenFinal;
+
+          /* FASE 3: RESUMIR EL TEXTO */
+          btn.innerHTML = "⏳ Escribiendo resumen...";
+          var promptTxt = "Actúa como el mejor estudiante de la universidad. Acabas de grabar la siguiente transcripción de una clase magistral. Tu trabajo es hacer un resumen espectacular, altamente estructurado y fácil de estudiar. Extrae los temas principales, crea una lista de conceptos clave (bullet points) y destaca cualquier tarea o examen que el profesor haya mencionado. Aquí está la transcripción:\n\n" + transcriptText;
+          
+          var sumRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.groqApiKey },
+              body: JSON.stringify({
+                  model: modelToUse,
+                  messages: [{ role: "user", content: promptTxt }],
+                  temperature: 0.3
+              })
+          });
+
+          if (!sumRes.ok) {
+              var err2 = await sumRes.text();
+              throw new Error("Llama 3 (Código " + sumRes.status + "):\n" + err2);
+          }
+          var sumData = await sumRes.json();
+          var resumen = sumData.choices[0].message.content;
 
           /* FASE 4: GUARDAR EN LA BITÁCORA */
           var ds = todayStr();
@@ -5498,3 +5493,244 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (!state.groqApiKey) {
         var key = prompt("🤖 Configuración de IA (Groq Dinámico)\n\nPara que la IA nunca se vuelva a desactualizar, el código buscará los servidores activos automáticamente.\n\nPega tu API Key de Groq aquí (empieza con 'gsk_'):");
         if (!key || !key.trim()) { showToast("Necesitas una API Key para usar la IA."); return; }
+        state.groqApiKey = key.trim();
+        persist();
+      }
+
+      /* Función Helper con Búsqueda Automática de Modelos Vivos */
+      async function askGroq(promptTxt) {
+        var modelsUrl = "https://api.groq.com/openai/v1/models";
+        var modelsRes = await fetch(modelsUrl, {
+          headers: { "Authorization": "Bearer " + state.groqApiKey }
+        });
+        
+        if (!modelsRes.ok) {
+           if (modelsRes.status === 401 || modelsRes.status === 403) throw new Error("API_KEY_ERROR|Clave inválida al verificar modelos.");
+           throw new Error("No se pudo obtener la lista de modelos de Groq.");
+        }
+        
+        var modelsData = await modelsRes.json();
+        var modelToUse = "llama-3.3-70b-versatile"; /* Fallback extremo por si acaso */
+        
+        if (modelsData && modelsData.data && modelsData.data.length > 0) {
+           var llamaModels = modelsData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
+           if (llamaModels.length > 0) {
+               var model70b = llamaModels.find(function(m){ return m.id.includes("70b"); });
+               modelToUse = model70b ? model70b.id : llamaModels[0].id;
+           } else {
+               modelToUse = modelsData.data[0].id;
+           }
+        }
+
+        var url = "https://api.groq.com/openai/v1/chat/completions";
+        var reqBody = {
+          model: modelToUse,
+          messages: [{ role: "user", content: promptTxt }],
+          temperature: 0.7
+        };
+        
+        var res = await fetch(url, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + state.groqApiKey
+          },
+          body: JSON.stringify(reqBody)
+        });
+        
+        if (!res.ok) {
+           var errorDetalle = await res.text();
+           if (res.status === 401 || res.status === 403) throw new Error("API_KEY_ERROR|La API Key fue rechazada al generar texto.");
+           throw new Error("Error " + res.status + " de Groq:\n" + errorDetalle);
+        }
+        var data = await res.json();
+        return data.choices[0].message.content;
+      }
+
+      var originalBtnText = el.innerHTML;
+      el.innerHTML = "⏳ Escaneando servidores de IA...";
+      el.disabled = true;
+
+      /* Ejecutamos asíncronamente */
+      (async function(){
+        try {
+          /* --- LE PASAMOS LA FECHA LÍMITE (proj.deadline) Y LE PROHIBIMOS PREGUNTAR POR PLAZOS --- */
+          var promptPreguntas = "Actúa como un project manager experto. El usuario quiere planificar un proyecto llamado '" + proj.text + "'. La fecha límite (deadline) establecida para este proyecto es el " + proj.deadline + ", así que NO preguntes sobre plazos de tiempo ni estimaciones de finalización. Tu objetivo será estructurar este proyecto en tareas y subtareas. Pero antes, OBLIGATORIAMENTE hazle al usuario máximo 3 preguntas clave, directas y concisas, para averiguar recursos, contexto o detalles específicos que necesites saber. Devuelve ÚNICAMENTE las preguntas en texto plano, separadas por viñetas, sin saludos ni introducciones.";
+          
+          var preguntasIA = await askGroq(promptPreguntas);
+          
+          var respuestas = prompt("🤖 La IA necesita unos detalles para planificar '" + proj.text + "':\n\n" + preguntasIA + "\n\nEscribe tus respuestas aquí (o deja en blanco para que asuma lo general):");
+          if (respuestas === null) throw new Error("Cancelaste la planificación.");
+
+          el.innerHTML = "⏳ Estructurando tareas...";
+
+          /* Le recordamos la fecha límite al construir el plan final */
+          var promptFinal = "Eres un project manager. Proyecto: '" + proj.text + "'. Fecha límite: " + proj.deadline + ". Mis preguntas fueron: '" + preguntasIA + "'. Respuestas del usuario: '" + respuestas + "'. \nCrea un plan estructurado basándote en toda esta información. \nOBLIGATORIO: Debes responder EXCLUSIVAMENTE con un objeto JSON válido, sin formato markdown, sin comillas triples y sin texto adicional. Usa estrictamente esta estructura exacta:\n{\"tasks\": [ {\"text\": \"Nombre de Tarea\", \"subtasks\": [\"Subtarea 1\", \"Subtarea 2\"]} ]}";
+          
+          var respuestaIA = await askGroq(promptFinal);
+          
+          var jsonLimpio = respuestaIA.replace(/```json/gi, "").replace(/```/gi, "").trim();
+          var plan;
+          try { plan = JSON.parse(jsonLimpio); } 
+          catch(e) { throw new Error("La IA no devolvió un formato compatible. Intenta de nuevo."); }
+
+          if (!plan.tasks || !Array.isArray(plan.tasks)) throw new Error("Estructura de tareas inválida.");
+
+          if (!proj.tasks) proj.tasks = [];
+          
+          plan.tasks.forEach(function(aiTask){
+             var subT = [];
+             if (aiTask.subtasks && Array.isArray(aiTask.subtasks)) {
+                 subT = aiTask.subtasks.map(function(stText){
+                     return { id: uid(), text: stText, done: false, createdAt: todayStr() };
+                 });
+             }
+             proj.tasks.push({
+                 id: uid(),
+                 text: aiTask.text || "Tarea de Proyecto",
+                 done: false,
+                 createdAt: todayStr(),
+                 subtasks: subT
+             });
+          });
+
+          persist();
+          renderProjectPlanModal(pID);
+          showToast("✨ ¡Plan inyectado con éxito!");
+
+        } catch (error) {
+          console.error("Error de IA:", error);
+          if (error.message.startsWith("API_KEY_ERROR")) {
+              var detalleError = error.message.split("|")[1];
+              alert("⚠️ Groq rechazó la conexión.\n\nDetalle: " + detalleError + "\n\nLa API Key se ha borrado de tu sistema para que intentes con otra.");
+              state.groqApiKey = null; 
+              persist();
+          } else if (error.message !== "Cancelaste la planificación.") {
+              alert("⚠️ Diagnóstico:\n\n" + error.message + "\n\nLa clave se ha borrado por precaución.");
+              state.groqApiKey = null; 
+              persist();
+          }
+        } finally {
+          el.innerHTML = originalBtnText;
+          el.disabled = false;
+        }
+      })();
+
+      isTrainMuted = !isTrainMuted;
+      localStorage.setItem("bitacora_train_muted", isTrainMuted);
+      syncTrainAudio();
+      renderActiveTab();
+    
+    } else if (action === "toggle-mute") {
+      isTrainMuted = !isTrainMuted;
+      /* Lo guardamos exactamente como string "true" o "false" para que no se trabe en Android */
+      localStorage.setItem("bitacora_train_muted", isTrainMuted ? "true" : "false");
+      syncTrainAudio();
+      renderActiveTab();
+
+    } else if (action === "toggle-master"){
+      if (state.tracking.status === "inactive") {
+        /* Si está apagado, lo enciende normalmente sin preguntar */
+        toggleMaster();
+      } else {
+        /* FRICCIÓN: Si está encendido, exige justificación para apagarlo */
+        var ds = todayStr();
+        var newId = uid();
+        /* 1. Creamos una tarea especial de "Desactivación" en las tareas únicas (oneoff) */
+        state.oneoff.push({ id: newId, text: "Desactivación del sistema", date: ds });
+        persist();
+        
+        /* 2. Le avisamos a la app que este ID es para apagar el sistema */
+        pendingDeactivationId = newId;
+        
+        /* 3. Abrimos el modal para exigir la evidencia/justificación */
+        openEvidenceModal(ds, newId);
+      }
+
+    } else if (action === "open-class-recorder"){
+      document.getElementById("classRecorderModal").classList.add("open");
+
+    } else if (action === "play-task"){
+      playTask(el.getAttribute("data-date"), el.getAttribute("data-id"));
+
+    } else if (action === "pause-task"){
+      pauseTask();
+
+    } else if (action === "stop-task"){
+      stopTask(el.getAttribute("data-date"), el.getAttribute("data-id"));
+    }
+  });
+
+  /* ===================== Eventos: changes (Inputs y Selects) ===================== */
+  document.addEventListener("change", function(e){
+    /* Seleccionar archivo de importación */
+    if (e.target.id === "backupFileInput"){
+      var file = e.target.files && e.target.files[0];
+      if (file) {
+        importMasterBackup(file);
+        e.target.value = ""; /* Resetea el input por si quieres subir el mismo archivo después */
+      }
+    } 
+    /* Cambiar el año histórico en el calendario */
+    else if (e.target.getAttribute("data-action") === "cal-year-change") {
+      var y = parseInt(e.target.value, 10);
+      var currentY = new Date().getFullYear();
+      calendarHistoricalYear = (y === currentY) ? null : y;
+      renderActiveTab();
+    }
+  });
+
+  /* ===================== Eventos: submits ===================== */
+  document.addEventListener("submit", function(e){
+    /* Tarea / hábito */
+    var taskForm = e.target.closest('[data-action="add-task"]');
+    if (taskForm){
+      e.preventDefault();
+      var text      = taskForm.elements["text"].value;
+      var repeatEl  = taskForm.elements["repeat"];
+      var repeat    = repeatEl ? repeatEl.checked : false;
+      var date      = taskForm.getAttribute("data-date");
+      addTask(text, date, repeat);
+      taskForm.reset();
+      return;
+    }
+    /* Hábito desde pestaña hábitos */
+    var habitForm = e.target.closest('[data-action="add-habit"]');
+    if (habitForm){
+      e.preventDefault();
+      var htext = habitForm.elements["text"].value;
+      addTask(htext, todayStr(), true);
+      habitForm.reset();
+      return;
+    }
+    /* Rutina */
+    var routineForm = e.target.closest('[data-action="add-routine"]');
+    if (routineForm){
+      e.preventDefault();
+      var rtext = routineForm.elements["routineText"].value;
+      var rtime = routineForm.elements["routineTime"].value;
+      var checkboxes = routineForm.querySelectorAll('input[name="days"]:checked');
+      var rdays = [];
+      for (var i = 0; i < checkboxes.length; i++){ rdays.push(parseInt(checkboxes[i].value, 10)); }
+      addRoutine(rtext, rdays, rtime);
+      routineForm.reset();
+      return;
+    }
+    /* Proyecto */
+    var projectForm = e.target.closest('[data-action="add-project"]');
+    if (projectForm){
+      e.preventDefault();
+      var ptext     = projectForm.elements["projectText"].value;
+      var pdeadline = projectForm.elements["projectDeadline"].value;
+      addProject(ptext, pdeadline);
+      projectForm.reset();
+      return;
+    }
+  });
+
+  /* ===================== Arranque ===================== */
+  init();
+})();
+</script>
+</body>
+</html>
