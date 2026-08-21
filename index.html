@@ -3031,77 +3031,101 @@ function defaultState(){
       document.getElementById("classAudioStatus").textContent = "";
   });
 
-  /* --- BOTÓN DE PRUEBA DE ESTRÉS (CERO TOKENS DE WHISPER) --- */
+  /* --- BOTÓN DE PROCESAR: CONEXIÓN GOOGLE DRIVE + KAGGLE PIPELINE --- */
   document.getElementById("btnProcessClass").addEventListener("click", async function(){
+      var file = document.getElementById("classAudioUploadFile").files[0] || document.getElementById("classAudioRecordFile").files[0];
+      
+      if (!file) {
+          showToast("Debes seleccionar o grabar un audio primero.");
+          return;
+      }
+
       var btn = document.getElementById("btnProcessClass");
-      btn.innerHTML = "⏳ 1. Buscando modelos vivos...";
+      var origTxt = btn.innerHTML;
       btn.disabled = true;
 
       try {
-          if (!state.groqApiKey) {
-              state.groqApiKey = prompt("🤖 Pega tu API Key de Groq para la prueba:");
-              if (!state.groqApiKey) throw new Error("Cancelado");
+          if (!state.gasWebAppUrl) {
+              var url = prompt("🔗 Pega la URL de tu Web App de Google Apps Script (termina en /exec):");
+              if (!url) throw new Error("Cancelado");
+              state.gasWebAppUrl = url.trim();
               persist();
           }
 
-          /* 1. OBTENER MODELOS VIVOS DIRECTO DE LA FUENTE */
-          var modelsRes = await fetch("https://api.groq.com/openai/v1/models", { 
-              headers: { "Authorization": "Bearer " + state.groqApiKey } 
-          });
-          if (!modelsRes.ok) throw new Error("Fallo al conectar con Groq");
-          var mData = await modelsRes.json();
+          btn.innerHTML = "⏳ 1/3: Preparando y subiendo a Google Drive...";
           
-          /* Filtramos los que sí son Llama, pero quitamos los de seguridad/visión */
-          var llamasReales = mData.data.filter(function(m){ 
-              var id = m.id.toLowerCase();
-              return id.includes("llama") && !id.includes("guard") && !id.includes("vision") && !id.includes("tool"); 
+          // Convertir archivo a Base64
+          var reader = new FileReader();
+          var base64Promise = new Promise(function(resolve, reject){
+              reader.onload = function(){ resolve(reader.result.split(',')[1]); };
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
           });
+          var audioBase64 = await base64Promise;
 
-          if(llamasReales.length === 0) throw new Error("Groq no devolvió ningún modelo Llama válido.");
-
-          /* 2. ELEGIR EL PRIMER MODELO QUE GROQ JUURE QUE ESTÁ ACTIVO */
-          var modeloElegido = llamasReales[0].id;
-          
-          /* 3. GENERAR TEXTO FALSO PESADO (~3800 caracteres) */
-          /* Usamos un texto universitario real para que la IA no rechace texto basura (spam) */
-          var oracion = "La termodinámica estudia los efectos de los cambios de temperatura, presión y volumen de los sistemas físicos a un nivel macroscópico, analizando pistones, cilindros y tanques rígidos. ";
-          var dummyText = oracion.repeat(25); 
-          
-          btn.innerHTML = "⏳ 2. Probando: " + modeloElegido + "...";
-          console.log("Intentando resumir " + dummyText.length + " caracteres con el modelo: " + modeloElegido);
-
-          /* 4. DISPARAR LA PRUEBA */
-          var bodyJson = JSON.stringify({
-              model: modeloElegido,
-              messages: [
-                  { role: "system", content: "Eres un estudiante. Resume el texto en una sola línea." },
-                  { role: "user", content: "Texto a resumir:\n\n" + dummyText }
-              ],
-              temperature: 0.3,
-              max_tokens: 512
-          });
-
-          var sumRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          // Enviar a Google Apps Script
+          var uploadRes = await fetch(state.gasWebAppUrl, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.groqApiKey },
-              body: bodyJson
+              body: JSON.stringify({
+                  fileName: file.name || "grabacion_clase.m4a",
+                  mimeType: file.type || "audio/mp4",
+                  audioBase64: audioBase64,
+                  gasUrl: state.gasWebAppUrl
+              })
           });
 
-          if (!sumRes.ok) {
-              var errText = await sumRes.text();
-              throw new Error("El modelo [" + modeloElegido + "] falló con código " + sumRes.status + ":\n" + errText);
+          var uploadData = await uploadRes.json();
+          if (uploadData.status === "error") throw new Error(uploadData.message);
+          var fileId = uploadData.fileId;
+
+          // Polling: Esperar a que Kaggle ejecute en segundo plano y guarde el resumen
+          btn.innerHTML = "⏳ 2/3: Kaggle ejecutando en segundo plano (CPU)...";
+          var completado = false;
+          var finalResult = null;
+
+          while (!completado) {
+              await new Promise(r => setTimeout(r, 20000)); // Consultar cada 20 segundos
+              
+              var checkRes = await fetch(state.gasWebAppUrl + "?fileId=" + fileId);
+              var checkData = await checkRes.json();
+
+              if (checkData.status === "completed") {
+                  finalResult = checkData.data;
+                  completado = true;
+              }
           }
 
-          var data = await sumRes.json();
-          var respuesta = data.choices[0].message.content;
+          // Guardar en la Bitácora local
+          btn.innerHTML = "⏳ 3/3: Guardando en tu Bitácora...";
+          var ds = todayStr();
+          var taskId = uid();
+          var taskName = prompt("¡Procesamiento finalizado! Título para esta clase:", "Clase Magistral - " + formatDateShort(ds));
+          if (!taskName) taskName = "Clase Grabada";
 
-          /* ¡VICTORIA! */
-          alert("✅ ¡ÉXITO TOTAL!\n\nModelo funcional encontrado: " + modeloElegido + "\nCaracteres procesados: " + dummyText.length + "\n\nRespuesta de la IA:\n" + respuesta);
+          state.oneoff.push({ id: taskId, text: taskName, date: ds });
+          
+          var evidence = JSON.stringify({
+              taskName: taskName,
+              subtasks: [],
+              note: "📝 **RESUMEN DE CLASE:**\n\n" + finalResult.summary + "\n\n---\n🎙️ **TRANSCRIPCIÓN COMPLETA:**\n\n" + finalResult.transcription,
+              image: null,
+              savedAt: new Date().toISOString()
+          });
+          
+          await dbSet(ds + "_" + taskId, evidence);
+          if (!state.log[ds]) state.log[ds] = {};
+          state.log[ds][taskId] = true;
+          
+          persist();
+          renderActiveTab();
+          document.getElementById("btnCancelClass").click();
+          showToast("¡Clase procesada y guardada con éxito!");
+          openViewEvidenceModal(ds, taskId);
 
       } catch(e) {
-          alert("❌ FALLÓ LA PRUEBA:\n\n" + e.message);
+          alert("❌ Error:\n" + e.message);
       } finally {
-          btn.innerHTML = "Procesar y Resumir";
+          btn.innerHTML = origTxt;
           btn.disabled = false;
       }
   });
