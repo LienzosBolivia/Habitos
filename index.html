@@ -1535,9 +1535,14 @@
       <button class="primary" id="btnProcessClass">Procesar y Resumir</button>
       <button class="btn-secondary" id="btnCancelClass">Cancelar</button>
       
-      <!-- BOTÓN PARA RECUPERAR RESÚMENES ASÍNCRONOS -->
+      <!-- BOTÓN PARA RECUPERAR RESÚMENES -->
       <button id="btnRecoverSummaries" style="margin-top: 15px; width: 100%; padding: 12px; background: #2E8B57; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
-        📥 Buscar Resúmenes Terminados en Drive
+        📥 Buscar Resúmenes Terminados
+      </button>
+
+      <!-- NUEVO BOTÓN PARA CAMBIAR URL -->
+      <button id="btnResetUrl" style="margin-top: 10px; width: 100%; padding: 10px; background: transparent; color: #aaa; border: 1px solid #555; border-radius: 8px; cursor: pointer;">
+        ⚙️ Cambiar URL del Servidor
       </button>
     </div>
   </div>
@@ -3223,6 +3228,22 @@ function defaultState(){
           btn.disabled = false;
       }
   });
+  
+  /* --- BOTÓN PARA CAMBIAR LA URL DE APPS SCRIPT --- */
+  var btnReset = document.getElementById("btnResetUrl");
+  if(btnReset) {
+      btnReset.addEventListener("click", function(){
+          // Te muestra la URL actual por si solo quieres corregir una letra
+          var currentUrl = state.gasWebAppUrl ? state.gasWebAppUrl : "";
+          var newUrl = prompt("🔗 Ingresa la nueva URL de Google Apps Script:", currentUrl);
+          
+          if (newUrl) {
+              state.gasWebAppUrl = newUrl.trim();
+              persist(); // Forzamos el guardado en la memoria del celular
+              showToast("✅ URL del servidor actualizada");
+          }
+      });
+  }
   
 document.getElementById("projectNoteSaveBtn").addEventListener("click", function(){
     document.getElementById("projectNoteModal").classList.remove("open");
