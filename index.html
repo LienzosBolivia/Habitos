@@ -1534,6 +1534,11 @@
     <div class="modal-actions">
       <button class="primary" id="btnProcessClass">Procesar y Resumir</button>
       <button class="btn-secondary" id="btnCancelClass">Cancelar</button>
+      
+      <!-- BOTÓN PARA RECUPERAR RESÚMENES ASÍNCRONOS -->
+      <button id="btnRecoverSummaries" style="margin-top: 15px; width: 100%; padding: 12px; background: #2E8B57; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+        📥 Buscar Resúmenes Terminados en Drive
+      </button>
     </div>
   </div>
 </div>
@@ -1631,6 +1636,76 @@
   document.addEventListener("touchstart", unlockAudio);
   document.addEventListener("click", unlockAudio);
 
+/* --- BOTÓN PARA RECUPERAR RESÚMENES TERMINADOS DESDE DRIVE --- */
+  var btnRecover = document.getElementById("btnRecoverSummaries");
+  if(btnRecover) {
+      btnRecover.addEventListener("click", async function(){
+          var btn = this;
+          var origTxt = btn.innerHTML;
+          
+          try {
+              if (!state.gasWebAppUrl) {
+                  showToast("Primero debes procesar un audio para configurar la URL.");
+                  return;
+              }
+              
+              btn.innerHTML = "⏳ Buscando en tu nube...";
+              btn.disabled = true;
+
+              // Preguntarle a Google Apps Script si hay resúmenes listos
+              var res = await fetch(state.gasWebAppUrl, {
+                  method: "POST",
+                  body: JSON.stringify({ action: "check_pending" })
+              });
+              
+              var data = await res.json();
+              
+              if (data.status !== "success") throw new Error("Fallo al conectar con Drive.");
+
+              if (data.summaries.length === 0) {
+                  showToast("No hay resúmenes nuevos listos todavía.");
+              } else {
+                  // Si encuentra resúmenes, los procesamos uno por uno
+                  for (var i = 0; i < data.summaries.length; i++) {
+                      var sumData = data.summaries[i].data;
+                      
+                      var ds = todayStr();
+                      var taskId = uid();
+                      var taskName = prompt(`¡Resumen recuperado con éxito!\nTítulo para la clase:`, "Clase Magistral");
+                      if (!taskName) taskName = "Clase Recuperada";
+
+                      state.oneoff.push({ id: taskId, text: taskName, date: ds });
+                      
+                      var evidence = JSON.stringify({
+                          taskName: taskName,
+                          subtasks: [],
+                          note: "📝 **RESUMEN DE CLASE:**\n\n" + sumData.summary,
+                          image: null,
+                          savedAt: new Date().toISOString()
+                      });
+                      
+                      await dbSet(ds + "_" + taskId, evidence);
+                      if (!state.log[ds]) state.log[ds] = {};
+                      state.log[ds][taskId] = true;
+                  }
+                  
+                  persist(); 
+                  renderActiveTab();
+                  showToast(`✅ ¡Se recuperaron ${data.summaries.length} resúmenes!`);
+                  
+                  // Si estamos dentro del modal de audio, lo cerramos
+                  var btnCancel = document.getElementById("btnCancelClass");
+                  if(btnCancel) btnCancel.click();
+              }
+          } catch(e) {
+              alert("❌ Error: " + e.message);
+          } finally {
+              btn.innerHTML = origTxt;
+              btn.disabled = false;
+          }
+      });
+  }
+  
   function syncTrainAudio() {
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
       /* Si el audio fue borrado, lo recargamos solo si toca sonar */
@@ -3045,7 +3120,7 @@ function defaultState(){
       btn.disabled = true;
 
       try {
-         if (!state.gasWebAppUrl) {
+         if (true) {
               var url = prompt("🔗 Pega la URL de tu Web App de Google Apps Script:");
               if (!url) throw new Error("Cancelado");
               state.gasWebAppUrl = url.trim();
