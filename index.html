@@ -3111,13 +3111,24 @@ function defaultState(){
       document.getElementById("classAudioStatus").textContent = "";
   });
 
-/* --- BOTÓN DE PROCESAR: SUBIDA POR BLOQUES (ARCHIVOS GIGANTES) --- */
+/* --- BOTÓN DE PROCESAR: SUBIDA LOCAL O ENLACE DIRECTO DE DRIVE --- */
   document.getElementById("btnProcessClass").addEventListener("click", async function(){
       var file = document.getElementById("classAudioUploadFile").files[0] || document.getElementById("classAudioRecordFile").files[0];
-      
+      var driveFileId = null;
+
+      // SI NO HAY ARCHIVO, PREGUNTAMOS POR EL ENLACE DE DRIVE
       if (!file) {
-          showToast("Debes seleccionar o grabar un audio primero.");
-          return;
+          var driveLink = prompt("🎙️ No seleccionaste archivo local.\n\nSi ya subiste el audio a Google Drive manualmente, pega aquí el ENLACE COMPARTIDO del archivo:");
+          if (!driveLink) return; // El usuario canceló
+          
+          // Extraemos mágicamente el ID oculto dentro del enlace largo de Drive
+          var match = driveLink.match(/[-\w]{25,}/);
+          if (match) {
+              driveFileId = match[0];
+          } else {
+              alert("❌ Enlace inválido. Asegúrate de pegar el link correcto de Drive.");
+              return;
+          }
       }
 
       var btn = document.getElementById("btnProcessClass");
@@ -3125,102 +3136,69 @@ function defaultState(){
       btn.disabled = true;
 
       try {
-         if (!state.gasWebAppUrl) {
-              var url = prompt("🔗 Pega la URL de tu Web App de Google Apps Script:");
-              if (!url) throw new Error("Cancelado");
-              state.gasWebAppUrl = url.trim();
-              persist();
+          if (!state.gasWebAppUrl) {
+              showToast("Primero configura la URL del servidor con el botón de ajustes.");
+              return;
           }
 
-          /* 1. CONVERTIR AUDIO A BASE64 */
-          btn.innerHTML = "⏳ 1/4: Preparando archivo gigante...";
-          var reader = new FileReader();
-          var base64Promise = new Promise((resolve, reject) => {
-              reader.onload = () => resolve(reader.result.split(',')[1]);
-              reader.onerror = reject;
-              reader.readAsDataURL(file);
-          });
-          var fullBase64 = await base64Promise;
-
-          /* 2. SUBIR EN PEDAZOS DE 10 MB PARA EVITAR LÍMITE DE GOOGLE */
-          var chunkSize = 10000000; // ~10 MB por bloque
-          var totalChunks = Math.ceil(fullBase64.length / chunkSize);
           var uploadSessionId = "audio_" + uid(); // Ticket único
-          var chunkIds = [];
-
-          for (var i = 0; i < totalChunks; i++) {
-              btn.innerHTML = `⏳ 2/4: Subiendo fragmento ${i+1} de ${totalChunks}...`;
-              var chunkData = fullBase64.substring(i * chunkSize, (i + 1) * chunkSize);
-
-              var res = await fetch(state.gasWebAppUrl, {
+          
+          if (driveFileId) {
+              /* === FLUJO A: EL ARCHIVO YA ESTÁ EN DRIVE === */
+              btn.innerHTML = "⏳ Enviando enlace a la IA...";
+              var startRes = await fetch(state.gasWebAppUrl, {
                   method: "POST",
                   body: JSON.stringify({
-                      action: "upload_chunk",
-                      sessionId: uploadSessionId,
-                      chunkIndex: i,
-                      chunkStr: chunkData
+                      action: "start_kaggle_direct",
+                      driveFileId: driveFileId,
+                      gasUrl: state.gasWebAppUrl,
+                      sessionId: uploadSessionId
                   })
               });
-              var data = await res.json();
-              if (data.status !== "success") throw new Error("Fallo al subir fragmento a Drive.");
-              chunkIds.push(data.chunkFileId);
-          }
+              var startData = await startRes.json();
+              if (startData.status !== "success") throw new Error("Error conectando con Kaggle.");
 
-          /* 3. DISPARAR KAGGLE */
-          btn.innerHTML = "⏳ 3/4: Despertando IA en Kaggle...";
-          var startRes = await fetch(state.gasWebAppUrl, {
-              method: "POST",
-              body: JSON.stringify({
-                  action: "start_kaggle",
-                  chunkIds: chunkIds,
-                  gasUrl: state.gasWebAppUrl,
-                  sessionId: uploadSessionId
-              })
-          });
-          var startData = await startRes.json();
-          if (startData.status !== "success") throw new Error("Error arrancando Kaggle.");
+          } else {
+              /* === FLUJO B: SUBIDA DESDE EL CELULAR (CHUNKS) === */
+              btn.innerHTML = "⏳ Preparando archivo...";
+              var reader = new FileReader();
+              var base64Promise = new Promise((resolve, reject) => {
+                  reader.onload = () => resolve(reader.result.split(',')[1]);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(file);
+              });
+              var fullBase64 = await base64Promise;
 
-          /* 4. ESPERAR RESULTADO (POLLING) */
-          btn.innerHTML = "⏳ 4/4: Kaggle procesando... (Puedes minimizar)";
-          var completado = false;
-          var finalResult = null;
-          while (!completado) {
-              await new Promise(r => setTimeout(r, 20000)); // Preguntar cada 20 seg
-              var checkRes = await fetch(state.gasWebAppUrl + "?fileId=" + uploadSessionId);
-              var checkData = await checkRes.json();
+              var chunkSize = 3000000; // 3 MB por bloque
+              var totalChunks = Math.ceil(fullBase64.length / chunkSize);
+              var chunkIds = [];
 
-              if (checkData.status === "completed") {
-                  finalResult = checkData.data;
-                  completado = true;
+              for (var i = 0; i < totalChunks; i++) {
+                  btn.innerHTML = `⏳ Subiendo fragmento ${i+1}/${totalChunks}...`;
+                  var chunkData = fullBase64.substring(i * chunkSize, (i + 1) * chunkSize);
+
+                  var res = await fetch(state.gasWebAppUrl, {
+                      method: "POST",
+                      body: JSON.stringify({ action: "upload_chunk", sessionId: uploadSessionId, chunkIndex: i, chunkStr: chunkData })
+                  });
+                  var data = await res.json();
+                  if (data.status !== "success") throw new Error("Fallo al subir fragmento a Drive.");
+                  chunkIds.push(data.chunkFileId);
               }
+
+              btn.innerHTML = "⏳ Despertando IA en Kaggle...";
+              var startRes = await fetch(state.gasWebAppUrl, {
+                  method: "POST",
+                  body: JSON.stringify({ action: "start_kaggle", chunkIds: chunkIds, gasUrl: state.gasWebAppUrl, sessionId: uploadSessionId })
+              });
+              var startData = await startRes.json();
+              if (startData.status !== "success") throw new Error("Error arrancando Kaggle.");
           }
 
-          /* 5. GUARDAR SOLO EL RESUMEN EN LA INTERFAZ */
-          btn.innerHTML = "⏳ Guardando resumen...";
-          var ds = todayStr();
-          var taskId = uid();
-          var taskName = prompt("¡Audio gigante procesado! Título de la clase:", "Clase Magistral");
-          if (!taskName) taskName = "Clase Grabada";
-
-          state.oneoff.push({ id: taskId, text: taskName, date: ds });
+          /* --- LIBERACIÓN DEL CELULAR --- */
+          showToast("✅ ¡Audio en proceso! Puedes cerrar la página.");
+          document.getElementById("btnCancelClass").click(); // Cerramos la ventana para que sigas trabajando
           
-          var evidence = JSON.stringify({
-              taskName: taskName,
-              subtasks: [],
-              note: "📝 **RESUMEN DE CLASE:**\n\n" + finalResult.summary, // <-- Solo pasamos el resumen
-              image: null,
-              savedAt: new Date().toISOString()
-          });
-          
-          await dbSet(ds + "_" + taskId, evidence);
-          if (!state.log[ds]) state.log[ds] = {};
-          state.log[ds][taskId] = true;
-          persist(); renderActiveTab();
-          
-          document.getElementById("btnCancelClass").click();
-          showToast("¡Clase gigante guardada con éxito!");
-          openViewEvidenceModal(ds, taskId);
-
       } catch(e) {
           alert("❌ Error:\n" + e.message);
       } finally {
