@@ -3125,7 +3125,7 @@ function defaultState(){
       btn.disabled = true;
 
       try {
-         if (true) {
+         if (!state.gasWebAppUrl) {
               var url = prompt("🔗 Pega la URL de tu Web App de Google Apps Script:");
               if (!url) throw new Error("Cancelado");
               state.gasWebAppUrl = url.trim();
