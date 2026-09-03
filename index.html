@@ -3532,10 +3532,27 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     );
   }
 
+  /* Devuelve el texto de la tarea (o subtarea) que se está trackeando actualmente */
+  function getActiveTrackingTaskName(){
+    var tid = state.tracking.taskId;
+    if (!tid) return "";
+    var ds = state.tracking.taskDs || todayStr();
+    var tasks = getTasksForDate(ds);
+    var t = tasks.find(function(x){ return x.id === tid; });
+    if (!t) return "";
+    var sid = state.tracking.subtaskId;
+    if (sid && t.subtasks){
+      var s = t.subtasks.find(function(x){ return x.id === sid; });
+      if (s) return s.text;
+    }
+    return t.text;
+  }
+
   /* ===================== Render: Interruptor Maestro ===================== */
   function renderMasterSwitch(){
     var st = state.tracking.status;
-    var label = st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : "Ejecutando tarea…");
+    var taskName = st === "task" ? getActiveTrackingTaskName() : "";
+    var label = st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : (taskName ? "Ejecutando " + escapeHtml(taskName) : "Ejecutando tarea…"));
     var btnLabel = st === "inactive" ? "▶ Encender sesión" : "⏻ Apagar sesión";
     var timerSec = st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
     
