@@ -2038,7 +2038,9 @@ function defaultState(){
 
       var blob = new Blob([text], { type: "application/json" });
       var virtualFile = new File([blob], DRIVE_FILENAME, { type: "application/json" });
-      await importMasterBackup(virtualFile);
+      /* silent:true -> es sincronización automática entre dispositivos, no una restauración manual:
+         no debe interrumpir con confirmaciones ni con el candado anti-retroceso. */
+      await importMasterBackup(virtualFile, { silent: true });
     } catch(err){
       console.warn("autoRestoreFromDrive error:", err);
     }
@@ -4911,8 +4913,29 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     });
   }
 
-  /* ===================== Backup: IMPORTAR / RESTAURAR (inverso de buildMasterBackupJSON) ===================== */
-  async function importMasterBackup(file){
+  /* ===================== Backup: calcula cuánta información contiene un respaldo ===================== */
+  function computeBackupRichness(bkup){
+    var st = (bkup && bkup.state) || {};
+    var habitsN   = (st.habits   && st.habits.length)   || 0;
+    var oneoffN   = (st.oneoff   && st.oneoff.length)   || 0;
+    var projectsN = (st.projects && st.projects.length) || 0;
+    var routinesN = (st.routines && st.routines.length) || 0;
+    var logDaysN  = st.log ? Object.keys(st.log).length : 0;
+    var evN       = (bkup && bkup._meta && bkup._meta.totalEvidenceKeys) || 0;
+    return {
+      habits: habitsN, oneoff: oneoffN, projects: projectsN, routines: routinesN,
+      logDays: logDaysN, evidence: evN,
+      total: habitsN + oneoffN + projectsN + routinesN + logDaysN + evN
+    };
+  }
+
+  /* ===================== Backup: IMPORTAR / RESTAURAR (inverso de buildMasterBackupJSON) =====================
+     opts.silent = true  -> se usa para la sincronización automática entre dispositivos (autoRestoreFromDrive):
+                            no muestra confirmaciones ni aplica el candado anti-retroceso, para no romper el
+                            flujo silencioso ya existente. Las restauraciones manuales (botón "Restaurar desde
+                            archivo" / "Restaurar desde Google Drive") SIEMPRE pasan por el candado. */
+  async function importMasterBackup(file, opts){
+    opts = opts || {};
     var statusEl = document.getElementById("backupStatus");
     window.isImportingBackup = true;
     try {
@@ -4922,6 +4945,41 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       if (!backup || typeof backup !== "object"){
         throw new Error("El archivo de respaldo no es válido.");
+      }
+
+      /* ---------- CANDADO DE SEGURIDAD ANTI-RETROCESO ----------
+         No se permite restaurar un respaldo que tenga MENOS información que la que hay
+         actualmente cargada en la app, salvo que la app esté completamente vacía (primera carga). */
+      if (!opts.silent){
+        var currentBackupSnapshot = await buildMasterBackupJSON();
+        var currentRichness  = computeBackupRichness(currentBackupSnapshot);
+        var incomingRichness = computeBackupRichness(backup);
+
+        if (currentRichness.total > 0 && incomingRichness.total < currentRichness.total){
+          window.isImportingBackup = false;
+          var msg = "✖ Restauración bloqueada: este respaldo tiene menos información (" +
+            incomingRichness.total + ") que la que ya tenés cargada ahora mismo (" +
+            currentRichness.total + "). Si continuás, perderías datos actuales. " +
+            "Solo se puede restaurar un respaldo con igual o más información, o cuando la app esté vacía.";
+          if (statusEl){
+            statusEl.style.background = ""; statusEl.style.border = "";
+            statusEl.className = "backup-status error";
+            statusEl.textContent = msg;
+          }
+          showToast("✖ Restauración bloqueada: el respaldo tiene menos información que la actual.");
+          return;
+        }
+
+        /* Advertencia de pérdida de datos antes de sobrescribir (confirmación explícita del usuario). */
+        var warnMsg = "⚠ Restaurar este respaldo va a REEMPLAZAR todos los datos actuales de la app " +
+          "(hábitos, proyectos, tareas, registro y evidencias). Cualquier información actual que no " +
+          "esté en este respaldo se PERDERÁ. ¿Querés continuar de todas formas?";
+        if (!window.confirm(warnMsg)){
+          window.isImportingBackup = false;
+          setBackupStatus("", "");
+          showToast("Restauración cancelada.");
+          return;
+        }
       }
 
       /* 1. Restaurar el estado (hábitos, proyectos, tareas, log, etc.) */
@@ -5324,11 +5382,31 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       /* 1. GUARDADO FORZOSO E INMEDIATO (Ignorando si Android bloquea notificaciones) */
       setReminder(saveDs, saveId, timeVal);
       
-      /* Si es hábito o rutina, lo grabamos en su ADN de por vida */
+      /* Si es hábito o rutina y TODAVÍA no tiene una hora de fábrica, esta primera hora se
+         graba como la hora "de todos los días". Si ya tenía una hora de fábrica, esta edición
+         se guarda SOLO para este día puntual (ya quedó arriba en state.reminders) y no se toca
+         el horario general de los demás días. */
       var h = state.habits.find(function(x){ return x.id === saveId; });
-      if (h) h.time = timeVal;
+      if (h && !h.time) h.time = timeVal;
       var r = state.routines.find(function(x){ return x.id === saveId; });
-      if (r) r.time = timeVal;
+      if (r && !r.time) r.time = timeVal;
+
+      /* Si la hora elegida para HOY ya pasó, no queremos que el "viaje en el tiempo"
+         (auto-inicio retroactivo) arranque el cronómetro como si la tarea llevara rato corriendo:
+         eso solo pasó al reloj, no en la realidad. Se marca como ya gestionado hoy, sin arrancar
+         nada, y el recordatorio sigue funcionando con normalidad desde mañana / los próximos días. */
+      if (saveDs === todayStr()){
+        var nowSave = new Date();
+        var tpSave = timeVal.split(":");
+        var targetMinSave  = parseInt(tpSave[0], 10) * 60 + parseInt(tpSave[1], 10);
+        var currentMinSave = nowSave.getHours() * 60 + nowSave.getMinutes();
+        if (currentMinSave >= targetMinSave){
+          if (!state.timeLog[saveDs]) state.timeLog[saveDs] = { thinking: 0, tasks: {}, subtasks: {} };
+          if (!state.timeLog[saveDs].autoStarts) state.timeLog[saveDs].autoStarts = {};
+          state.timeLog[saveDs].autoStarts[saveId] = true;
+        }
+      }
+      persist();
 
       openReminderPanel = null;
       renderActiveTab();
