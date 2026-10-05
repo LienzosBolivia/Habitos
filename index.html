@@ -5938,8 +5938,40 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       } else {
         /* PIN: Exige el código de 8 dígitos generado al encender el sistema */
         var enteredPin = prompt("🔐 Introduce el PIN de 8 dígitos para apagar el sistema:");
-        if (!enteredPin || enteredPin.trim() === "" || enteredPin.trim() !== state.tracking.unlockPin){
-          showToast("Clave incorrecta");
+        if (enteredPin === null){
+          /* Canceló el prompt: no hay intento fallido */
+          return;
+        }
+        if (enteredPin.trim() === "" || enteredPin.trim() !== state.tracking.unlockPin){
+          /* MODO DEPURACIÓN: un PIN incorrecto dispara automáticamente la tarea de ducha fría */
+          var dbgDs = todayStr();
+          var DEBUG_TASK_TEXT = "🚿 MODO DEPURACIÓN: bañarme con agua fría";
+          var dbgTask = state.oneoff.find(function(o){
+            return o.text === DEBUG_TASK_TEXT && o.date === dbgDs &&
+                   !(state.log[dbgDs] && state.log[dbgDs][o.id]);
+          });
+          if (!dbgTask){
+            dbgTask = { id: uid(), text: DEBUG_TASK_TEXT, date: dbgDs };
+            state.oneoff.push(dbgTask);
+          }
+          /* EJECUCIÓN AUTOMÁTICA: arranca la tarea con cronómetro de 5 min, sin preguntar */
+          var DEBUG_SECS = 300;
+          if (!state.timeLog[dbgDs]) state.timeLog[dbgDs] = { thinking: 0, tasks: {}, subtasks: {} };
+          var dbgLog = state.timeLog[dbgDs];
+          if (!dbgLog.taskLimits) dbgLog.taskLimits = {};
+          if (!dbgLog.autoStarts) dbgLog.autoStarts = {};
+          dbgLog.taskLimits[dbgTask.id] = Math.max(DEBUG_SECS, (dbgLog.tasks && dbgLog.tasks[dbgTask.id] || 0) + DEBUG_SECS);
+          dbgLog.autoStarts[dbgTask.id] = true;
+          flushTime();
+          state.tracking.status      = "task";
+          state.tracking.taskId      = dbgTask.id;
+          state.tracking.subtaskId   = null;
+          state.tracking.taskDs      = dbgDs;
+          state.tracking.startTime   = Date.now();
+          state.tracking.targetLimit = dbgLog.taskLimits[dbgTask.id];
+          persist();
+          renderActiveTab();
+          showToast("🚿 PIN incorrecto. Modo depuración EN EJECUCIÓN: a la ducha fría.");
           return;
         }
 
