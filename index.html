@@ -1671,59 +1671,46 @@
   var audioUnlocked = false;
   var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
 
-  /* 2. Convertimos el MP3 a Base64 para saltar los bloqueos del Service Worker */
-  console.log("Iniciando conversión a Base64 de: " + nombreDeMiAudio);
+  /* 2. Descargamos como Blob (más ligero que Base64) */
   fetch(nombreDeMiAudio)
     .then(function(res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.blob(); })
     .then(function(blob) {
-      var reader = new FileReader();
-      reader.onload = function() {
-        trainAudio.src = reader.result;
-        notifAudioGlobal.src = reader.result;
-        audioReady = true;
-        console.log("✅ Audio convertido a Base64 y listo en memoria.");
-        syncTrainAudio(); /* Intenta arrancar si ya había una tarea corriendo */
-      };
-      reader.readAsDataURL(blob);
+      var blobUrl = URL.createObjectURL(blob);
+      trainAudio.src = blobUrl;
+      notifAudioGlobal.src = blobUrl;
+      audioReady = true;
+      console.log("✅ Audio Blob listo en memoria.");
     })
     .catch(function(e) {
       console.error("❌ Falló la descarga del audio:", e.message);
-      /* Respaldo directo en caso de error */
       trainAudio.src = nombreDeMiAudio;
       notifAudioGlobal.src = nombreDeMiAudio;
       audioReady = true;
     });
 
-  /* 3. Desbloqueo seguro (Sin condición de carrera ni AbortError) */
+  /* 3. Desbloqueo seguro: solo con un toque real */
   var unlockAudio = function() {
-    /* Solo intentamos si la canción ya se cargó en RAM y Chrome aún no nos dio permiso */
     if (audioUnlocked || !audioReady) return;
-
     var p = trainAudio.play();
     if (p !== undefined) {
       p.then(function() {
         audioUnlocked = true;
-        document.removeEventListener("touchstart", unlockAudio);
-        document.removeEventListener("touchend", unlockAudio);
-        document.removeEventListener("click", unlockAudio);
-        console.log("✅ Chrome desbloqueó el audio correctamente.");
-
-        /* Si NO estamos ejecutando una tarea, lo pausamos DESPUÉS de que play() fue exitoso.
-           Esto evita el AbortError. */
+        document.removeEventListener("touchstart", unlockAudio, true);
+        document.removeEventListener("click", unlockAudio, true);
+        console.log("✅ Chrome desbloqueó el audio en el primer toque.");
         if (!(state && state.tracking && state.tracking.status === "task" && !isTrainMuted)) {
           trainAudio.pause();
           trainAudio.currentTime = 0;
         }
       }).catch(function(e){
-        console.warn("⚠️ Toque ignorado por Chrome:", e.name);
+        console.warn("⚠️ Toque no válido para autoplay:", e.name);
       });
     }
   };
 
-  /* Escuchamos los toques de forma pasiva en toda la pantalla */
-  document.addEventListener("touchstart", unlockAudio, { passive: true });
-  document.addEventListener("touchend", unlockAudio, { passive: true });
-  document.addEventListener("click", unlockAudio, { passive: true });
+  /* capture:true intercepta el toque antes que los botones de la app */
+  document.addEventListener("touchstart", unlockAudio, { passive: true, capture: true });
+  document.addEventListener("click", unlockAudio, { passive: true, capture: true });
 
   var notifAudioStopTimer = null;
   function playNotifAudio(){
@@ -1810,24 +1797,20 @@
   }
   
   function syncTrainAudio() {
-    /* Si el Base64 aún se está procesando, esperamos */
-    if (!audioReady) return;
+    /* Bloqueo: sin permiso de Chrome (primer toque) el sincronizador no hace nada,
+       así el temporizador no bombardea a play(). */
+    if (!audioReady || !audioUnlocked) return;
 
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
       if (trainAudio.paused) {
-        var p = trainAudio.play();
-        if (p !== undefined) {
-          p.then(function(){
-            /* Si arrancó por darle al botón de la tarea, marcamos como desbloqueado */
-            audioUnlocked = true;
-          }).catch(function(e){
-            console.warn("Audio bloqueado en sync:", e.name);
-          });
-        }
+        trainAudio.play().catch(function(e){
+          console.warn("Audio bloqueado en sync:", e.message);
+        });
       }
     } else {
       if (!trainAudio.paused) {
         trainAudio.pause();
+        trainAudio.currentTime = 0;
       }
     }
   }
