@@ -1580,6 +1580,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="19" y1="20" x2="19" y2="4"/></svg>
       <span>Estadísticas</span>
     </button>
+    <button class="nav-btn" data-tab="evidencias" aria-label="Galería">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <span>Galería</span>
+    </button>
   </div>
 </nav>
 
@@ -2379,7 +2383,8 @@ function defaultState(){
     state.tracking.startTime = Date.now();
     state.tracking.targetLimit = null;
     persist();
-    openEvidenceModal(ds, id);
+    markDone(ds, id);
+    showToast("Tarea completada.");
   }
 
   /* ===================== Control de Pantalla (Apagar/Encender) ===================== */
@@ -3009,7 +3014,7 @@ function defaultState(){
 
     /* Actualizar título y botón del modal */
     var title = document.getElementById("evidModalTitle");
-    if (title) title.textContent = "✏️ Editar evidencia";
+    if (title) title.textContent = "✏️ Añadir / Editar evidencia";
     var saveBtn = document.getElementById("evidenceSaveBtn");
     if (saveBtn) saveBtn.textContent = "Guardar cambios";
 
@@ -3089,11 +3094,6 @@ function defaultState(){
 
     /* En modo edición: si no hay nueva imagen, conservar la anterior */
     var imageToSave = compressed || (isEditingEvidence ? editingPrevImage : null);
-
-    if (!note && !imageToSave){
-      showToast("Escribe una nota o adjunta una foto.");
-      return;
-    }
 
       var key      = pendingEvidence.ds + "_" + pendingEvidence.id;
       var ds       = pendingEvidence.ds;
@@ -3410,7 +3410,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
     var eyeBtn = status === "done"
       ? '<button class="task-eye-btn" data-action="view-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Ver evidencia">' + ICON_EYE + '</button>' +
-        '<button class="task-pencil-btn" data-action="edit-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Editar evidencia">' + ICON_PENCIL + '</button>'
+        '<button class="task-pencil-btn" data-action="edit-evidence" data-date="' + ds + '" data-id="' + t.id + '" title="Añadir/Editar evidencia">' + ICON_PENCIL + '</button>'
       : "";
 
     var del = (t.type === "oneoff" && opts.allowDelete !== false)
@@ -4137,7 +4137,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       var eyeBtn = isCompleted
         ? '<button class="task-eye-btn" data-action="view-evidence" data-date="project" data-id="' + p.id + '" title="Ver evidencia" style="display:inline-block; margin-left:8px; vertical-align:middle;">' + ICON_EYE + '</button>' +
-          '<button class="task-pencil-btn" data-action="edit-evidence" data-date="project" data-id="' + p.id + '" title="Editar evidencia" style="display:inline-block; margin-left:4px; vertical-align:middle;">' + ICON_PENCIL + '</button>'
+          '<button class="task-pencil-btn" data-action="edit-evidence" data-date="project" data-id="' + p.id + '" title="Añadir/Editar evidencia" style="display:inline-block; margin-left:4px; vertical-align:middle;">' + ICON_PENCIL + '</button>'
         : "";
 
       /* Barra de progreso del proyecto */
@@ -4496,6 +4496,97 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         '</div>' +
       '</section>'
     );
+  }
+
+  /* ===================== Render: pestaña Gestor de Evidencias ===================== */
+  var currentEvList = [];
+
+  function renderEvidencias(){
+    setTimeout(loadEvidenciasGallery, 50);
+    return (
+      '<section class="block">' +
+        '<div class="block-title">Galería de Evidencias</div>' +
+        '<div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">' +
+          '<select id="evFilterType" style="background:var(--ink-800-solid); border:1px solid var(--ink-700); color:var(--text-light); padding:8px 12px; border-radius:var(--radius-sm); font-family:var(--font-body); font-size:13px; color-scheme:dark; flex:1; min-width:140px;">' +
+            '<option value="all">Todas las tareas</option>' +
+            '<option value="habit">Hábitos y Rutinas</option>' +
+            '<option value="oneoff">Tareas Únicas</option>' +
+            '<option value="project">Proyectos</option>' +
+          '</select>' +
+          '<input type="month" id="evFilterMonth" style="background:var(--ink-800-solid); border:1px solid var(--ink-700); color:var(--text-light); padding:8px 12px; border-radius:var(--radius-sm); font-family:var(--font-body); font-size:13px; color-scheme:dark; flex:1; min-width:140px;" />' +
+        '</div>' +
+        '<div id="evGalleryContainer"><div class="empty-state">Cargando galería...</div></div>' +
+      '</section>'
+    );
+  }
+
+  async function loadEvidenciasGallery() {
+    var container = document.getElementById("evGalleryContainer");
+    if (!container) return;
+    var allEv = await dbReadAllWithCursor();
+    var evList = [];
+    Object.keys(allEv).forEach(function(k) {
+        try {
+          var parsed = JSON.parse(allEv[k]);
+          var parts = k.split("_");
+          var dateStr = parts[0];
+          var id = parts.slice(1).join("_");
+          if (parsed.taskName !== "Desactivación del sistema") {
+            evList.push({ key: k, date: dateStr, id: id, data: parsed });
+          }
+        } catch(e) {}
+    });
+    evList.sort(function(a, b) {
+        var dA = a.data.savedAt || a.date;
+        var dB = b.data.savedAt || b.date;
+        return dA < dB ? 1 : (dA > dB ? -1 : 0);
+    });
+    currentEvList = evList;
+    renderEvGalleryItems();
+  }
+
+  function renderEvGalleryItems() {
+    var container = document.getElementById("evGalleryContainer");
+    if (!container || !currentEvList) return;
+    var typeFilt = document.getElementById("evFilterType") ? document.getElementById("evFilterType").value : "all";
+    var monthFilt = document.getElementById("evFilterMonth") ? document.getElementById("evFilterMonth").value : "";
+
+    var filtered = currentEvList.filter(function(item) {
+        var isProject = item.date === "project";
+        var isHabit = state.habits.some(function(h){ return h.id === item.id; }) ||
+                      state.routines.some(function(r){ return r.id === item.id; });
+        var type = isProject ? "project" : (isHabit ? "habit" : "oneoff");
+        if (typeFilt !== "all" && type !== typeFilt) return false;
+        if (monthFilt) {
+            var itemMonth = "";
+            if (item.data.savedAt) itemMonth = item.data.savedAt.substring(0, 7);
+            else if (!isProject) itemMonth = item.date.substring(0, 7);
+            if (itemMonth && itemMonth !== monthFilt) return false;
+        }
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-state">No hay evidencias guardadas que coincidan con los filtros.</div>';
+        return;
+    }
+
+    var html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:12px; margin-top:16px;">';
+    filtered.forEach(function(item) {
+        var d = item.data;
+        var imgHtml = d.image
+          ? '<div style="height:110px; background-image:url(\'' + escapeHtml(d.image) + '\'); background-size:cover; background-position:center; border-radius:6px; margin-bottom:8px; border:1px solid var(--ink-700);"></div>'
+          : '<div style="height:110px; background:var(--ink-800); border-radius:6px; margin-bottom:8px; display:flex; align-items:center; justify-content:center; color:var(--text-faint); font-size:11px; border:1px dashed var(--ink-700);">Solo texto</div>';
+        var dateTxt = item.date === "project" ? "Proyecto" : formatDateShort(item.date);
+        html += '<div style="background:var(--ink-850); border:1px solid var(--ink-700); padding:10px; border-radius:8px; cursor:pointer; transition:border-color .15s;" onmouseover="this.style.borderColor=\'var(--brass-500)\'" onmouseout="this.style.borderColor=\'var(--ink-700)\'" data-action="view-evidence-from-gallery" data-key="' + item.key + '">' +
+                  imgHtml +
+                  '<div style="font-size:12px; font-weight:600; color:var(--text-light); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="' + escapeHtml(d.taskName || "Tarea") + '">' + escapeHtml(d.taskName || "Tarea") + '</div>' +
+                  '<div style="font-size:10px; color:var(--text-muted); margin-top:4px;">' + dateTxt + '</div>' +
+                  (d.note ? '<div style="font-size:10.5px; color:var(--text-faint); margin-top:6px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">' + escapeHtml(d.note) + '</div>' : '') +
+                '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
   }
 
   /* ===================== Backup: leer TODO de IndexedDB con cursor ===================== */
@@ -5391,6 +5482,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     else if (activeTab === "habitos")      html = renderHabitos();
     else if (activeTab === "proyectos")    html = renderProyectos();
     else if (activeTab === "estadisticas") html = renderEstadisticas();
+    else if (activeTab === "evidencias")   html = renderEvidencias();
     app.innerHTML = html;
 
     /* ¡NUEVO! Actualiza el botón de Drive al volver a la pestaña */
@@ -5436,11 +5528,17 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           unmarkDone(ds, id);
         }
       } else {
-        /* Pedir evidencia antes de marcar */
-        openEvidenceModal(ds, id);
+        /* Completar directamente sin pedir evidencia */
+        markDone(ds, id);
+        showToast("Tarea completada.");
       }
     } else if (action === "view-evidence"){
       openViewEvidenceModal(el.getAttribute("data-date"), el.getAttribute("data-id"));
+
+    } else if (action === "view-evidence-from-gallery"){
+      var gkey = el.getAttribute("data-key");
+      var gparts = gkey.split("_");
+      openViewEvidenceModal(gparts[0], gparts.slice(1).join("_"));
 
     } else if (action === "edit-evidence"){
       openEditEvidenceModal(el.getAttribute("data-date"), el.getAttribute("data-id"));
@@ -5461,9 +5559,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       document.getElementById("projectNoteModal").classList.add("open");
 
     } else if (action === "complete-project"){
-      /* Abrimos el modal. Usamos la palabra "project" como si fuera la fecha
-         para que la base de datos sepa cómo clasificar esta evidencia */
-      openEvidenceModal("project", el.getAttribute("data-id"));
+      completeProject(el.getAttribute("data-id"));
 
 } else if (action === "delete-project"){
       deleteProject(el.getAttribute("data-id"));
@@ -6005,6 +6101,11 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
   /* ===================== Eventos: changes (Inputs y Selects) ===================== */
   document.addEventListener("change", function(e){
+    /* Filtros de la galería de evidencia */
+    if (e.target.id === "evFilterType" || e.target.id === "evFilterMonth") {
+      renderEvGalleryItems();
+      return;
+    }
     /* Seleccionar archivo de importación */
     if (e.target.id === "backupFileInput"){
       var file = e.target.files && e.target.files[0];
