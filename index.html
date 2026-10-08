@@ -1659,33 +1659,47 @@
   var activeTab = "hoy";
   var statsOffsetDays = 0; /* Controla la navegación en las estadísticas */
   
-  /* PON AQUÍ EL NOMBRE EXACTO DEL AUDIO QUE SUBISTE A GITHUB: */
   var nombreDeMiAudio = "cancion_tren.mp3";
-  var audioBlobUrl = null;
-  var trainRealLoaded = false; /* false | "file" | "blob": qué fuente real tiene trainAudio */
-
-  /* 1. Micro-audio mudo (WAV en base64) para desbloquear Chrome en el primer toque */
-  var SILENT_AUDIO = "data:audio/wav;base64,UklGRsQPAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAPAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA";
-  var trainAudio = new Audio(SILENT_AUDIO);
-  /* Expuesto para depurar desde la consola (el código vive dentro de una función cerrada) */
+  var unlockEl = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+  var audioUnlocked = false;
+  var unlockAudio = function() {
+    if (audioUnlocked) return;
+    unlockEl.play().then(function(){
+      audioUnlocked = true;
+      document.removeEventListener("touchend", unlockAudio);
+      document.removeEventListener("pointerup", unlockAudio);
+      document.removeEventListener("click", unlockAudio);
+      console.log("✅ Chrome desbloqueado para audio.");
+      syncTrainAudio();
+    }).catch(function(e){ console.warn("Toque ignorado por Chrome:", e.name); });
+  };
+  document.addEventListener("touchend", unlockAudio);
+  document.addEventListener("pointerup", unlockAudio);
+  document.addEventListener("click", unlockAudio);
+  var trainAudio = new Audio();
+  trainAudio.loop = true;
   window.trenDebug = trainAudio;
-
   var notifAudioGlobal = new Audio();
-
-  /* 2. Descargamos la canción real a memoria interna (evita Range Requests del Service Worker) */
-  console.log("Iniciando descarga de: " + nombreDeMiAudio);
+  var audioReady = false;
   fetch(nombreDeMiAudio)
     .then(function(res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.blob(); })
     .then(function(blob) {
-      console.log("✅ Audio descargado y listo en memoria PWA");
-      audioBlobUrl = URL.createObjectURL(blob);
-      notifAudioGlobal.src = audioBlobUrl;
-      /* Si el tren ya estaba esperando la canción, arrancamos ahora */
-      if (typeof syncTrainAudio === "function") syncTrainAudio();
+      var reader = new FileReader();
+      reader.onload = function() {
+        var base64data = reader.result;
+        trainAudio.src = base64data;
+        notifAudioGlobal.src = base64data;
+        audioReady = true;
+        console.log("✅ Audio convertido a Base64 y listo en memoria PWA.");
+        if (typeof syncTrainAudio === "function") syncTrainAudio();
+      };
+      reader.readAsDataURL(blob);
     })
     .catch(function(e) {
       console.error("❌ Falló la descarga del audio:", e.message);
+      trainAudio.src = nombreDeMiAudio;
       notifAudioGlobal.src = nombreDeMiAudio;
+      audioReady = true;
     });
   var notifAudioStopTimer = null;
   function playNotifAudio(){
@@ -1693,40 +1707,10 @@
       if (notifAudioStopTimer) { clearTimeout(notifAudioStopTimer); notifAudioStopTimer = null; }
       notifAudioGlobal.currentTime = 0;
       notifAudioGlobal.play().catch(function(){});
-      notifAudioStopTimer = setTimeout(function(){
-        notifAudioGlobal.pause();
-        notifAudioStopTimer = null;
-      }, 3000);
+      notifAudioStopTimer = setTimeout(function(){ notifAudioGlobal.pause(); notifAudioStopTimer = null; }, 3000);
     } catch(e){}
   }
-  trainAudio.loop = true;
-  /* Por defecto inicia silenciado (true) a menos que lo enciendas explícitamente ("false") */
   var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
-  var audioUnlocked = false;
-
-  var unlockPending = false;
-  var unlockAudio = function() {
-    if (audioUnlocked || unlockPending) return;
-    unlockPending = true;
-    console.log("👆 Toque detectado. Intentando desbloquear audio...");
-    /* Dejamos sonar el WAV silencioso (sin pause) para no abortar la promesa */
-    trainAudio.play().then(function() {
-      audioUnlocked = true;
-      unlockPending = false;
-      document.removeEventListener("touchend", unlockAudio);
-      document.removeEventListener("pointerup", unlockAudio);
-      document.removeEventListener("click", unlockAudio);
-      console.log("✅ Audio desbloqueado");
-      syncTrainAudio();
-    }).catch(function(e){
-      /* Pasa si el toque fue un scroll: NO es grave, el próximo toque real lo reintenta */
-      unlockPending = false;
-      console.warn("Desbloqueo pendiente (" + e.name + "), se reintenta en el próximo toque");
-    });
-  };
-  document.addEventListener("touchend", unlockAudio);
-  document.addEventListener("pointerup", unlockAudio);
-  document.addEventListener("click", unlockAudio);
 
 /* --- BOTÓN PARA RECUPERAR RESÚMENES TERMINADOS DESDE DRIVE --- */
   var btnRecover = document.getElementById("btnRecoverSummaries");
@@ -1799,29 +1783,13 @@
   }
   
   function syncTrainAudio() {
-    /* Solo esperamos mientras un desbloqueo está en curso (evita AbortError).
-       Si el desbloqueo falló, igual intentamos: puede venir de un toque válido (botón del tren). */
-    if (unlockPending) return;
+    if (!audioReady) return;
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
-      /* Inyectamos la canción real (memoria local, o el archivo si el fetch falló) */
-      if (audioBlobUrl && trainRealLoaded !== "blob") {
-        trainAudio.src = audioBlobUrl;
-        trainAudio.load();
-        trainRealLoaded = "blob";
-      } else if (!trainRealLoaded) {
-        trainAudio.src = nombreDeMiAudio; /* respaldo si la descarga a memoria aún no termina */
-        trainAudio.load();
-        trainRealLoaded = "file";
-      }
       if (trainAudio.paused) {
-        trainAudio.play().then(function(){ audioUnlocked = true; }).catch(function(e){ console.warn("Audio bloqueado:", e.name); });
+        trainAudio.play().then(function(){ audioUnlocked = true; }).catch(function(e){ console.warn("Audio bloqueado por Chrome:", e.message); });
       }
     } else {
-      /* Pausamos sin destruir el reproductor para no perder el permiso de Chrome */
-      if (!trainAudio.paused) {
-        trainAudio.pause();
-        trainAudio.currentTime = 0;
-      }
+      if (!trainAudio.paused) { trainAudio.pause(); trainAudio.currentTime = 0; }
     }
   }
 
