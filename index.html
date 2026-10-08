@@ -659,6 +659,28 @@
   .future-note{font-size:12px; color:var(--text-faint); margin-bottom:10px;}
 
   /* ---------- Habitos ---------- */
+  /* Switch Toggle (Interruptor) para pausar hábitos */
+  .switch-toggle{ display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+  .switch-toggle input{ display:none; }
+  .switch-track{
+    width:32px; height:18px; background:var(--ink-700); border-radius:20px;
+    position:relative; transition:background .2s, border-color .2s;
+    border:1px solid var(--ink-650);
+  }
+  .switch-track::after{
+    content:''; position:absolute; top:2px; left:2px; width:12px; height:12px;
+    background:var(--text-faint); border-radius:50%; transition:transform .2s, background .2s;
+  }
+  .switch-toggle input:checked + .switch-track{
+    background:rgba(95,161,119,0.2); border-color:var(--done);
+  }
+  .switch-toggle input:checked + .switch-track::after{
+    transform:translateX(14px); background:var(--done);
+  }
+  .switch-label-txt{
+    font-size:10px; color:var(--text-muted); text-transform:uppercase;
+    letter-spacing:0.06em; font-weight:600; min-width:50px;
+  }
   .habit-row{
     background:var(--ink-800-solid);
     border:1px solid var(--ink-700);
@@ -2584,6 +2606,7 @@ function defaultState(){
     /* Hábitos diarios */
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
+      if (h.isPaused && ds >= todayStr()) return; /* Pausado: oculto desde hoy en adelante */
       if (ds >= h.createdAt) {
         var habitSubs = h.subtasks ? h.subtasks.filter(function(s){
             var created = s.createdAt || "2020-01-01";
@@ -2605,6 +2628,7 @@ function defaultState(){
     /* Rutinas semanales */
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
+      if (r.isPaused && ds >= todayStr()) return;
       if (r.days && r.days.indexOf(dayOfWeek) !== -1){
         var routineSubs = r.subtasks ? r.subtasks.filter(function(s){
             var created = s.createdAt || "2020-01-01";
@@ -3972,8 +3996,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         return (
           '<div class="habit-row">' +
             '<div class="hr-top">' +
-              '<div class="hr-text">' + escapeHtml(h.text) + '</div>' +
-              '<button class="hr-archive" data-action="archive-habit" data-id="' + h.id + '">Archivar</button>' +
+              '<div class="hr-text" style="' + (h.isPaused ? 'color:var(--text-muted); text-decoration:line-through;' : '') + '">' + escapeHtml(h.text) + '</div>' +
+              '<div style="display:flex; gap:12px; align-items:center;">' +
+                '<label class="switch-toggle" title="Activar/Desactivar">' +
+                  '<input type="checkbox" data-action="toggle-pause-habit" data-id="' + h.id + '" ' + (h.isPaused ? '' : 'checked') + ' />' +
+                  '<div class="switch-track"></div>' +
+                  '<div class="switch-label-txt">' + (h.isPaused ? 'Pausado' : 'Activo') + '</div>' +
+                '</label>' +
+                '<button class="hr-archive" data-action="archive-habit" data-id="' + h.id + '">Archivar</button>' +
+              '</div>' +
             '</div>' +
             '<div class="hr-stats">' +
               '<span>Racha: <b>' + streak + '</b> ' + (streak===1?"día":"días") + '</span>' +
@@ -4022,10 +4053,17 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         return (
           '<div class="routine-item">' +
             '<div class="routine-item-body">' +
-              '<div class="routine-item-text">' + escapeHtml(r.text) + '</div>' +
+              '<div class="routine-item-text" style="' + (r.isPaused ? 'color:var(--text-muted); text-decoration:line-through;' : '') + '">' + escapeHtml(r.text) + '</div>' +
               '<div class="routine-item-meta">' + dayChips + timeChip + '</div>' +
             '</div>' +
-            '<button class="routine-delete-btn" data-action="delete-routine" data-id="' + r.id + '" title="Eliminar rutina">&times;</button>' +
+            '<div style="display:flex; gap:12px; align-items:center;">' +
+              '<label class="switch-toggle" title="Activar/Desactivar">' +
+                '<input type="checkbox" data-action="toggle-pause-habit" data-id="' + r.id + '" ' + (r.isPaused ? '' : 'checked') + ' />' +
+                '<div class="switch-track"></div>' +
+                '<div class="switch-label-txt">' + (r.isPaused ? 'Pausado' : 'Activo') + '</div>' +
+              '</label>' +
+              '<button class="routine-delete-btn" data-action="delete-routine" data-id="' + r.id + '" title="Eliminar rutina">&times;</button>' +
+            '</div>' +
           '</div>'
         );
       }).join("");
@@ -4256,10 +4294,12 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var tasks = [];
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
+      if (h.isPaused && ds >= todayStr()) return;
       if (ds >= h.createdAt) tasks.push({ id: h.id, text: h.text, type: "habit" });
     });
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
+      if (r.isPaused && ds >= todayStr()) return;
       if (r.days && r.days.indexOf(dayOfWeek) !== -1) tasks.push({ id: r.id, text: r.text, type: "routine" });
     });
     return tasks;
@@ -5545,6 +5585,18 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
     } else if (action === "delete-task"){
       deleteOneoff(el.getAttribute("data-id"));
+
+    } else if (action === "toggle-pause-habit"){
+      var pid2 = el.getAttribute("data-id");
+      var isActive = el.checked;
+      var ph = state.habits.find(function(x){ return x.id === pid2; });
+      if (!ph) ph = state.routines.find(function(x){ return x.id === pid2; });
+      if (ph) {
+        ph.isPaused = !isActive;
+        persist();
+        setTimeout(function(){ renderActiveTab(); }, 150);
+        showToast(ph.isPaused ? "Pausado. Se ocultará de hoy en adelante." : "Activado. Vuelve a estar en seguimiento.");
+      }
 
     } else if (action === "archive-habit"){
       archiveHabit(el.getAttribute("data-id"));
