@@ -1660,11 +1660,26 @@
   var statsOffsetDays = 0; /* Controla la navegación en las estadísticas */
   
   /* PON AQUÍ EL NOMBRE EXACTO DEL AUDIO QUE SUBISTE A GITHUB: */
-  var nombreDeMiAudio = "cancion_tren.mp3"; 
+  var nombreDeMiAudio = "cancion_tren.mp3";
+  var audioBlobUrl = nombreDeMiAudio;
 
-  var trainAudio = new Audio(nombreDeMiAudio);
+  var trainAudio = new Audio();
   /* Instancia única y reutilizable para las alertas de recordatorio/gracia (evita fugas de memoria) */
-  var notifAudioGlobal = new Audio(nombreDeMiAudio);
+  var notifAudioGlobal = new Audio();
+
+  /* TRUCO PWA: convertimos el audio a memoria local (Blob) para evitar los Range Requests */
+  fetch(nombreDeMiAudio)
+    .then(function(res) { return res.blob(); })
+    .then(function(blob) {
+      audioBlobUrl = URL.createObjectURL(blob);
+      trainAudio.src = audioBlobUrl;
+      notifAudioGlobal.src = audioBlobUrl;
+    })
+    .catch(function(e) {
+      console.warn("Fallo cargando audio", e);
+      trainAudio.src = nombreDeMiAudio;
+      notifAudioGlobal.src = nombreDeMiAudio;
+    });
   var notifAudioStopTimer = null;
   function playNotifAudio(){
     try {
@@ -1770,7 +1785,7 @@
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
       /* Si el audio fue borrado, lo recargamos solo si toca sonar */
       if (!trainAudio.src || trainAudio.src === "" || trainAudio.src === window.location.href) {
-        trainAudio.src = nombreDeMiAudio;
+        trainAudio.src = audioBlobUrl;
         trainAudio.load();
       }
       if (trainAudio.paused) {
