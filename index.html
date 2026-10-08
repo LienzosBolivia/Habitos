@@ -1661,61 +1661,89 @@
   
   var nombreDeMiAudio = "cancion_tren.mp3";
 
-  /* 1. Reproductores reales limpios */
-  var trainAudio = new Audio();
-  trainAudio.loop = true;
-  window.trenDebug = trainAudio;
-  var notifAudioGlobal = new Audio();
-  var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
+  /* ===== Audio del tren con Web Audio API =====
+     Un AudioContext se "reanuda" UNA sola vez con un gesto real; después puede
+     sonar en cualquier momento (timers, cambios de tarea) sin que Chrome lo bloquee.
+     El MP3 se decodifica a memoria, así que no depende del Service Worker. */
+  var AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+  var audioCtx = AudioCtxClass ? new AudioCtxClass() : null;
+  var trainBuffer = null;
+  var trainSource = null;
   var audioUnlocked = false;
+  var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
+  window.trenDebug = { ctx: audioCtx, get buffer(){ return trainBuffer; }, get source(){ return trainSource; } };
 
-  /* 1. Descargamos como Blob para que funcione offline en la PWA */
-  fetch(nombreDeMiAudio)
-    .then(function(res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.blob(); })
-    .then(function(blob) {
-      var blobUrl = URL.createObjectURL(blob);
-      trainAudio.src = blobUrl;
-      notifAudioGlobal.src = blobUrl;
-      console.log("✅ Audio Blob listo en memoria.");
-      syncTrainAudio();
-    })
-    .catch(function(e) {
-      console.error("❌ Falló la descarga del audio:", e.message);
-      trainAudio.src = nombreDeMiAudio;
-      notifAudioGlobal.src = nombreDeMiAudio;
-    });
+  if (audioCtx) {
+    fetch(nombreDeMiAudio)
+      .then(function(res){ if (!res.ok) throw new Error("HTTP " + res.status); return res.arrayBuffer(); })
+      .then(function(ab){
+        return new Promise(function(resolve, reject){ audioCtx.decodeAudioData(ab, resolve, reject); });
+      })
+      .then(function(buf){
+        trainBuffer = buf;
+        console.log("✅ Audio decodificado en memoria (" + buf.duration.toFixed(1) + " s).");
+        syncTrainAudio();
+      })
+      .catch(function(e){ console.error("❌ No se pudo cargar/decodificar el audio:", e && e.message ? e.message : e); });
+  }
 
-  /* 2. Desbloqueo usando únicamente "click" */
-  var unlockAudio = function() {
-    if (audioUnlocked || !trainAudio.src) return;
-    var p = trainAudio.play();
-    if (p !== undefined) {
-      p.then(function() {
+  function tryUnlockAudio(){
+    if (!audioCtx || audioUnlocked) return;
+    var done = function(){
+      if (audioCtx.state === "running" && !audioUnlocked) {
         audioUnlocked = true;
-        document.removeEventListener("click", unlockAudio);
-        console.log("✅ Chrome desbloqueó el audio correctamente.");
-        if (!(state && state.tracking && state.tracking.status === "task" && !isTrainMuted)) {
-          trainAudio.pause();
-        }
-      }).catch(function(e){
-        console.warn("⚠️ Click ignorado para autoplay:", e.name);
-      });
+        ["click","touchend","pointerup","keydown"].forEach(function(ev){
+          document.removeEventListener(ev, tryUnlockAudio, true);
+        });
+        console.log("✅ AudioContext desbloqueado.");
+        syncTrainAudio();
+      }
+    };
+    if (audioCtx.state === "running") { done(); return; }
+    audioCtx.resume().then(done).catch(function(e){ console.warn("⚠️ resume() rechazado:", e.name); });
+  }
+  ["click","touchend","pointerup","keydown"].forEach(function(ev){
+    document.addEventListener(ev, tryUnlockAudio, true);
+  });
+
+  /* Si Android suspende el contexto (pantalla apagada, etc.), lo reanudamos al volver */
+  document.addEventListener("visibilitychange", function(){
+    if (!document.hidden && audioCtx && audioUnlocked && audioCtx.state !== "running") {
+      audioCtx.resume().then(syncTrainAudio).catch(function(){});
     }
-  };
+  });
 
-  document.addEventListener("click", unlockAudio);
+  function startTrainSound(){
+    if (trainSource || !trainBuffer) return;
+    var src = audioCtx.createBufferSource();
+    src.buffer = trainBuffer;
+    src.loop = true;
+    src.connect(audioCtx.destination);
+    src.start(0);
+    trainSource = src;
+  }
+  function stopTrainSound(){
+    if (!trainSource) return;
+    try { trainSource.stop(); } catch(e){}
+    try { trainSource.disconnect(); } catch(e){}
+    trainSource = null;
+  }
 
-  var notifAudioStopTimer = null;
+  function syncTrainAudio() {
+    if (!audioCtx || !trainBuffer || !audioUnlocked) return;
+    if (audioCtx.state !== "running") { audioCtx.resume().catch(function(){}); }
+    var want = !!(state && state.tracking && state.tracking.status === "task" && !isTrainMuted);
+    if (want) startTrainSound(); else stopTrainSound();
+  }
+
   function playNotifAudio(){
     try {
-      if (notifAudioStopTimer) { clearTimeout(notifAudioStopTimer); notifAudioStopTimer = null; }
-      notifAudioGlobal.currentTime = 0;
-      var p = notifAudioGlobal.play();
-      if (p !== undefined) p.catch(function(){});
-      notifAudioStopTimer = setTimeout(function(){
-        notifAudioGlobal.pause();
-        notifAudioStopTimer = null;
-      }, 3000);
+      if (!audioCtx || !trainBuffer || audioCtx.state !== "running") return;
+      var src = audioCtx.createBufferSource();
+      src.buffer = trainBuffer;
+      src.connect(audioCtx.destination);
+      src.start(0);
+      src.stop(audioCtx.currentTime + 3);
     } catch(e){}
   }
 
@@ -1789,27 +1817,6 @@
       });
   }
   
-  function syncTrainAudio() {
-    if (!trainAudio.src) return;
-
-    if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
-      if (trainAudio.paused) {
-        var p = trainAudio.play();
-        if (p !== undefined) {
-          p.then(function(){
-            audioUnlocked = true;
-          }).catch(function(e){
-            console.warn("Audio bloqueado en sync:", e.message);
-          });
-        }
-      }
-    } else {
-      if (!trainAudio.paused) {
-        trainAudio.pause();
-      }
-    }
-  }
-
   /* Memoria para saber qué pestañas de subtareas están abiertas */
   var openSubtasks = {};
   var selectedCalendarDate = null;
