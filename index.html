@@ -1704,23 +1704,28 @@
   var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
   var audioUnlocked = false;
 
+  var unlockPending = false;
   var unlockAudio = function() {
-    if (audioUnlocked) return;
+    if (audioUnlocked || unlockPending) return;
+    unlockPending = true;
     console.log("👆 Toque detectado. Intentando desbloquear audio...");
     /* Dejamos sonar el WAV silencioso (sin pause) para no abortar la promesa */
     trainAudio.play().then(function() {
       audioUnlocked = true;
+      unlockPending = false;
       document.removeEventListener("touchend", unlockAudio);
+      document.removeEventListener("pointerup", unlockAudio);
       document.removeEventListener("click", unlockAudio);
       console.log("✅ Audio desbloqueado");
-      /* Ya con permiso, decidimos si toca canción real o pausa */
       syncTrainAudio();
     }).catch(function(e){
-      console.error("❌ Desbloqueo falló: " + e.name + " - " + e.message);
+      /* Pasa si el toque fue un scroll: NO es grave, el próximo toque real lo reintenta */
+      unlockPending = false;
+      console.warn("Desbloqueo pendiente (" + e.name + "), se reintenta en el próximo toque");
     });
   };
-  /* touchend (no touchstart) cuenta como gesto válido en Chrome móvil */
   document.addEventListener("touchend", unlockAudio);
+  document.addEventListener("pointerup", unlockAudio);
   document.addEventListener("click", unlockAudio);
 
 /* --- BOTÓN PARA RECUPERAR RESÚMENES TERMINADOS DESDE DRIVE --- */
@@ -1794,8 +1799,9 @@
   }
   
   function syncTrainAudio() {
-    /* Hasta que Chrome nos dé permiso no tocamos el reproductor (evita AbortError) */
-    if (!audioUnlocked) return;
+    /* Solo esperamos mientras un desbloqueo está en curso (evita AbortError).
+       Si el desbloqueo falló, igual intentamos: puede venir de un toque válido (botón del tren). */
+    if (unlockPending) return;
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
       /* Inyectamos la canción real (memoria local, o el archivo si el fetch falló) */
       if (audioBlobUrl && trainRealLoaded !== "blob") {
@@ -1808,7 +1814,7 @@
         trainRealLoaded = "file";
       }
       if (trainAudio.paused) {
-        trainAudio.play().catch(function(e){ console.warn("Audio bloqueado:", e); });
+        trainAudio.play().then(function(){ audioUnlocked = true; }).catch(function(e){ console.warn("Audio bloqueado:", e.name); });
       }
     } else {
       /* Pausamos sin destruir el reproductor para no perder el permiso de Chrome */
