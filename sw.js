@@ -6,7 +6,7 @@ const URLS_TO_CACHE = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './BLUE HORIZON FUNK_256k.mp3'
+  './cancion_tren.mp3'
 ];
 
 /* Cada archivo se guarda por separado: si falta alguno (p. ej. el mp3),
