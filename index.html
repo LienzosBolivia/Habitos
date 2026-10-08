@@ -1666,51 +1666,44 @@
   trainAudio.loop = true;
   window.trenDebug = trainAudio;
   var notifAudioGlobal = new Audio();
-
-  var audioReady = false;
-  var audioUnlocked = false;
   var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
+  var audioUnlocked = false;
 
-  /* 2. Descargamos como Blob (más ligero que Base64) */
+  /* 1. Descargamos como Blob para que funcione offline en la PWA */
   fetch(nombreDeMiAudio)
     .then(function(res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.blob(); })
     .then(function(blob) {
       var blobUrl = URL.createObjectURL(blob);
       trainAudio.src = blobUrl;
       notifAudioGlobal.src = blobUrl;
-      audioReady = true;
       console.log("✅ Audio Blob listo en memoria.");
+      syncTrainAudio();
     })
     .catch(function(e) {
       console.error("❌ Falló la descarga del audio:", e.message);
       trainAudio.src = nombreDeMiAudio;
       notifAudioGlobal.src = nombreDeMiAudio;
-      audioReady = true;
     });
 
-  /* 3. Desbloqueo seguro: solo con un toque real */
+  /* 2. Desbloqueo usando únicamente "click" */
   var unlockAudio = function() {
-    if (audioUnlocked || !audioReady) return;
+    if (audioUnlocked || !trainAudio.src) return;
     var p = trainAudio.play();
     if (p !== undefined) {
       p.then(function() {
         audioUnlocked = true;
-        document.removeEventListener("touchstart", unlockAudio, true);
-        document.removeEventListener("click", unlockAudio, true);
-        console.log("✅ Chrome desbloqueó el audio en el primer toque.");
+        document.removeEventListener("click", unlockAudio);
+        console.log("✅ Chrome desbloqueó el audio correctamente.");
         if (!(state && state.tracking && state.tracking.status === "task" && !isTrainMuted)) {
           trainAudio.pause();
-          trainAudio.currentTime = 0;
         }
       }).catch(function(e){
-        console.warn("⚠️ Toque no válido para autoplay:", e.name);
+        console.warn("⚠️ Click ignorado para autoplay:", e.name);
       });
     }
   };
 
-  /* capture:true intercepta el toque antes que los botones de la app */
-  document.addEventListener("touchstart", unlockAudio, { passive: true, capture: true });
-  document.addEventListener("click", unlockAudio, { passive: true, capture: true });
+  document.addEventListener("click", unlockAudio);
 
   var notifAudioStopTimer = null;
   function playNotifAudio(){
@@ -1797,20 +1790,22 @@
   }
   
   function syncTrainAudio() {
-    /* Bloqueo: sin permiso de Chrome (primer toque) el sincronizador no hace nada,
-       así el temporizador no bombardea a play(). */
-    if (!audioReady || !audioUnlocked) return;
+    if (!trainAudio.src) return;
 
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
       if (trainAudio.paused) {
-        trainAudio.play().catch(function(e){
-          console.warn("Audio bloqueado en sync:", e.message);
-        });
+        var p = trainAudio.play();
+        if (p !== undefined) {
+          p.then(function(){
+            audioUnlocked = true;
+          }).catch(function(e){
+            console.warn("Audio bloqueado en sync:", e.message);
+          });
+        }
       }
     } else {
       if (!trainAudio.paused) {
         trainAudio.pause();
-        trainAudio.currentTime = 0;
       }
     }
   }
