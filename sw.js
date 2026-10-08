@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bitacora-cache-v1';
+const CACHE_NAME = 'bitacora-cache-v2';
 
 const URLS_TO_CACHE = [
   './',
@@ -6,7 +6,7 @@ const URLS_TO_CACHE = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './cancion_tren.mp3'
+  './blue-horizon-funk-256k.mp3'
 ];
 
 /* Cada archivo se guarda por separado: si falta alguno (p. ej. el mp3),
