@@ -1663,23 +1663,24 @@
   var nombreDeMiAudio = "cancion_tren.mp3";
   var audioBlobUrl = nombreDeMiAudio;
 
-  var trainAudio = new Audio();
+  /* 1. Inicializamos normal para que el desbloqueo de Chrome (unlockAudio) funcione */
+  var trainAudio = new Audio(nombreDeMiAudio);
   /* Instancia única y reutilizable para las alertas de recordatorio/gracia (evita fugas de memoria) */
-  var notifAudioGlobal = new Audio();
+  var notifAudioGlobal = new Audio(nombreDeMiAudio);
 
-  /* TRUCO PWA: convertimos el audio a memoria local (Blob) para evitar los Range Requests */
+  /* 2. Descargamos el audio a memoria interna en segundo plano (evita Range Requests del Service Worker) */
   fetch(nombreDeMiAudio)
     .then(function(res) { return res.blob(); })
     .then(function(blob) {
       audioBlobUrl = URL.createObjectURL(blob);
-      trainAudio.src = audioBlobUrl;
-      notifAudioGlobal.src = audioBlobUrl;
+      if (trainAudio.paused) {
+        trainAudio.src = audioBlobUrl;
+      }
+      if (notifAudioGlobal.paused) {
+        notifAudioGlobal.src = audioBlobUrl;
+      }
     })
-    .catch(function(e) {
-      console.warn("Fallo cargando audio", e);
-      trainAudio.src = nombreDeMiAudio;
-      notifAudioGlobal.src = nombreDeMiAudio;
-    });
+    .catch(function(e) { console.warn("No se pudo precargar el audio offline", e); });
   var notifAudioStopTimer = null;
   function playNotifAudio(){
     try {
