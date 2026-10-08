@@ -1680,6 +1680,8 @@
       console.log("✅ Audio descargado y listo en memoria PWA");
       audioBlobUrl = URL.createObjectURL(blob);
       notifAudioGlobal.src = audioBlobUrl;
+      /* Si el tren ya estaba esperando la canción, arrancamos ahora */
+      if (typeof syncTrainAudio === "function") syncTrainAudio();
     })
     .catch(function(e) {
       console.error("❌ Falló la descarga del audio:", e.message);
@@ -1703,23 +1705,22 @@
   var audioUnlocked = false;
 
   var unlockAudio = function() {
-    if (!audioUnlocked) {
-      console.log("👆 Toque detectado en pantalla. Intentando desbloquear Chrome...");
-      trainAudio.play().then(function() {
-        trainAudio.pause();
-        trainAudio.currentTime = 0;
-        audioUnlocked = true;
-        document.removeEventListener("touchstart", unlockAudio);
-        document.removeEventListener("click", unlockAudio);
-        console.log("✅ ¡Chrome desbloqueó el audio exitosamente!");
-      }).catch(function(e){
-        console.error("❌ CHROME BLOQUEÓ EL AUDIO POR:");
-        console.error("Tipo: " + e.name);
-        console.error("Detalle: " + e.message);
-      });
-    }
+    if (audioUnlocked) return;
+    console.log("👆 Toque detectado. Intentando desbloquear audio...");
+    /* Dejamos sonar el WAV silencioso (sin pause) para no abortar la promesa */
+    trainAudio.play().then(function() {
+      audioUnlocked = true;
+      document.removeEventListener("touchend", unlockAudio);
+      document.removeEventListener("click", unlockAudio);
+      console.log("✅ Audio desbloqueado");
+      /* Ya con permiso, decidimos si toca canción real o pausa */
+      syncTrainAudio();
+    }).catch(function(e){
+      console.error("❌ Desbloqueo falló: " + e.name + " - " + e.message);
+    });
   };
-  document.addEventListener("touchstart", unlockAudio);
+  /* touchend (no touchstart) cuenta como gesto válido en Chrome móvil */
+  document.addEventListener("touchend", unlockAudio);
   document.addEventListener("click", unlockAudio);
 
 /* --- BOTÓN PARA RECUPERAR RESÚMENES TERMINADOS DESDE DRIVE --- */
@@ -1793,6 +1794,8 @@
   }
   
   function syncTrainAudio() {
+    /* Hasta que Chrome nos dé permiso no tocamos el reproductor (evita AbortError) */
+    if (!audioUnlocked) return;
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
       /* Inyectamos la canción real (memoria local, o el archivo si el fetch falló) */
       if (audioBlobUrl && trainRealLoaded !== "blob") {
@@ -6110,11 +6113,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         }
       })();
 
-      isTrainMuted = !isTrainMuted;
-      localStorage.setItem("bitacora_train_muted", isTrainMuted);
-      syncTrainAudio();
-      renderActiveTab();
-    
     } else if (action === "toggle-mute") {
       isTrainMuted = !isTrainMuted;
       /* Lo guardamos exactamente como string "true" o "false" para que no se trabe en Android */
