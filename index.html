@@ -1702,56 +1702,157 @@
     return buf;
   }
 
-  var AUDIO_BUILD = "audio-v3";
+  var AUDIO_BUILD = "audio-v4";
+  var audioLoading = false, usingSynthetic = false, lastAudioAttempt = 0;
+
+  /* Guardamos el MP3 en IndexedDB: tras la 1ª descarga exitosa funciona offline y sin red */
+  function idbOpen(){
+    return new Promise(function(resolve){
+      try {
+        var rq = indexedDB.open("bitacora_audio", 1);
+        rq.onupgradeneeded = function(){ rq.result.createObjectStore("files"); };
+        rq.onsuccess = function(){ resolve(rq.result); };
+        rq.onerror = function(){ resolve(null); };
+      } catch(e){ resolve(null); }
+    });
+  }
+  function idbGet(key){
+    return idbOpen().then(function(db){
+      if (!db) return null;
+      return new Promise(function(resolve){
+        try {
+          var r = db.transaction("files", "readonly").objectStore("files").get(key);
+          r.onsuccess = function(){ resolve(r.result || null); };
+          r.onerror = function(){ resolve(null); };
+        } catch(e){ resolve(null); }
+      });
+    });
+  }
+  function idbSet(key, val){
+    return idbOpen().then(function(db){
+      if (!db) return;
+      return new Promise(function(resolve){
+        try {
+          var tx = db.transaction("files", "readwrite");
+          tx.objectStore("files").put(val, key);
+          tx.oncomplete = function(){ resolve(); };
+          tx.onerror = function(){ resolve(); };
+        } catch(e){ resolve(); }
+      });
+    });
+  }
+  function idbDel(key){
+    return idbOpen().then(function(db){
+      if (!db) return;
+      return new Promise(function(resolve){
+        try {
+          var tx = db.transaction("files", "readwrite");
+          tx.objectStore("files").delete(key);
+          tx.oncomplete = function(){ resolve(); };
+          tx.onerror = function(){ resolve(); };
+        } catch(e){ resolve(); }
+      });
+    });
+  }
+
   function audioSources(){
-    var list = [nombreDeMiAudio + "?v=2"];
+    var list = [nombreDeMiAudio + "?v=4"];
     try {
-      var host = location.hostname, m = host.match(/^(.+)\.github\.io$/), repo = location.pathname.split("/")[1];
+      var m = location.hostname.match(/^(.+)\.github\.io$/), repo = location.pathname.split("/")[1];
       if (m && repo) list.push("https://raw.githubusercontent.com/" + m[1] + "/" + repo + "/main/" + nombreDeMiAudio);
     } catch(e){}
     return list;
   }
-  function fetchDecode(url){
+
+  /* Descarga con fetch y, si falla, con XMLHttpRequest (distinto camino de red) */
+  function getBytes(url){
     return fetch(url, { cache: "no-store" })
       .then(function(res){
-        console.log("Audio fetch " + url + " → HTTP " + res.status + ", tipo: " + res.headers.get("content-type"));
+        console.log("fetch " + url + " → HTTP " + res.status + " " + res.headers.get("content-type"));
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.arrayBuffer();
       })
-      .then(function(ab){
-        var kind = sniffAudioBytes(ab);
-        console.log("Descargado: " + ab.byteLength + " bytes, formato: " + kind);
-        if (ab.byteLength < 2000) throw new Error("archivo muy pequeño (" + ab.byteLength + " bytes): " + kind);
+      .catch(function(e1){
+        console.warn("fetch falló (" + (e1 && e1.message) + "), pruebo XHR…");
         return new Promise(function(resolve, reject){
-          audioCtx.decodeAudioData(ab, resolve, function(){ reject(new Error("no decodifica; formato: " + kind)); });
+          var x = new XMLHttpRequest();
+          x.open("GET", url, true);
+          x.responseType = "arraybuffer";
+          x.onload = function(){ (x.status >= 200 && x.status < 300 && x.response) ? resolve(x.response) : reject(new Error("XHR HTTP " + x.status)); };
+          x.onerror = function(){ reject(new Error("XHR error de red (fetch: " + (e1 && e1.message) + ")")); };
+          x.ontimeout = function(){ reject(new Error("XHR timeout")); };
+          x.timeout = 60000;
+          x.send();
         });
       });
   }
-  function loadTrainAudio(){
-    console.log("Versión de audio cargada: " + AUDIO_BUILD);
-    var urls = audioSources(), errs = [];
-    var chain = Promise.reject(new Error("inicio"));
-    urls.forEach(function(u){
-      chain = chain.catch(function(prev){
-        if (prev && prev.message !== "inicio") errs.push(prev.message);
-        return fetchDecode(u);
-      });
+  function decodeBytes(ab){
+    var kind = sniffAudioBytes(ab);
+    console.log("Bytes: " + ab.byteLength + ", formato: " + kind);
+    if (ab.byteLength < 2000) return Promise.reject(new Error("archivo muy pequeño (" + ab.byteLength + " bytes): " + kind));
+    return new Promise(function(resolve, reject){
+      audioCtx.decodeAudioData(ab, resolve, function(){ reject(new Error("no decodifica; formato: " + kind)); });
     });
-    chain
-      .then(function(buf){
-        trainBuffer = buf;
-        console.log("✅ MP3 decodificado (" + buf.duration.toFixed(1) + " s).");
-        syncTrainAudio();
-      })
-      .catch(function(e){
-        errs.push(e && e.message ? e.message : String(e));
-        var msg = "Audio real falló (" + errs.join(" | ") + "). Uso sonido sintético.";
-        console.error("❌ " + msg);
-        try { if (typeof showToast === "function") showToast("🔊 " + msg); } catch(_){}
-        try { trainBuffer = buildSyntheticTrain(); console.log("✅ Sonido sintético listo."); syncTrainAudio(); }
-        catch(e2){ console.error("❌ Ni el sintético funcionó:", e2.message); }
-      });
   }
+  function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+  function useRealBuffer(buf, origen){
+    trainBuffer = buf;
+    usingSynthetic = false;
+    console.log("✅ MP3 listo (" + buf.duration.toFixed(1) + " s) desde " + origen + ".");
+    stopTrainSound();      /* reinicia con el audio real si estaba sonando el sintético */
+    syncTrainAudio();
+  }
+
+  async function loadTrainAudio(){
+    if (audioLoading || !audioCtx) return;
+    audioLoading = true; lastAudioAttempt = Date.now();
+    console.log("Versión de audio cargada: " + AUDIO_BUILD);
+    var key = nombreDeMiAudio, errs = [];
+    try {
+      /* 1) copia local guardada */
+      var saved = await idbGet(key);
+      if (saved) {
+        try { useRealBuffer(await decodeBytes(saved.slice(0)), "almacenamiento local"); audioLoading = false; return; }
+        catch(e){ console.warn("Copia local inválida, se borra:", e.message); await idbDel(key); }
+      }
+      /* 2) red: cada fuente con 2 intentos */
+      var urls = audioSources();
+      for (var i = 0; i < urls.length; i++) {
+        for (var t = 1; t <= 2; t++) {
+          try {
+            var ab = await getBytes(urls[i]);
+            var copia = ab.slice(0);
+            var buf = await decodeBytes(ab);
+            idbSet(key, copia);
+            useRealBuffer(buf, urls[i]);
+            audioLoading = false; return;
+          } catch(e){
+            errs.push((i + 1) + "." + t + ": " + (e && e.message ? e.message : e));
+            console.warn("Intento " + (i + 1) + "." + t + " falló:", e && e.message ? e.message : e);
+            if (t < 2) await wait(1500);
+          }
+        }
+      }
+    } catch(e){ errs.push(String(e && e.message || e)); }
+
+    var msg = "No se pudo bajar el audio (" + errs.join(" | ") + "). Uso sonido sintético y reintento luego.";
+    console.error("❌ " + msg);
+    try { if (typeof showToast === "function") showToast("🔊 " + msg); } catch(_){}
+    if (!trainBuffer) {
+      try { trainBuffer = buildSyntheticTrain(); usingSynthetic = true; console.log("✅ Sonido sintético listo."); syncTrainAudio(); }
+      catch(e2){ console.error("❌ Ni el sintético funcionó:", e2.message); }
+    }
+    audioLoading = false;
+  }
+
+  /* Si solo tenemos el sintético, reintentamos la descarga real (máx. cada 20 s) */
+  function retryRealAudioIfNeeded(){
+    if (usingSynthetic && !audioLoading && Date.now() - lastAudioAttempt > 20000) loadTrainAudio();
+  }
+  window.addEventListener("online", retryRealAudioIfNeeded);
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden) retryRealAudioIfNeeded(); });
+  document.addEventListener("click", retryRealAudioIfNeeded, true);
   if (audioCtx) loadTrainAudio();
 
   function tryUnlockAudio(){
