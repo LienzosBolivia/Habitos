@@ -1673,19 +1673,65 @@
   var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
   window.trenDebug = { ctx: audioCtx, get buffer(){ return trainBuffer; }, get source(){ return trainSource; } };
 
-  if (audioCtx) {
-    fetch(nombreDeMiAudio)
-      .then(function(res){ if (!res.ok) throw new Error("HTTP " + res.status); return res.arrayBuffer(); })
+  /* Detecta qué tipo de archivo llegó realmente (para diagnosticar) */
+  function sniffAudioBytes(ab){
+    var u = new Uint8Array(ab.slice(0, 16));
+    var txt = ""; for (var i = 0; i < u.length; i++) txt += String.fromCharCode(u[i]);
+    if (txt.indexOf("ID3") === 0 || (u[0] === 0xFF && (u[1] & 0xE0) === 0xE0)) return "mp3";
+    if (txt.indexOf("OggS") === 0) return "ogg";
+    if (txt.indexOf("RIFF") === 0) return "wav";
+    if (txt.indexOf("ftyp") === 4) return "m4a";
+    if (txt.charAt(0) === "<") return "HTML (no es audio: el archivo no existe en el servidor o el Service Worker devolvió la página)";
+    if (txt.indexOf("version") === 0) return "puntero Git LFS (el MP3 real no se subió)";
+    return "desconocido";
+  }
+
+  /* Sonido de tren sintético: respaldo que NUNCA falla si el MP3 no se puede leer */
+  function buildSyntheticTrain(){
+    var sr = audioCtx.sampleRate, dur = 2.0;
+    var buf = audioCtx.createBuffer(1, Math.floor(sr * dur), sr);
+    var d = buf.getChannelData(0), lp = 0;
+    var chugs = 6; /* 3 por segundo */
+    for (var i = 0; i < d.length; i++) {
+      var t = i / sr, ph = (t * chugs / dur) % 1;
+      var env = Math.exp(-ph * 9) * (0.55 + 0.45 * ((Math.floor(t * chugs / dur) % 2) ? 0.7 : 1));
+      lp += 0.12 * ((Math.random() * 2 - 1) - lp);
+      var rumble = 0.05 * Math.sin(2 * Math.PI * 55 * t);
+      d[i] = (lp * 2.2 * env + rumble) * 0.6;
+    }
+    return buf;
+  }
+
+  function loadTrainAudio(){
+    var url = nombreDeMiAudio + "?v=" + Date.now();
+    fetch(url, { cache: "no-store" })
+      .then(function(res){
+        console.log("Audio fetch → HTTP " + res.status + ", tipo: " + res.headers.get("content-type"));
+        if (!res.ok) throw new Error("HTTP " + res.status + " (¿el nombre '" + nombreDeMiAudio + "' es exacto y está en la misma carpeta que index.html?)");
+        return res.arrayBuffer();
+      })
       .then(function(ab){
-        return new Promise(function(resolve, reject){ audioCtx.decodeAudioData(ab, resolve, reject); });
+        var kind = sniffAudioBytes(ab);
+        console.log("Audio descargado: " + ab.byteLength + " bytes, formato detectado: " + kind);
+        if (ab.byteLength < 2000) throw new Error("archivo demasiado pequeño (" + ab.byteLength + " bytes): " + kind);
+        return new Promise(function(resolve, reject){
+          audioCtx.decodeAudioData(ab, resolve, function(err){
+            reject(new Error("no se pudo decodificar; formato detectado: " + kind));
+          });
+        });
       })
       .then(function(buf){
         trainBuffer = buf;
-        console.log("✅ Audio decodificado en memoria (" + buf.duration.toFixed(1) + " s).");
+        console.log("✅ MP3 decodificado en memoria (" + buf.duration.toFixed(1) + " s).");
         syncTrainAudio();
       })
-      .catch(function(e){ console.error("❌ No se pudo cargar/decodificar el audio:", e && e.message ? e.message : e); });
+      .catch(function(e){
+        console.error("❌ Audio real falló: " + (e && e.message ? e.message : e) + ". Usando sonido de tren sintético.");
+        try { trainBuffer = buildSyntheticTrain(); console.log("✅ Sonido sintético listo."); syncTrainAudio(); }
+        catch(e2){ console.error("❌ Ni el sonido sintético funcionó:", e2.message); }
+      });
   }
+  if (audioCtx) loadTrainAudio();
 
   function tryUnlockAudio(){
     if (!audioCtx || audioUnlocked) return;
