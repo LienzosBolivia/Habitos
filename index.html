@@ -1659,7 +1659,7 @@
   var activeTab = "hoy";
   var statsOffsetDays = 0; /* Controla la navegación en las estadísticas */
   
-  var nombreDeMiAudio = "cancion_tren.mp3";
+  var nombreDeMiAudio = "blue-horizon-funk-256k.mp3";
 
   /* ===== Audio del tren con Web Audio API =====
      Un AudioContext se "reanuda" UNA sola vez con un gesto real; después puede
@@ -1702,33 +1702,54 @@
     return buf;
   }
 
-  function loadTrainAudio(){
-    var url = nombreDeMiAudio + "?v=" + Date.now();
-    fetch(url, { cache: "no-store" })
+  var AUDIO_BUILD = "audio-v3";
+  function audioSources(){
+    var list = [nombreDeMiAudio + "?v=2"];
+    try {
+      var host = location.hostname, m = host.match(/^(.+)\.github\.io$/), repo = location.pathname.split("/")[1];
+      if (m && repo) list.push("https://raw.githubusercontent.com/" + m[1] + "/" + repo + "/main/" + nombreDeMiAudio);
+    } catch(e){}
+    return list;
+  }
+  function fetchDecode(url){
+    return fetch(url, { cache: "no-store" })
       .then(function(res){
-        console.log("Audio fetch → HTTP " + res.status + ", tipo: " + res.headers.get("content-type"));
-        if (!res.ok) throw new Error("HTTP " + res.status + " (¿el nombre '" + nombreDeMiAudio + "' es exacto y está en la misma carpeta que index.html?)");
+        console.log("Audio fetch " + url + " → HTTP " + res.status + ", tipo: " + res.headers.get("content-type"));
+        if (!res.ok) throw new Error("HTTP " + res.status);
         return res.arrayBuffer();
       })
       .then(function(ab){
         var kind = sniffAudioBytes(ab);
-        console.log("Audio descargado: " + ab.byteLength + " bytes, formato detectado: " + kind);
-        if (ab.byteLength < 2000) throw new Error("archivo demasiado pequeño (" + ab.byteLength + " bytes): " + kind);
+        console.log("Descargado: " + ab.byteLength + " bytes, formato: " + kind);
+        if (ab.byteLength < 2000) throw new Error("archivo muy pequeño (" + ab.byteLength + " bytes): " + kind);
         return new Promise(function(resolve, reject){
-          audioCtx.decodeAudioData(ab, resolve, function(err){
-            reject(new Error("no se pudo decodificar; formato detectado: " + kind));
-          });
+          audioCtx.decodeAudioData(ab, resolve, function(){ reject(new Error("no decodifica; formato: " + kind)); });
         });
-      })
+      });
+  }
+  function loadTrainAudio(){
+    console.log("Versión de audio cargada: " + AUDIO_BUILD);
+    var urls = audioSources(), errs = [];
+    var chain = Promise.reject(new Error("inicio"));
+    urls.forEach(function(u){
+      chain = chain.catch(function(prev){
+        if (prev && prev.message !== "inicio") errs.push(prev.message);
+        return fetchDecode(u);
+      });
+    });
+    chain
       .then(function(buf){
         trainBuffer = buf;
-        console.log("✅ MP3 decodificado en memoria (" + buf.duration.toFixed(1) + " s).");
+        console.log("✅ MP3 decodificado (" + buf.duration.toFixed(1) + " s).");
         syncTrainAudio();
       })
       .catch(function(e){
-        console.error("❌ Audio real falló: " + (e && e.message ? e.message : e) + ". Usando sonido de tren sintético.");
+        errs.push(e && e.message ? e.message : String(e));
+        var msg = "Audio real falló (" + errs.join(" | ") + "). Uso sonido sintético.";
+        console.error("❌ " + msg);
+        try { if (typeof showToast === "function") showToast("🔊 " + msg); } catch(_){}
         try { trainBuffer = buildSyntheticTrain(); console.log("✅ Sonido sintético listo."); syncTrainAudio(); }
-        catch(e2){ console.error("❌ Ni el sonido sintético funcionó:", e2.message); }
+        catch(e2){ console.error("❌ Ni el sintético funcionó:", e2.message); }
       });
   }
   if (audioCtx) loadTrainAudio();
