@@ -1661,7 +1661,7 @@
   
   var nombreDeMiAudio = "cancion_tren.mp3";
 
-  /* Reproductores reales limpios */
+  /* 1. Reproductores reales limpios */
   var trainAudio = new Audio();
   trainAudio.loop = true;
   window.trenDebug = trainAudio;
@@ -1669,64 +1669,75 @@
 
   var audioReady = false;
   var audioUnlocked = false;
+  var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
 
-  /* 1. Convertimos el MP3 a Base64 para saltar los bloqueos del Service Worker */
+  /* 2. Convertimos el MP3 a Base64 para saltar los bloqueos del Service Worker */
   console.log("Iniciando conversión a Base64 de: " + nombreDeMiAudio);
   fetch(nombreDeMiAudio)
     .then(function(res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.blob(); })
     .then(function(blob) {
       var reader = new FileReader();
       reader.onload = function() {
-        var base64data = reader.result;
-        trainAudio.src = base64data;
-        notifAudioGlobal.src = base64data;
+        trainAudio.src = reader.result;
+        notifAudioGlobal.src = reader.result;
         audioReady = true;
         console.log("✅ Audio convertido a Base64 y listo en memoria.");
-        /* Sin auto-arranque aquí: Chrome lo bloquearía por no ser un gesto del usuario */
+        syncTrainAudio(); /* Intenta arrancar si ya había una tarea corriendo */
       };
       reader.readAsDataURL(blob);
     })
     .catch(function(e) {
       console.error("❌ Falló la descarga del audio:", e.message);
+      /* Respaldo directo en caso de error */
       trainAudio.src = nombreDeMiAudio;
       notifAudioGlobal.src = nombreDeMiAudio;
       audioReady = true;
     });
 
-  /* 2. Desbloqueo usando el reproductor principal válido */
+  /* 3. Desbloqueo seguro (Sin condición de carrera ni AbortError) */
   var unlockAudio = function() {
+    /* Solo intentamos si la canción ya se cargó en RAM y Chrome aún no nos dio permiso */
     if (audioUnlocked || !audioReady) return;
-    trainAudio.play().then(function(){
-      trainAudio.pause();
-      audioUnlocked = true;
-      document.removeEventListener("touchstart", unlockAudio);
-      document.removeEventListener("touchend", unlockAudio);
-      document.removeEventListener("click", unlockAudio);
-      console.log("✅ Chrome desbloqueó el audio correctamente.");
-      syncTrainAudio();
-    }).catch(function(e){
-      console.warn("Toque ignorado:", e.name);
-    });
+
+    var p = trainAudio.play();
+    if (p !== undefined) {
+      p.then(function() {
+        audioUnlocked = true;
+        document.removeEventListener("touchstart", unlockAudio);
+        document.removeEventListener("touchend", unlockAudio);
+        document.removeEventListener("click", unlockAudio);
+        console.log("✅ Chrome desbloqueó el audio correctamente.");
+
+        /* Si NO estamos ejecutando una tarea, lo pausamos DESPUÉS de que play() fue exitoso.
+           Esto evita el AbortError. */
+        if (!(state && state.tracking && state.tracking.status === "task" && !isTrainMuted)) {
+          trainAudio.pause();
+          trainAudio.currentTime = 0;
+        }
+      }).catch(function(e){
+        console.warn("⚠️ Toque ignorado por Chrome:", e.name);
+      });
+    }
   };
 
-  document.addEventListener("touchstart", unlockAudio);
-  document.addEventListener("touchend", unlockAudio);
-  document.addEventListener("click", unlockAudio);
+  /* Escuchamos los toques de forma pasiva en toda la pantalla */
+  document.addEventListener("touchstart", unlockAudio, { passive: true });
+  document.addEventListener("touchend", unlockAudio, { passive: true });
+  document.addEventListener("click", unlockAudio, { passive: true });
 
   var notifAudioStopTimer = null;
   function playNotifAudio(){
     try {
       if (notifAudioStopTimer) { clearTimeout(notifAudioStopTimer); notifAudioStopTimer = null; }
       notifAudioGlobal.currentTime = 0;
-      notifAudioGlobal.play().catch(function(){});
+      var p = notifAudioGlobal.play();
+      if (p !== undefined) p.catch(function(){});
       notifAudioStopTimer = setTimeout(function(){
         notifAudioGlobal.pause();
         notifAudioStopTimer = null;
       }, 3000);
     } catch(e){}
   }
-
-  var isTrainMuted = (localStorage.getItem("bitacora_train_muted") !== "false");
 
 /* --- BOTÓN PARA RECUPERAR RESÚMENES TERMINADOS DESDE DRIVE --- */
   var btnRecover = document.getElementById("btnRecoverSummaries");
@@ -1799,19 +1810,24 @@
   }
   
   function syncTrainAudio() {
-    /* Si Chrome no nos ha dado permiso o el audio no está listo, abortamos */
-    if (!audioReady || !audioUnlocked) return;
+    /* Si el Base64 aún se está procesando, esperamos */
+    if (!audioReady) return;
 
     if (state && state.tracking && state.tracking.status === "task" && !isTrainMuted) {
       if (trainAudio.paused) {
-        trainAudio.play().catch(function(e){
-          console.warn("Audio bloqueado por Chrome:", e.message);
-        });
+        var p = trainAudio.play();
+        if (p !== undefined) {
+          p.then(function(){
+            /* Si arrancó por darle al botón de la tarea, marcamos como desbloqueado */
+            audioUnlocked = true;
+          }).catch(function(e){
+            console.warn("Audio bloqueado en sync:", e.name);
+          });
+        }
       }
     } else {
       if (!trainAudio.paused) {
         trainAudio.pause();
-        trainAudio.currentTime = 0;
       }
     }
   }
