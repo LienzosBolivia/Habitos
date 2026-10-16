@@ -1992,7 +1992,6 @@
   var openReminderPanel = null;
   /* Evidencia pendiente de guardar: { ds, id } */
   var pendingEvidence = null;
-  var pendingDeactivationId = null; /* <--- NUEVA LÍNEA: Controla si estamos apagando el sistema */
   /* Año histórico seleccionado en Calendario (null = año actual) */
   var calendarHistoricalYear = null;
   /* Modo edición de evidencia */
@@ -2176,7 +2175,7 @@ function defaultState(){
       projects: [],
       routines: [],
       timeLog: {},
-      tracking: { status: "inactive", taskId: null, taskDs: null, startTime: null },
+      tracking: { status: "inactive", taskId: null, taskDs: null, startTime: null, sessionEndsAt: null, sessionHours: null },
       selectedProjectByDate: {}
     };
   }
@@ -2418,13 +2417,13 @@ function defaultState(){
   /**
    * Vuelca el tiempo transcurrido desde tracking.startTime hacia el registro correspondiente
    */
-  function flushTime(){
+  function flushTime(atMs){
     if (!state.tracking || state.tracking.status === "inactive" || !state.tracking.startTime) return;
-    var now = Date.now();
+    var now = atMs || Date.now();
 
     /* --- CORTE DE MEDIANOCHE --- */
     var startDs = dateToStr(new Date(state.tracking.startTime));
-    var todayDs = todayStr();
+    var todayDs = atMs ? dateToStr(new Date(now)) : todayStr();
     var elapsedSec;
 
     if (startDs !== todayDs) {
@@ -2512,30 +2511,59 @@ function defaultState(){
     return base;
   }
 
-  function toggleMaster(){
-    flushTime();
-    if (state.tracking.status === "inactive"){
-      state.tracking.status    = "thinking";
-      state.tracking.taskId    = null;
-      state.tracking.subtaskId = null;
-      state.tracking.taskDs    = null;
-      state.tracking.startTime = Date.now();
-      state.tracking.targetLimit = null;
-
-      /* PIN de un solo uso requerido para apagar el sistema más tarde */
-      var newPin = Math.floor(10000000 + Math.random() * 90000000).toString();
-      state.tracking.unlockPin = newPin;
-      alert("🔐 Tu PIN de apagado es: " + newPin + "\n\nEsta es la ÚNICA vez que se mostrará. Lo necesitarás para desactivar el sistema.");
-    } else {
-      state.tracking.status    = "inactive";
-      state.tracking.taskId    = null;
-      state.tracking.subtaskId = null;
-      state.tracking.taskDs    = null;
-      state.tracking.startTime = null;
-      state.tracking.targetLimit = null;
+  /* Pide las horas de la sesión (máx. 24) y arranca la cuenta regresiva. Sin vuelta atrás. */
+  function startSessionWithTimer(){
+    var raw = prompt("⏳ ¿Cuántas horas durará esta sesión? (máximo 24)\n\nCuando se acabe el tiempo el sistema se apagará solo. No se puede apagar antes.");
+    if (raw === null) return;
+    var hours = parseFloat(String(raw).replace(",", "."));
+    if (isNaN(hours) || hours <= 0){
+      showToast("Introduce un número de horas válido (mayor que 0).");
+      return;
     }
+    if (hours > 24){
+      showToast("El máximo es 24 horas.");
+      return;
+    }
+    var now = Date.now();
+    state.tracking.status       = "thinking";
+    state.tracking.taskId       = null;
+    state.tracking.subtaskId    = null;
+    state.tracking.taskDs       = null;
+    state.tracking.startTime    = now;
+    state.tracking.targetLimit  = null;
+    state.tracking.sessionHours = hours;
+    state.tracking.sessionEndsAt = now + Math.round(hours * 3600 * 1000);
     persist();
     renderActiveTab();
+    showToast("Sistema encendido por " + hours + " h. No se puede apagar antes.");
+  }
+
+  /* Apagado automático: solo lo llama el temporizador cuando llega a cero */
+  function endSessionAuto(){
+    var endAt = state.tracking.sessionEndsAt;
+    if (endAt && state.tracking.startTime && endAt > state.tracking.startTime){
+      flushTime(endAt); /* solo cuenta el tiempo hasta el instante exacto del fin */
+    }
+    state.tracking.status       = "inactive";
+    state.tracking.taskId       = null;
+    state.tracking.subtaskId    = null;
+    state.tracking.taskDs       = null;
+    state.tracking.startTime    = null;
+    state.tracking.targetLimit  = null;
+    state.tracking.sessionEndsAt = null;
+    state.tracking.sessionHours = null;
+    delete state.tracking.unlockPin;
+    persist();
+    safeRerenderActiveTab();
+    showToast("⏰ Se acabó el tiempo: sistema desactivado.");
+  }
+
+  function formatCountdown(ms){
+    if (ms < 0) ms = 0;
+    var t = Math.ceil(ms / 1000);
+    var h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+    function p2(n){ return (n < 10 ? "0" : "") + n; }
+    return p2(h) + ":" + p2(m) + ":" + p2(sec);
   }
 
   function playTask(ds, id, subId){
@@ -2698,6 +2726,21 @@ function defaultState(){
     if (!state || window.isImportingBackup) return; /* Bloqueo de seguridad durante restauraciones */
     var today = todayStr();
     var now = new Date();
+
+    /* --- FASE 0: TEMPORIZADOR DE SESIÓN (cuenta regresiva) --- */
+    if (state.tracking && state.tracking.status !== "inactive"){
+      if (!state.tracking.sessionEndsAt){
+        /* Sesión antigua (sistema de PIN) sin temporizador: se cierra para reiniciar con horas */
+        endSessionAuto();
+        return;
+      }
+      if (Date.now() >= state.tracking.sessionEndsAt){
+        endSessionAuto();
+        return;
+      }
+      var cdEl = document.querySelector("[data-live-countdown]");
+      if (cdEl) cdEl.textContent = formatCountdown(state.tracking.sessionEndsAt - Date.now());
+    }
 
     /* --- FASE 1: AUTO-INICIO OBLIGATORIO (VIAJE EN EL TIEMPO) --- */
     var currentTotalMin = now.getHours() * 60 + now.getMinutes();
@@ -3214,17 +3257,10 @@ function defaultState(){
     var saveBtn = document.getElementById("evidenceSaveBtn");
     var noteInput = document.getElementById("evidenceNote");
     
-    /* Si estamos intentando apagar el sistema, los textos cambian para dar fricción */
-    if (pendingDeactivationId === id) {
-        if (title) title.textContent = "🛑 Motivo de desactivación";
-        if (saveBtn) saveBtn.textContent = "Apagar sistema";
-        if (noteInput) noteInput.placeholder = "¿Por qué estás apagando el sistema? Escribe tu justificación...";
-    } else {
-        if (title) title.textContent = "📋 Evidencia de cumplimiento";
-        if (saveBtn) saveBtn.textContent = "Guardar y marcar cumplida";
-        if (noteInput) noteInput.placeholder = "¿Cómo lo cumpliste? Escribe una nota...";
-    }
-    
+    if (title) title.textContent = "📋 Evidencia de cumplimiento";
+    if (saveBtn) saveBtn.textContent = "Guardar y marcar cumplida";
+    if (noteInput) noteInput.placeholder = "¿Cómo lo cumpliste? Escribe una nota...";
+
     /* Limpiar campos */
     if (noteInput) noteInput.value = "";
     document.getElementById("evidencePreview").innerHTML = "";
@@ -3290,19 +3326,6 @@ function defaultState(){
 
   function closeEvidenceModal(){
     document.getElementById("evidenceModal").classList.remove("open");
-    
-    /* Si el usuario se arrepiente y cancela la desactivación, borramos la tarea fantasma */
-    if (pendingDeactivationId && pendingEvidence && pendingEvidence.id === pendingDeactivationId && !isEditingEvidence) {
-        var ds = pendingEvidence.ds;
-        var id = pendingEvidence.id;
-        /* Si NO está marcada como hecha en el log, es que le dio a Cancelar */
-        if (!state.log[ds] || !state.log[ds][id]) {
-            state.oneoff = state.oneoff.filter(function(o){ return o.id !== id; });
-            persist();
-            renderActiveTab();
-        }
-        pendingDeactivationId = null;
-    }
     
     pendingEvidence   = null;
     isEditingEvidence = false;
@@ -3372,20 +3395,8 @@ function defaultState(){
       } else {
         markDone(ds, id); /* markDone ya llama persist() → scheduleAutoSync() */
         
-        var isDeactivation = (pendingDeactivationId === id);
-        if (isDeactivation) {
-            /* ¡Pasa la prueba! Apagamos el sistema de verdad */
-            toggleMaster(); 
-            pendingDeactivationId = null;
-        }
-        
         closeEvidenceModal();
-        
-        if (isDeactivation) {
-            showToast("Sistema desactivado. Motivo registrado en tu historial.");
-        } else {
-            showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
-        }
+        showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
       }
     });
   }
@@ -3912,7 +3923,14 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var st = state.tracking.status;
     var taskName = st === "task" ? getActiveTrackingTaskName() : "";
     var label = st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : (taskName ? "Ejecutando " + escapeHtml(taskName) : "Ejecutando tarea…"));
-    var btnLabel = st === "inactive" ? "▶ Encender sesión" : "⏻ Apagar sesión";
+    var isOn = st !== "inactive";
+    var msLeft = (isOn && state.tracking.sessionEndsAt) ? (state.tracking.sessionEndsAt - Date.now()) : 0;
+    var btnHtml = isOn
+      ? '<div class="ms-countdown-box" title="El sistema se apaga solo al llegar a cero">' +
+          '<div style="font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted);">🔒 Se apaga en</div>' +
+          '<div class="ms-timer" style="font-size:16px; color:var(--brass-300);" data-live-countdown>' + formatCountdown(msLeft) + '</div>' +
+        '</div>'
+      : '<button class="ms-toggle-btn" data-action="toggle-master">▶ Encender sesión</button>';
     var timerSec = st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
     
     var muteIcon = isTrainMuted 
@@ -4047,7 +4065,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
               '<div class="ms-timer" data-live-master>' + formatDuration(timerSec) + '</div>' +
             '</div>' +
           '</div>' +
-          '<button class="ms-toggle-btn" data-action="toggle-master">' + btnLabel + '</button>' +
+          btnHtml +
         '</div>' +
       '</section>'
     );
@@ -6287,62 +6305,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       renderActiveTab();
 
     } else if (action === "toggle-master"){
-      if (state.tracking.status === "inactive") {
-        /* Si está apagado, lo enciende normalmente sin preguntar */
-        toggleMaster();
-      } else {
-        /* PIN: Exige el código de 8 dígitos generado al encender el sistema */
-        var enteredPin = prompt("🔐 Introduce el PIN de 8 dígitos para apagar el sistema:");
-        if (enteredPin === null){
-          /* Canceló el prompt: no hay intento fallido */
-          return;
-        }
-        if (enteredPin.trim() === "" || enteredPin.trim() !== state.tracking.unlockPin){
-          /* MODO DEPURACIÓN: un PIN incorrecto dispara automáticamente la tarea de ducha fría */
-          var dbgDs = todayStr();
-          var DEBUG_TASK_TEXT = "🚿 MODO DEPURACIÓN: bañarme con agua fría";
-          var dbgTask = state.oneoff.find(function(o){
-            return o.text === DEBUG_TASK_TEXT && o.date === dbgDs &&
-                   !(state.log[dbgDs] && state.log[dbgDs][o.id]);
-          });
-          if (!dbgTask){
-            dbgTask = { id: uid(), text: DEBUG_TASK_TEXT, date: dbgDs };
-            state.oneoff.push(dbgTask);
-          }
-          /* EJECUCIÓN AUTOMÁTICA: arranca la tarea con cronómetro de 5 min, sin preguntar */
-          var DEBUG_SECS = 300;
-          if (!state.timeLog[dbgDs]) state.timeLog[dbgDs] = { thinking: 0, tasks: {}, subtasks: {} };
-          var dbgLog = state.timeLog[dbgDs];
-          if (!dbgLog.taskLimits) dbgLog.taskLimits = {};
-          if (!dbgLog.autoStarts) dbgLog.autoStarts = {};
-          dbgLog.taskLimits[dbgTask.id] = Math.max(DEBUG_SECS, (dbgLog.tasks && dbgLog.tasks[dbgTask.id] || 0) + DEBUG_SECS);
-          dbgLog.autoStarts[dbgTask.id] = true;
-          flushTime();
-          state.tracking.status      = "task";
-          state.tracking.taskId      = dbgTask.id;
-          state.tracking.subtaskId   = null;
-          state.tracking.taskDs      = dbgDs;
-          state.tracking.startTime   = Date.now();
-          state.tracking.targetLimit = dbgLog.taskLimits[dbgTask.id];
-          persist();
-          renderActiveTab();
-          showToast("🚿 PIN incorrecto. Modo depuración EN EJECUCIÓN: a la ducha fría.");
-          return;
-        }
-
-        /* FRICCIÓN: Si está encendido, exige justificación para apagarlo */
-        var ds = todayStr();
-        var newId = uid();
-        /* 1. Creamos una tarea especial de "Desactivación" en las tareas únicas (oneoff) */
-        state.oneoff.push({ id: newId, text: "Desactivación del sistema", date: ds });
-        persist();
-        
-        /* 2. Le avisamos a la app que este ID es para apagar el sistema */
-        pendingDeactivationId = newId;
-        
-        /* 3. Abrimos el modal para exigir la evidencia/justificación */
-        openEvidenceModal(ds, newId);
-      }
+      /* Solo se puede ENCENDER (pidiendo las horas). Apagar es automático al terminar el tiempo. */
+      if (state.tracking.status === "inactive") startSessionWithTimer();
 
     } else if (action === "open-class-recorder"){
       document.getElementById("classRecorderModal").classList.add("open");
