@@ -2692,7 +2692,7 @@ function defaultState(){
     if (target && target.subtasks) {
       if (isGlobal) {
         var sub = target.subtasks.find(function(s){ return s.id === subId; });
-        if (sub) sub.done = true;
+        if (sub) { sub.done = true; sub.doneAt = ds; }
       } else {
         if (!state.log[ds]) state.log[ds] = {};
         state.log[ds][subId] = true;
@@ -2973,7 +2973,7 @@ function defaultState(){
     var isProjTask = false;
     state.projects.forEach(function(p){
        var t = p.tasks && p.tasks.find(function(x){ return x.id === id; });
-       if (t) { t.done = true; isProjTask = true; }
+       if (t) { t.done = true; t.doneAt = ds; isProjTask = true; }
     });
     if (ds === "project") {
       var p = state.projects.find(function(x){ return x.id === id; });
@@ -2990,7 +2990,7 @@ function defaultState(){
     var isProjTask = false;
     state.projects.forEach(function(p){
        var t = p.tasks && p.tasks.find(function(x){ return x.id === id; });
-       if (t) { t.done = false; isProjTask = true; }
+       if (t) { t.done = false; delete t.doneAt; isProjTask = true; }
     });
     if (!isProjTask) {
       if (state.log[ds]) delete state.log[ds][id];
@@ -4949,12 +4949,20 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
   /* ===================== Render: pestaña Gestor de Evidencias ===================== */
   var currentEvList = [];
+  var galleryView = "evidencias"; /* "evidencias" | "completadas" */
 
   function renderEvidencias(){
     setTimeout(loadEvidenciasGallery, 50);
+    var segOn  = "background:var(--brass-500); color:#1a1a1a; border:1px solid var(--brass-500);";
+    var segOff = "background:var(--ink-800-solid); color:var(--text-muted); border:1px solid var(--ink-700);";
+    var segBase = "flex:1; padding:9px 10px; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font-body);";
     return (
       '<section class="block">' +
-        '<div class="block-title">Galería de Evidencias</div>' +
+        '<div class="block-title">' + (galleryView === "completadas" ? 'Tareas completadas' : 'Galería de Evidencias') + '</div>' +
+        '<div style="display:flex; gap:8px; margin-bottom:12px;">' +
+          '<button data-action="gallery-view" data-view="evidencias" style="' + segBase + (galleryView === "evidencias" ? segOn : segOff) + '">📷 Evidencias</button>' +
+          '<button data-action="gallery-view" data-view="completadas" style="' + segBase + (galleryView === "completadas" ? segOn : segOff) + '">✅ Completadas</button>' +
+        '</div>' +
         '<div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">' +
           '<select id="evFilterType" style="background:var(--ink-800-solid); border:1px solid var(--ink-700); color:var(--text-light); padding:8px 12px; border-radius:var(--radius-sm); font-family:var(--font-body); font-size:13px; color-scheme:dark; flex:1; min-width:140px;">' +
             '<option value="all">Todas las tareas</option>' +
@@ -4991,7 +4999,163 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         return dA < dB ? 1 : (dA > dB ? -1 : 0);
     });
     currentEvList = evList;
-    renderEvGalleryItems();
+    renderGalleryBody();
+  }
+
+  function renderGalleryBody(){
+    if (galleryView === "completadas") renderCompletedTasks();
+    else renderEvGalleryItems();
+  }
+
+  /* ——— Vista "Completadas": qué se hizo cada día, con o sin evidencia ——— */
+  function renderCompletedTasks(){
+    var container = document.getElementById("evGalleryContainer");
+    if (!container) return;
+    var typeFilt  = document.getElementById("evFilterType")  ? document.getElementById("evFilterType").value  : "all";
+    var monthFilt = document.getElementById("evFilterMonth") ? document.getElementById("evFilterMonth").value : "";
+    var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+    var evKeys = {}, evNameByKey = {}, evDateById = {};
+    (currentEvList || []).forEach(function(e){
+      evKeys[e.key] = true;
+      evNameByKey[e.key] = e.data && e.data.taskName;
+      if (e.date !== "project") evDateById[e.id] = e.date;
+    });
+
+    /* Catálogo id -> información (tareas y subtareas) */
+    var info = {};
+    function addSubs(parent, type, projName){
+      (parent.subtasks || []).forEach(function(sb){
+        info[sb.id] = { text: sb.text, type: type, parentId: parent.id, parentText: parent.text, proj: projName };
+      });
+    }
+    state.habits.forEach(function(h){ info[h.id] = { text: h.text, type: "habit" }; addSubs(h, "habit"); });
+    state.routines.forEach(function(r){ info[r.id] = { text: r.text, type: "habit" }; addSubs(r, "habit"); });
+    state.oneoff.forEach(function(o){ info[o.id] = { text: o.text, type: "oneoff" }; addSubs(o, "oneoff"); });
+
+    var days = {};
+    function getGroup(ds, id, text, type, proj){
+      if (!days[ds]) days[ds] = { groups: {}, order: [] };
+      var d = days[ds];
+      if (!d.groups[id]){
+        d.groups[id] = { id: id, text: text, type: type, proj: proj || null, done: false, subs: [], secs: 0 };
+        d.order.push(id);
+      }
+      return d.groups[id];
+    }
+    function secsOf(ds, id, isSub){
+      var tl = state.timeLog[ds];
+      if (!tl) return 0;
+      return Math.round(((isSub ? (tl.subtasks && tl.subtasks[id]) : (tl.tasks && tl.tasks[id])) || 0));
+    }
+
+    /* 1) Hábitos, rutinas y tareas únicas: registro diario */
+    Object.keys(state.log || {}).forEach(function(ds){
+      if (!DATE_RE.test(ds)) return;
+      var dayLog = state.log[ds] || {};
+      Object.keys(dayLog).forEach(function(id){
+        if (!dayLog[id]) return;
+        var inf = info[id];
+        if (!inf){
+          /* Tarea eliminada: intentamos rescatar el nombre de la evidencia */
+          var nm = evNameByKey[ds + "_" + id];
+          if (!nm) return;
+          inf = { text: nm, type: "oneoff" };
+        }
+        if (inf.text === "Desactivación del sistema") return;
+        if (inf.parentId){
+          var pg = getGroup(ds, inf.parentId, inf.parentText, inf.type);
+          pg.subs.push({ text: inf.text, secs: secsOf(ds, id, true) });
+        } else {
+          var g = getGroup(ds, id, inf.text, inf.type);
+          g.done = true;
+          g.secs = secsOf(ds, id, false);
+        }
+      });
+    });
+
+    /* 2) Subtareas de tareas únicas (se guardan en la propia tarea) */
+    state.oneoff.forEach(function(o){
+      (o.subtasks || []).forEach(function(sb){
+        if (!sb.done) return;
+        var ds = sb.doneAt || o.date;
+        if (!DATE_RE.test(ds)) return;
+        var g = getGroup(ds, o.id, o.text, "oneoff");
+        g.subs.push({ text: sb.text, secs: secsOf(ds, sb.id, true) });
+      });
+    });
+
+    /* 3) Proyectos: tareas, subtareas y proyectos completados */
+    state.projects.forEach(function(p){
+      (p.tasks || []).forEach(function(t){
+        var tds = t.doneAt || evDateById[t.id] || "undated";
+        if (t.done){
+          var g = getGroup(tds, t.id, t.text, "project", p.text);
+          g.done = true;
+          g.secs = tds === "undated" ? 0 : secsOf(tds, t.id, false);
+        }
+        (t.subtasks || []).forEach(function(sb){
+          if (!sb.done) return;
+          var sds = sb.doneAt || t.doneAt || evDateById[t.id] || "undated";
+          var sg = getGroup(sds, t.id, t.text, "project", p.text);
+          sg.subs.push({ text: sb.text, secs: sds === "undated" ? 0 : secsOf(sds, sb.id, true) });
+        });
+      });
+      if (p.status === "completed" && p.completedAt && DATE_RE.test(p.completedAt)){
+        var pgx = getGroup(p.completedAt, "proj_" + p.id, "Proyecto completado: " + p.text, "project");
+        pgx.done = true;
+      }
+    });
+
+    /* Orden y filtros */
+    var dayKeys = Object.keys(days).filter(function(ds){
+      if (monthFilt && (ds === "undated" || ds.substring(0, 7) !== monthFilt)) return false;
+      return true;
+    }).sort(function(a, b){
+      if (a === "undated") return 1;
+      if (b === "undated") return -1;
+      return a < b ? 1 : (a > b ? -1 : 0);
+    });
+
+    var totalItems = 0, totalDays = 0, html = "";
+    dayKeys.forEach(function(ds){
+      var d = days[ds];
+      var groups = d.order.map(function(id){ return d.groups[id]; }).filter(function(g){
+        if (typeFilt !== "all" && g.type !== typeFilt) return false;
+        return g.done || g.subs.length > 0;
+      });
+      if (groups.length === 0) return;
+      var count = 0;
+      var rows = groups.map(function(g){
+        count += (g.done ? 1 : 0) + g.subs.length;
+        var ev = (ds !== "undated" && evKeys[ds + "_" + g.id])
+          ? ' <button data-action="view-evidence-from-gallery" data-key="' + ds + '_' + g.id + '" title="Ver evidencia" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0 2px;">📷</button>' : '';
+        var time = g.secs > 0 ? ' <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted); background:rgba(0,0,0,.3); padding:2px 6px; border-radius:6px; border:1px solid var(--ink-700);">⏱ ' + formatDuration(g.secs) + '</span>' : '';
+        var proj = g.proj ? ' <span style="font-size:10px; color:var(--text-faint);">📁 ' + escapeHtml(g.proj) + '</span>' : '';
+        var head = g.done
+          ? '<div style="font-size:13.5px; color:var(--text-light); display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;"><span style="color:var(--done);">✓</span><span>' + escapeHtml(g.text) + '</span>' + time + ev + proj + '</div>'
+          : '<div style="font-size:12.5px; color:var(--text-muted); display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;"><span>▸</span><span>' + escapeHtml(g.text) + '</span>' + proj + '</div>';
+        var subs = g.subs.map(function(sb){
+          return '<div style="margin:4px 0 0 22px; font-size:12.5px; color:var(--text-light); display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;"><span style="color:var(--done);">↳ ✓</span><span>' + escapeHtml(sb.text) + '</span>' +
+                 (sb.secs > 0 ? '<span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">⏱ ' + formatDuration(sb.secs) + '</span>' : '') + '</div>';
+        }).join("");
+        return '<div style="padding:8px 0; border-top:1px solid var(--ink-700);">' + head + subs + '</div>';
+      }).join("");
+      totalItems += count; totalDays++;
+      html += '<div style="background:var(--ink-850); border:1px solid var(--ink-700); border-radius:8px; padding:12px 14px; margin-bottom:12px;">' +
+                '<div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:4px;">' +
+                  '<div style="font-family:var(--font-display); font-size:14px; color:var(--brass-300); font-weight:600;">' + (ds === "undated" ? "Sin fecha registrada" : escapeHtml(formatDateLong(ds))) + '</div>' +
+                  '<div style="font-size:11px; color:var(--text-muted); white-space:nowrap;">' + count + ' cumplida' + (count === 1 ? '' : 's') + '</div>' +
+                '</div>' + rows +
+              '</div>';
+    });
+
+    if (!html){
+      container.innerHTML = '<div class="empty-state">No hay tareas completadas que coincidan con los filtros.</div>';
+      return;
+    }
+    container.innerHTML =
+      '<div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">' + totalItems + ' completada' + (totalItems === 1 ? '' : 's') + ' en ' + totalDays + ' día' + (totalDays === 1 ? '' : 's') + '</div>' + html;
   }
 
   function renderEvGalleryItems() {
@@ -5984,6 +6148,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     } else if (action === "view-evidence"){
       openViewEvidenceModal(el.getAttribute("data-date"), el.getAttribute("data-id"));
 
+    } else if (action === "gallery-view"){
+      galleryView = el.getAttribute("data-view") === "completadas" ? "completadas" : "evidencias";
+      renderActiveTab();
+
     } else if (action === "view-evidence-from-gallery"){
       var gkey = el.getAttribute("data-key");
       var gparts = gkey.split("_");
@@ -6050,6 +6218,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         var tt = pp.tasks.find(function(x){ return x.id === ttid; });
         if (tt) {
           tt.done = !tt.done;
+          if (tt.done) tt.doneAt = todayStr(); else delete tt.doneAt;
           persist(); renderActiveTab();
         }
       }
@@ -6226,7 +6395,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
          var tObj = pObj.tasks.find(function(x){ return x.id === mTid; });
          if (tObj && tObj.subtasks) {
             var sObj = tObj.subtasks.find(function(x){ return x.id === mSid; });
-            if (sObj) { sObj.done = el.checked; persist(); renderProjectPlanModal(mPid); }
+            if (sObj) { sObj.done = el.checked; if (sObj.done) sObj.doneAt = todayStr(); else delete sObj.doneAt; persist(); renderProjectPlanModal(mPid); }
          }
       }
     } else if (action === "del-proj-subtask-modal"){
@@ -6326,7 +6495,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (target && target.subtasks) {
         if (isGlobal) {
           var sub = target.subtasks.find(function(s){ return s.id === subId; });
-          if (sub) sub.done = isDone;
+          if (sub) { sub.done = isDone; if (isDone) sub.doneAt = ds; else delete sub.doneAt; }
         } else {
           if (isDone) {
             if (!state.log[ds]) state.log[ds] = {};
@@ -6508,7 +6677,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   document.addEventListener("change", function(e){
     /* Filtros de la galería de evidencia */
     if (e.target.id === "evFilterType" || e.target.id === "evFilterMonth") {
-      renderEvGalleryItems();
+      renderGalleryBody();
       return;
     }
     /* Seleccionar archivo de importación */
