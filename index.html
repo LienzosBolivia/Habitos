@@ -2888,13 +2888,26 @@ function defaultState(){
 
   setInterval(updateLiveTimers, 1000);
 
+  /* ===================== Pausas por día ===================== */
+  /* Cada hábito/rutina guarda pauseLog: [{from:"YYYY-MM-DD", to:"YYYY-MM-DD"|null}]
+     (pausado desde `from` inclusive hasta `to` exclusive; to=null = sigue pausado). */
+  function isPausedOn(item, ds){
+    if (item.pauseLog && item.pauseLog.length){
+      return item.pauseLog.some(function(r){
+        return ds >= r.from && (!r.to || ds < r.to);
+      });
+    }
+    /* Datos antiguos sin historial: comportamiento previo (pausado desde hoy en adelante) */
+    return !!item.isPaused && ds >= todayStr();
+  }
+
   /* ===================== Lógica de tareas ===================== */
   function getTasksForDate(ds){
     var tasks = [];
     /* Hábitos diarios */
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
-      if (h.isPaused && ds >= todayStr()) return; /* Pausado: oculto desde hoy en adelante */
+      if (isPausedOn(h, ds)) return; /* Pausado ese día: no se muestra */
       if (ds >= h.createdAt) {
         var habitSubs = h.subtasks ? h.subtasks.filter(function(s){
             var created = s.createdAt || "2020-01-01";
@@ -2916,7 +2929,7 @@ function defaultState(){
     /* Rutinas semanales */
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
-      if (r.isPaused && ds >= todayStr()) return;
+      if (isPausedOn(r, ds)) return;
       if (r.days && r.days.indexOf(dayOfWeek) !== -1){
         var routineSubs = r.subtasks ? r.subtasks.filter(function(s){
             var created = s.createdAt || "2020-01-01";
@@ -3401,6 +3414,10 @@ function defaultState(){
       } else {
         var allT = getTasksForDate(ds);
         var t = allT.find(function(x){ return x.id === id; });
+        if (!t) {
+          var hr = state.habits.find(function(x){ return x.id === id; }) || state.routines.find(function(x){ return x.id === id; });
+          if (hr) taskText = hr.text;
+        }
         if (t) {
           taskText = t.text;
           if (t.type === "oneoff") {
@@ -4703,12 +4720,12 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var tasks = [];
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
-      if (h.isPaused && ds >= todayStr()) return;
+      if (isPausedOn(h, ds)) return;
       if (ds >= h.createdAt) tasks.push({ id: h.id, text: h.text, type: "habit" });
     });
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
-      if (r.isPaused && ds >= todayStr()) return;
+      if (isPausedOn(r, ds)) return;
       if (r.days && r.days.indexOf(dayOfWeek) !== -1) tasks.push({ id: r.id, text: r.text, type: "routine" });
     });
     return tasks;
@@ -6170,9 +6187,25 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (!ph) ph = state.routines.find(function(x){ return x.id === pid2; });
       if (ph) {
         ph.isPaused = !isActive;
+        ph.pauseLog = ph.pauseLog || [];
+        var tdy = todayStr();
+        if (ph.isPaused){
+          /* Migración: si ya estaba pausado sin historial, no hay nada que cerrar */
+          var open = ph.pauseLog.some(function(r){ return !r.to; });
+          if (!open) ph.pauseLog.push({ from: tdy, to: null });
+        } else {
+          ph.pauseLog.forEach(function(r){
+            if (!r.to){
+              if (r.from >= tdy) r.to = r.from; /* pausó y reactivó el mismo día: intervalo vacío */
+              else r.to = tdy;
+            }
+          });
+          /* Quitar intervalos vacíos */
+          ph.pauseLog = ph.pauseLog.filter(function(r){ return r.to !== r.from; });
+        }
         persist();
         setTimeout(function(){ renderActiveTab(); }, 150);
-        showToast(ph.isPaused ? "Pausado. Se ocultará de hoy en adelante." : "Activado. Vuelve a estar en seguimiento.");
+        showToast(ph.isPaused ? "Pausado. Se oculta del calendario desde hoy; lo anterior queda intacto." : "Activado. Vuelve a estar en seguimiento.");
       }
 
     } else if (action === "archive-habit"){
