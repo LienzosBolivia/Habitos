@@ -2511,6 +2511,9 @@ function defaultState(){
     return base;
   }
 
+  var AUTO_START_HOUR = 6;      /* hora del encendido automático diario */
+  var AUTO_SESSION_HOURS = 8;   /* duración de la sesión automática */
+
   /* Pide las horas de la sesión (máx. 24) y arranca la cuenta regresiva. Sin vuelta atrás. */
   function startSessionWithTimer(){
     var raw = prompt("⏳ ¿Cuántas horas durará esta sesión? (máximo 24)\n\nCuando se acabe el tiempo el sistema se apagará solo. No se puede apagar antes.");
@@ -2740,6 +2743,31 @@ function defaultState(){
       }
       var cdEl = document.querySelector("[data-live-countdown]");
       if (cdEl) cdEl.textContent = formatCountdown(state.tracking.sessionEndsAt - Date.now());
+    }
+
+    /* --- FASE 0b: ENCENDIDO AUTOMÁTICO DIARIO (6:00, sesión de 8 h) --- */
+    if (state.tracking && state.tracking.status === "inactive" && state.tracking.lastAutoStartDs !== today){
+      var autoStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), AUTO_START_HOUR, 0, 0, 0).getTime();
+      var autoEndMs   = autoStartMs + AUTO_SESSION_HOURS * 3600 * 1000;
+      if (now.getTime() >= autoStartMs){
+        state.tracking.lastAutoStartDs = today; /* una sola vez por día */
+        if (now.getTime() < autoEndMs){
+          /* Arranca con la hora real de las 6:00 aunque la app se abra más tarde */
+          state.tracking.status        = "thinking";
+          state.tracking.taskId        = null;
+          state.tracking.subtaskId     = null;
+          state.tracking.taskDs        = null;
+          state.tracking.startTime     = autoStartMs;
+          state.tracking.targetLimit   = null;
+          state.tracking.sessionHours  = AUTO_SESSION_HOURS;
+          state.tracking.sessionEndsAt = autoEndMs;
+          persist();
+          safeRerenderActiveTab();
+          showToast("☀️ Sistema encendido automáticamente (" + AUTO_SESSION_HOURS + " h).");
+        } else {
+          persist(); /* la ventana de hoy ya pasó: no se enciende */
+        }
+      }
     }
 
     /* --- FASE 1: AUTO-INICIO OBLIGATORIO (VIAJE EN EL TIEMPO) --- */
