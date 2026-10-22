@@ -2901,13 +2901,37 @@ function defaultState(){
     return !!item.isPaused && ds >= todayStr();
   }
 
+  /* ¿Hay registro de actividad ese día? (hábito o subtarea cumplida, o tiempo registrado) */
+  function hasRecordOn(item, ds){
+    var lg = state.log[ds] || {};
+    var tl = state.timeLog[ds] || {};
+    var ids = [item.id].concat((item.subtasks || []).map(function(x){ return x.id; }));
+    for (var i = 0; i < ids.length; i++){
+      if (lg[ids[i]]) return true;
+      if (tl.tasks && tl.tasks[ids[i]] > 0) return true;
+      if (tl.subtasks && tl.subtasks[ids[i]] > 0) return true;
+    }
+    return false;
+  }
+
+  /* Hábito diario: ¿se muestra en el calendario ese día?
+     - Hoy/futuro: se oculta si está pausado.
+     - Días pasados: se muestra si tiene registro (cumplido) o si seguía activo al terminar el día
+       (si no se cumplió cuenta como incumplido). Si estaba pausado y sin registro, no aparece. */
+  function habitVisibleOn(h, ds){
+    if (ds >= todayStr()) return !isPausedOn(h, ds);
+    if (hasRecordOn(h, ds)) return true;
+    var pausedThen = (h.pauseLog && h.pauseLog.length) ? isPausedOn(h, ds) : !!h.isPaused;
+    return !pausedThen;
+  }
+
   /* ===================== Lógica de tareas ===================== */
   function getTasksForDate(ds){
     var tasks = [];
     /* Hábitos diarios */
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
-      if (isPausedOn(h, ds)) return; /* Pausado ese día: no se muestra */
+      if (!habitVisibleOn(h, ds)) return;
       if (ds >= h.createdAt) {
         var habitSubs = h.subtasks ? h.subtasks.filter(function(s){
             var created = s.createdAt || "2020-01-01";
@@ -2929,7 +2953,7 @@ function defaultState(){
     /* Rutinas semanales */
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
-      if (isPausedOn(r, ds)) return;
+      if (r.isPaused && ds >= todayStr()) return; /* rutinas por día de semana: siempre se muestran en días pasados */
       if (r.days && r.days.indexOf(dayOfWeek) !== -1){
         var routineSubs = r.subtasks ? r.subtasks.filter(function(s){
             var created = s.createdAt || "2020-01-01";
@@ -4720,12 +4744,12 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var tasks = [];
     state.habits.forEach(function(h){
       if (h.archivedAt && ds > h.archivedAt) return;
-      if (isPausedOn(h, ds)) return;
+      if (!habitVisibleOn(h, ds)) return;
       if (ds >= h.createdAt) tasks.push({ id: h.id, text: h.text, type: "habit" });
     });
     var dayOfWeek = strToDate(ds).getDay();
     state.routines.forEach(function(r){
-      if (isPausedOn(r, ds)) return;
+      if (r.isPaused && ds >= todayStr()) return; /* rutinas por día de semana: siempre se muestran en días pasados */
       if (r.days && r.days.indexOf(dayOfWeek) !== -1) tasks.push({ id: r.id, text: r.text, type: "routine" });
     });
     return tasks;
