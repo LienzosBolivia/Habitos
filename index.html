@@ -2751,7 +2751,7 @@ function defaultState(){
     }
 
     /* --- FASE 0b: ENCENDIDO AUTOMÁTICO DIARIO (6:00, sesión de 8 h) --- */
-    if (state.tracking && state.tracking.status === "inactive" && state.tracking.lastAutoStartDs !== today){
+    if (state.tracking && state.tracking.status === "inactive" && state.tracking.autoStartEnabled !== false && state.tracking.lastAutoStartDs !== today){
       var autoStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), AUTO_START_HOUR, 0, 0, 0).getTime();
       var autoEndMs   = autoStartMs + AUTO_SESSION_HOURS * 3600 * 1000;
       if (now.getTime() >= autoStartMs){
@@ -4138,6 +4138,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           '<div class="ms-timer" style="font-size:16px; color:var(--brass-300);" data-live-countdown>' + formatCountdown(msLeft) + '</div>' +
         '</div>'
       : '<button class="ms-toggle-btn" data-action="toggle-master">▶ Encender sesión</button>';
+    var autoOn = state.tracking.autoStartEnabled !== false;
+    btnHtml += '<button type="button" role="switch" aria-checked="' + autoOn + '" data-action="toggle-auto-start" ' +
+      'title="Encendido automático diario a las ' + AUTO_START_HOUR + ':00 (' + AUTO_SESSION_HOURS + ' h)" ' +
+      'style="display:flex; align-items:center; gap:6px; margin-top:6px; padding:0; background:none; border:none; cursor:pointer; font-size:11px; color:var(--text-muted);">' +
+        '<span style="position:relative; width:30px; height:16px; border-radius:8px; flex:none; background:' + (autoOn ? 'var(--brass-300)' : 'rgba(128,128,128,.45)') + '; transition:background .2s;">' +
+          '<span style="position:absolute; top:2px; left:' + (autoOn ? '16px' : '2px') + '; width:12px; height:12px; border-radius:50%; background:#fff; transition:left .2s;"></span>' +
+        '</span>' +
+        '<span>Auto ' + AUTO_START_HOUR + ':00 · ' + (autoOn ? 'activado' : 'apagado') + '</span>' +
+      '</button>';
     var timerSec = st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
     
     var muteIcon = isTrainMuted 
@@ -6707,6 +6716,27 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       /* Lo guardamos exactamente como string "true" o "false" para que no se trabe en Android */
       localStorage.setItem("bitacora_train_muted", isTrainMuted ? "true" : "false");
       syncTrainAudio();
+      renderActiveTab();
+
+    } else if (action === "toggle-auto-start"){
+      var enabling = state.tracking.autoStartEnabled === false;
+      state.tracking.autoStartEnabled = enabling;
+      persist();
+      if (enabling) {
+        /* Al activarlo: si hoy no hubo encendido automático y aún estamos dentro de la ventana
+           (6:00 + 8 h), se enciende ya, contando el tiempo desde las 6:00. Fuera de la ventana no se enciende. */
+        var wasOff = state.tracking.status === "inactive";
+        updateLiveTimers();
+        if (wasOff && state.tracking.status !== "inactive") {
+          /* el aviso "☀️ Sistema encendido" ya lo muestra el encendido automático */
+        } else if (wasOff) {
+          showToast("Encendido automático activado. Hoy ya pasó la ventana de las " + AUTO_SESSION_HOURS + " h; volverá mañana a las " + AUTO_START_HOUR + ":00.");
+        } else {
+          showToast("Encendido automático activado.");
+        }
+      } else {
+        showToast("Encendido automático apagado. No se encenderá solo hasta que lo actives.");
+      }
       renderActiveTab();
 
     } else if (action === "toggle-master"){
