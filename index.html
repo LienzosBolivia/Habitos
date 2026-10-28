@@ -2166,7 +2166,7 @@
     var p = s.split("-");
     return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
   }
-  function todayStr(){ return dateToStr(nowDate()); }
+  function todayStr(){ return dateToStr(new Date()); }
   function addDays(ds, n){ var d = strToDate(ds); d.setDate(d.getDate()+n); return dateToStr(d); }
   function formatDateLong(ds){
     var d = strToDate(ds);
@@ -2495,7 +2495,7 @@ function defaultState(){
 
     /* --- CORTE DE MEDIANOCHE --- */
     var startDs = dateToStr(new Date(state.tracking.startTime));
-    var todayDs = atMs ? dateToStr(new Date(now)) : todayStr();
+    var todayDs = dateToStr(new Date(now));
     var elapsedSec;
 
     if (startDs !== todayDs) {
@@ -2533,7 +2533,7 @@ function defaultState(){
 
     if (elapsedSec <= 0){ state.tracking.startTime = now; return; }
 
-    var ds = state.tracking.taskDs || todayStr();
+    var ds = state.tracking.taskDs || dateToStr(new Date(now));
     if (!state.timeLog[ds]) state.timeLog[ds] = { thinking: 0, tasks: {}, subtasks: {} };
     if (!state.timeLog[ds].tasks) state.timeLog[ds].tasks = {};
     if (!state.timeLog[ds].subtasks) state.timeLog[ds].subtasks = {};
@@ -2577,7 +2577,7 @@ function defaultState(){
   function getThinkingLiveSeconds(ds){
     var log  = state.timeLog[ds];
     var base = (log && log.thinking) || 0;
-    if (state.tracking.status === "thinking" && state.tracking.startTime && (state.tracking.taskDs || todayStr()) === ds){
+    if (state.tracking.status === "thinking" && state.tracking.startTime && (state.tracking.taskDs || dateToStr(nowDate())) === ds){
       base += (nowMs() - state.tracking.startTime) / 1000;
     }
     return base;
@@ -2804,8 +2804,10 @@ function defaultState(){
   /* Refresca los cronómetros visibles y ejecuta viajes en el tiempo */
   function updateLiveTimers(){
     if (!state || window.isImportingBackup) return; /* Bloqueo de seguridad durante restauraciones */
-    var today = todayStr();
-    var now = nowDate();
+    var today = todayStr();      /* hora del dispositivo: tareas, calendario, etc. */
+    var now = new Date();
+    var tnow = nowDate();        /* hora internacional: solo tiempo de ejecución del sistema */
+    var tToday = dateToStr(tnow);
 
     /* --- FASE 0: TEMPORIZADOR DE SESIÓN (cuenta regresiva) --- */
     if (state.tracking && state.tracking.status !== "inactive"){
@@ -2823,12 +2825,12 @@ function defaultState(){
     }
 
     /* --- FASE 0b: ENCENDIDO AUTOMÁTICO DIARIO (6:00, sesión de 8 h) --- */
-    if (state.tracking && state.tracking.status === "inactive" && state.tracking.autoStartEnabled !== false && state.tracking.lastAutoStartDs !== today){
-      var autoStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), AUTO_START_HOUR, 0, 0, 0).getTime();
+    if (state.tracking && state.tracking.status === "inactive" && state.tracking.autoStartEnabled !== false && state.tracking.lastAutoStartDs !== tToday){
+      var autoStartMs = new Date(tnow.getFullYear(), tnow.getMonth(), tnow.getDate(), AUTO_START_HOUR, 0, 0, 0).getTime();
       var autoEndMs   = autoStartMs + AUTO_SESSION_HOURS * 3600 * 1000;
-      if (now.getTime() >= autoStartMs){
-        state.tracking.lastAutoStartDs = today; /* una sola vez por día */
-        if (now.getTime() < autoEndMs){
+      if (tnow.getTime() >= autoStartMs){
+        state.tracking.lastAutoStartDs = tToday; /* una sola vez por día */
+        if (tnow.getTime() < autoEndMs){
           /* Arranca con la hora real de las 6:00 aunque la app se abra más tarde */
           state.tracking.status        = "thinking";
           state.tracking.taskId        = null;
@@ -2838,12 +2840,12 @@ function defaultState(){
           state.tracking.targetLimit   = null;
           state.tracking.sessionHours  = AUTO_SESSION_HOURS;
           state.tracking.sessionEndsAt = autoEndMs;
-          state.tracking.lastAutoStartAt = now.getTime(); /* última hora (internacional) en que se aplicó el encendido */
+          state.tracking.lastAutoStartAt = tnow.getTime(); /* última hora (internacional) en que se aplicó el encendido */
           persist();
           safeRerenderActiveTab();
           showToast("☀️ Sistema encendido automáticamente (" + AUTO_SESSION_HOURS + " h).");
         } else {
-          state.tracking.lastAutoStartAt = now.getTime();
+          state.tracking.lastAutoStartAt = tnow.getTime();
           persist(); /* la ventana de hoy ya pasó: no se enciende */
         }
       }
@@ -2889,7 +2891,7 @@ function defaultState(){
             state.tracking.taskId = t.id;
             state.tracking.subtaskId = null;
             state.tracking.taskDs = today;
-            state.tracking.startTime = targetTimeMs; /* Inyección retroactiva */
+            state.tracking.startTime = nowMs() - Math.max(0, now.getTime() - targetTimeMs); /* Inyección retroactiva (en reloj de ejecución) */
 
             /* Le inyectamos su límite de tiempo si lo tenía configurado */
             state.tracking.targetLimit = (logDay.taskLimits && logDay.taskLimits[t.id]) ? logDay.taskLimits[t.id] : null;
@@ -3316,7 +3318,7 @@ function defaultState(){
     Object.keys(reminderTimers).forEach(function(k){ clearTimeout(reminderTimers[k]); });
     reminderTimers = {};
     if (!state.reminders || !("Notification" in window) || Notification.permission !== "granted") return;
-    var today = todayStr(), now = nowDate();
+    var today = todayStr(), now = new Date();
     Object.keys(state.reminders).forEach(function(key){
       var parts = key.split("|"), ds = parts[0], taskId = parts[1];
       if (ds !== today) return;
@@ -6421,7 +6423,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
          eso solo pasó al reloj, no en la realidad. Se marca como ya gestionado hoy, sin arrancar
          nada, y el recordatorio sigue funcionando con normalidad desde mañana / los próximos días. */
       if (saveDs === todayStr()){
-        var nowSave = nowDate();
+        var nowSave = new Date();
         var tpSave = timeVal.split(":");
         var targetMinSave  = parseInt(tpSave[0], 10) * 60 + parseInt(tpSave[1], 10);
         var currentMinSave = nowSave.getHours() * 60 + nowSave.getMinutes();
