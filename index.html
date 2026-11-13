@@ -2615,7 +2615,7 @@ function defaultState(){
   /* ===================== Monedas de descompresión ===================== */
   var COIN_BREAK_SEC       = 180;   /* cada moneda = 3 min con el sistema "desactivado" */
   var COIN_COOLDOWN_SEC    = 600;   /* 10 min obligatorios entre una moneda y la siguiente (desde que termina la anterior) */
-  var COIN_TASK_SEC        = 3600;  /* 1 moneda por cada hora de tareas ejecutadas */
+  var COIN_TASK_SEC        = 1800;  /* 1 moneda por cada media hora de tareas ejecutadas */
   var COIN_PROJECT_REWARD  = 5;     /* monedas por proyecto finalizado */
 
   function coinState(){
@@ -2653,7 +2653,7 @@ function defaultState(){
       persist();
     });
   }
-  /* Suma segundos validados al contador; cada hora completa = 1 moneda */
+  /* Suma segundos validados al contador; cada media hora completa = 1 moneda */
   function earnFromTaskSeconds(sec){
     if (!(sec > 0)) return;
     var c = coinState();
@@ -2661,7 +2661,7 @@ function defaultState(){
     var n = Math.floor(c.progressSec / COIN_TASK_SEC);
     if (n > 0){
       c.progressSec -= n * COIN_TASK_SEC;
-      addCoins(n, "1 h de tareas con evidencia");
+      addCoins(n, "30 min de tareas con evidencia");
     }
   }
   function useCoin(){
@@ -2679,7 +2679,7 @@ function defaultState(){
       return;
     }
     if ((c.balance || 0) <= 0){
-      showToast("Sin monedas. 1 h de tareas = 1 moneda; proyecto = " + COIN_PROJECT_REWARD + ".");
+      showToast("Sin monedas. 30 min de tareas = 1 moneda; proyecto = " + COIN_PROJECT_REWARD + ".");
       return;
     }
     flushTime(); /* guarda lo trabajado hasta ahora */
