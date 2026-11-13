@@ -1527,6 +1527,20 @@
   .rpg-card h2{font-size:20px;color:var(--brass-300);} .rpg-card p{font-size:12px;line-height:1.6;color:var(--text-muted);}
   .rpg-item{padding:12px;margin:10px 0;border:1px solid var(--ink-700);border-radius:10px;background:var(--ink-800-solid);}
   .rpg-card button{margin:4px 4px 4px 0;} .rpg-damaged{color:var(--missed)!important;}
+  .welcome-hero{padding:24px 20px;background:radial-gradient(circle at 90% 0,#a87b3c35,transparent 55%),var(--ink-800-solid);border:1px solid var(--brass-600);border-radius:18px;margin-bottom:18px;}
+  .welcome-kicker{font:10px var(--font-mono);letter-spacing:.08em;color:var(--brass-300);}
+  .welcome-hero h2{font-size:27px;margin-top:10px;color:var(--parchment);} .welcome-hero p,.welcome-pack p{font-size:13px;line-height:1.6;color:var(--text-muted);}
+  .welcome-progress{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--brass-300);flex-wrap:wrap;margin-top:20px;}
+  .welcome-hero progress{width:100%;height:10px;accent-color:var(--brass-500);margin-top:10px;}
+  .welcome-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:22px;}
+  .welcome-pack{padding:14px;border:1px solid var(--ink-700);border-radius:14px;background:var(--ink-800-solid);display:flex;flex-direction:column;align-items:flex-start;gap:10px;min-width:0;}
+  .welcome-pack-head{display:flex;justify-content:space-between;gap:8px;font:9px var(--font-mono);color:var(--text-muted);width:100%;flex-wrap:wrap;}
+  .welcome-chest{font-size:36px;line-height:1.2;} .welcome-pack h3{font-size:17px;color:var(--parchment);}
+  .welcome-coins{font:600 22px var(--font-mono);color:var(--brass-300);} .welcome-item{font-size:11px;line-height:1.5;color:var(--text-light);}
+  .welcome-pack button{margin-top:auto;font-size:12px;padding:10px;width:100%;min-height:42px;}
+  .welcome-pack.is-ready{border-color:var(--brass-500);box-shadow:0 0 20px #c9974a18;} .welcome-pack.is-claimed{border-color:var(--done);}
+  .welcome-pack.is-locked .welcome-chest{filter:grayscale(1);opacity:.6;} .welcome-pack:last-child{grid-column:1/-1;}
+  .nav-btn{min-width:0;} @media(max-width:340px){.welcome-grid{grid-template-columns:1fr;}.nav-btn{font-size:8px;}}
 </style>
 </head>
 <body>
@@ -1675,6 +1689,10 @@
     <button class="nav-btn" data-tab="estadisticas" aria-label="Estadísticas">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="19" y1="20" x2="19" y2="4"/></svg>
       <span>Estadísticas</span>
+    </button>
+    <button class="nav-btn" data-tab="bonos" aria-label="Bonos de bienvenida">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13M12 8H8a3 3 0 1 1 3-3l1 3zm0 0h4a3 3 0 1 0-3-3l-1 3z"/></svg>
+      <span>Bonos<span id="welcomeNavDot" aria-hidden="true"></span></span>
     </button>
     <button class="nav-btn" data-tab="evidencias" aria-label="Galería">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -2820,8 +2838,92 @@ function defaultState(){
     r.xp=r.xpUnits/120;
     ["inv","habitPaid","shieldUsed","forged"].forEach(function(k){ if (!r[k]) r[k] = {}; });
     Object.keys(SHOP_ITEMS).forEach(function(k){ if (!Number.isSafeInteger(r.inv[k]) || r.inv[k] < 0) r.inv[k] = 0; });
+    if (!r.starter) r.starter={version:1,startedOn:welcomeDay(),claims:[]};
     return r;
   }
+  var WELCOME_PACKS = [
+    {coins:5,items:{}}, {coins:5,items:{reroll:1}}, {coins:6,items:{}},
+    {coins:6,items:{condenser:1}}, {coins:7,items:{}}, {coins:7,items:{reroll:1}},
+    {coins:9,items:{shield:1}}
+  ]; /* Total: 45 monedas, 2 tickets, 1 condensador y 1 escudo. */
+  var welcomeClaimBusy=false;
+  function welcomeDay(){ return dateToStr(nowDate()); }
+  function welcomeAvailability(){
+    var starter=rpgState().starter, count=starter.claims.length, today=welcomeDay();
+    var last=count?starter.claims[count-1].claimedOn:null;
+    return {next:count+1,complete:count===7,available:count<7 && (!last||today>last) && today>=addDays(starter.startedOn,count)};
+  }
+  function updateWelcomeBadge(){
+    if(!state)return;
+    var dot=document.getElementById("welcomeNavDot"), available=welcomeAvailability().available;
+    if(dot){dot.textContent=available?" ●":"";dot.style.color="var(--brass-300)";}
+  }
+  function commitWelcomeGrant(expectedClaims, expectedRaw, next){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction("appData","readwrite"), store=tx.objectStore("appData"), req=store.get(STORAGE_KEY), reason=null;
+      req.onsuccess=function(){
+        try {
+          var current=req.result, parsed=current?JSON.parse(current):null;
+          var claims=parsed&&parsed.rpg&&parsed.rpg.starter?parsed.rpg.starter.claims:[];
+          if(current!==expectedRaw||JSON.stringify(claims)!==JSON.stringify(expectedClaims)){
+            reason=new Error("La bitácora cambió en otra pestaña. Recarga antes de reclamar; no se otorgó otro pack.");tx.abort();return;
+          }
+          store.put(JSON.stringify(next),STORAGE_KEY);
+        } catch(err){reason=err;tx.abort();}
+      };
+      tx.oncomplete=function(){resolve(true);};
+      tx.onabort=tx.onerror=function(){reject(reason||tx.error||new Error("No se pudo guardar el pack. Puedes volver a intentar."));};
+    });
+  }
+  async function claimWelcomePack(day){
+    if(!dataReady||welcomeClaimBusy||window.isImportingBackup)return false;
+    if(driveBusy||restorePreparing){showToast("Espera a que termine la sincronización o restauración.");return false;}
+    var info=welcomeAvailability();
+    if(!info.available||day!==info.next||!Number.isInteger(day)){showToast("Solo puedes abrir el siguiente pack, una vez por día.");return false;}
+    welcomeClaimBusy=true;window.isImportingBackup=true;
+    try {
+      await pendingLocalWrites;await pendingEvidenceWrites;await initDB();
+      if(localSaveFailed)throw new Error("Resuelve el error de guardado antes de reclamar el pack.");
+      var expected=await storageGet(STORAGE_KEY), snapshot=JSON.parse(JSON.stringify(state)), pack=WELCOME_PACKS[day-1];
+      var saved=expected?JSON.parse(expected):null;
+      if(saved){
+        /* No reemplazar un saldo o inventario que cambió en otra pestaña. */
+        if(((saved.coins||{}).balance||0)!==((snapshot.coins||{}).balance||0)||
+          Object.keys(SHOP_ITEMS).some(function(k){return (((saved.rpg||{}).inv||{})[k]||0)!==(snapshot.rpg.inv[k]||0);}))
+          throw new Error("El saldo o inventario cambió en otra pestaña. Recarga antes de reclamar.");
+      }
+      snapshot.coins=snapshot.coins||{balance:0,progressSec:0,breakUntil:0,cooldownUntil:0};
+      snapshot.coins.balance=Math.round(((snapshot.coins.balance||0)+pack.coins)*100)/100;
+      Object.keys(pack.items).forEach(function(k){snapshot.rpg.inv[k]=(snapshot.rpg.inv[k]||0)+pack.items[k];});
+      snapshot.rpg.starter.claims.push({day:day,claimedOn:welcomeDay()});
+      await commitWelcomeGrant(state.rpg.starter.claims,expected,snapshot);
+      state=snapshot;localRevision++;markSyncPending();localSaveFailed=false;
+      if(autoSyncDebounceTimer)clearTimeout(autoSyncDebounceTimer);
+      autoSyncDebounceTimer=setTimeout(function(){autoSyncToDrive();},AUTO_SYNC_IDLE_MS);
+      showToast("🎁 Pack del día "+day+" abierto: +"+pack.coins+" monedas"+(Object.keys(pack.items).length?" y un ítem en tu inventario.":"."));
+      return true;
+    } catch(err){showToast(err.message||"No se pudo guardar el pack. No se entregaron recompensas.");return false;}
+    finally{welcomeClaimBusy=false;window.isImportingBackup=false;updateCoinBar();safeRerenderActiveTab();}
+  }
+  function renderWelcomeRewards(){
+    var starter=rpgState().starter, info=welcomeAvailability();
+    var collected=starter.claims.reduce(function(total,claim){return total+WELCOME_PACKS[claim.day-1].coins;},0);
+    var cards=WELCOME_PACKS.map(function(pack,index){
+      var day=index+1, claimed=day<info.next, ready=day===info.next&&info.available;
+      var items=Object.keys(pack.items).map(function(k){return '<span class="welcome-item">'+SHOP_ITEMS[k].name+' ×'+pack.items[k]+'</span>';}).join('');
+      return '<article class="welcome-pack '+(claimed?'is-claimed':ready?'is-ready':'is-locked')+'" aria-label="Pack del día '+day+'">'+
+        '<div class="welcome-pack-head"><span>DÍA '+day+'</span><span>'+(claimed?'✓ Reclamado':ready?'Disponible':'🔒 Próximamente')+'</span></div>'+
+        '<div class="welcome-chest" aria-hidden="true">'+(claimed?'📦':day===7?'🏆':'🎁')+'</div><h3>Pack '+['de partida','de impulso','de constancia','de enfoque','de avance','de perseverancia','de travesía'][index]+'</h3>'+
+        '<div class="welcome-coins">+'+pack.coins+' 🪙</div>'+items+
+        '<button class="'+(ready?'primary':'btn-secondary')+'" data-action="claim-welcome" data-day="'+day+'" '+(ready?'':'disabled')+'>'+(claimed?'Ya lo recibiste':ready?'Abrir mi pack':'Se desbloquea después')+'</button></article>';
+    }).join('');
+    return '<section class="welcome-hero"><span class="welcome-kicker">BONOS DE BIENVENIDA · UNA SOLA VEZ</span><h2>Tu primera semana a bordo</h2><p>Un poco de combustible cada día para empezar con fuerza.</p>'+
+      '<div class="welcome-progress"><strong>'+starter.claims.length+' / 7 packs</strong><span>'+collected+' / 45 monedas recibidas</span></div><progress max="7" value="'+starter.claims.length+'" aria-label="Packs reclamados"></progress>'+
+      '<p role="status">'+(info.complete?'🏆 ¡Semana de bienvenida completada! Ya recibiste todos tus packs.':info.available?'🎁 Tu pack del día '+info.next+' está listo para abrir.':'🌙 Ya abriste tu pack de hoy. El siguiente estará disponible otro día.')+'</p></section>'+
+      '<div class="welcome-grid">'+cards+'</div><section class="review-panel"><h3>Combustible, paso a paso</h3><p>En total: <strong>45 monedas</strong>, 2 tickets de re-giro, 1 condensador y 1 escudo. Los ítems van directamente al inventario y puedes usarlos aunque todavía no alcances el nivel necesario para comprarlos.</p>'+
+      '<p>Un pack por día, en orden. Si faltas un día, tus packs pendientes no vencen, pero no puedes cobrarlos todos juntos al volver. Los siguientes días se desbloquean con la fecha del reloj de la aplicación. El progreso se guarda con tus respaldos.</p></section>';
+  }
+
   function xpForLevel(lvl){ return lvl <= 1 ? 0 : Math.round(300 * Math.pow(lvl - 1, 1.5)); }
   function getLevelFromXp(xp){
     if (!Number.isFinite(xp) || xp < 0) return 1;
@@ -3130,6 +3232,7 @@ function defaultState(){
       btn.disabled = !(on && !inBreak && !inCool && (c.balance || 0) >= 1);
       btn.textContent = inBreak ? "En pausa" : "Usar (3 min)";
     }
+    updateWelcomeBadge();
     document.getElementById("coinBar").classList.toggle("is-break", !!inBreak);
     var r=rpgState(), lvl=getLevelFromXp(r.xp), xpEl=document.getElementById("xpBadge");
     if(xpEl){xpEl.textContent="Nv. "+lvl+" ("+getRankName(lvl)+") · "+Math.floor(r.xp)+" XP";xpEl.title=getRankName(lvl)+" · próximo nivel: "+xpForLevel(lvl+1)+" XP";}
@@ -6167,13 +6270,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       selectedCalendarDate = todayStr();
       
       dataReady = true;
+      var initializeWelcome=!state.rpg||!state.rpg.starter;
       rpgState();
       state.habits.forEach(function(h){ if(habitStreak(h)>=90) rpgState().forged[h.id]=todayStr(); });
       checkHabitShields();
       if (state.tracking.status!=="inactive"&&state.tracking.needsAudit) triggerTraversalAudit();
       /* Migrar la clave antigua a la sesión, sin exportarla ni subirla a Drive. */
       if (state.groqApiKey){ setGroqKey(state.groqApiKey); delete state.groqApiKey; persist(); }
-      /* No escribir durante el inicio: una lectura fallida nunca debe borrar el original. */
+      if(initializeWelcome)persist();
+      /* Solo la inicialización validada del programa de bienvenida requiere guardar al inicio. */
       
       scheduleTodayReminders();
       checkPendingSyncOnLoad();
@@ -6594,6 +6699,14 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if(rp.damagedUntil!==undefined&&(!Number.isFinite(rp.damagedUntil)||rp.damagedUntil<0))throw new Error("Duración de penalización inválida.");
       if(rp.xpUnits!==undefined&&(!Number.isSafeInteger(rp.xpUnits)||rp.xpUnits<0)) throw new Error("Unidades de XP inválidas.");
       ["inv","habitPaid","shieldUsed","forged"].forEach(function(k){if(rp[k]!==undefined&&!isRecord(rp[k]))throw new Error("Inventario o registro RPG inválido.");});
+      if(rp.starter!==undefined){
+        var start=rp.starter;
+        function validWelcomeDate(ds){if(typeof ds!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(ds))return false;var d=strToDate(ds);return Number.isFinite(d.getTime())&&dateToStr(d)===ds;}
+        if(!isRecord(start)||start.version!==1||!validWelcomeDate(start.startedOn)||!Array.isArray(start.claims)||start.claims.length>7)throw new Error("Progreso de packs de bienvenida inválido.");
+        start.claims.forEach(function(claim,index){
+          if(!isRecord(claim)||claim.day!==index+1||!validWelcomeDate(claim.claimedOn)||claim.claimedOn<addDays(start.startedOn,index)||(index>0&&claim.claimedOn<=start.claims[index-1].claimedOn))throw new Error("Reclamos de bienvenida inválidos.");
+        });
+      }
       Object.values(rp.inv||{}).forEach(function(n){if(!Number.isSafeInteger(n)||n<0)throw new Error("Cantidad de inventario inválida.");});
     }
     ["habits", "oneoff", "projects", "routines"].forEach(function(key){
@@ -6904,8 +7017,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     else if (activeTab === "proyectos")    html = renderProyectos();
     else if (activeTab === "estadisticas") html = renderEstadisticas();
     else if (activeTab === "evidencias")   html = renderEvidencias();
+    else if (activeTab === "bonos")        html = renderWelcomeRewards();
     app.innerHTML = html;
     refreshSaveStatus();
+    updateWelcomeBadge();
 
     /* ¡NUEVO! Actualiza el botón de Drive al volver a la pestaña */
     if (activeTab === "estadisticas") {
@@ -7091,6 +7206,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!el) return;
     var action = el.getAttribute("data-action");
     if (!dataReady || window.isImportingBackup) return;
+    if (action === "claim-welcome") { claimWelcomePack(Number(el.getAttribute("data-day"))); return; }
     if (action === "drive-keep-local") { keepLocalDriveVersion(); return; }
     if (action === "show-recovery") { showRecoveryPoints().catch(function(e){ setBackupStatus("error", e.message); }); return; }
     if (action === "stats-period") { statsPeriodDays = Number(el.getAttribute("data-days")); renderActiveTab(); return; }
