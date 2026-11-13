@@ -2513,6 +2513,55 @@ function defaultState(){
   /**
    * Vuelca el tiempo transcurrido desde tracking.startTime hacia el registro correspondiente
    */
+  /* ===== Dificultad ×2: conducción en tráfico (interruptor temporal) y actividad física (fija por tarea) ===== */
+  function difficultyMult(){
+    var tr = state.tracking || {};
+    if (tr.status !== "task" || !tr.taskId) return 1;
+    return (tr.driving || tr.physical) ? 2 : 1;
+  }
+  function addBonusSecs(ds, tid, sec){
+    if (!(sec > 0)) return;
+    var l = state.timeLog[ds];
+    if (!l.bonus) l.bonus = {};
+    l.bonus[tid] = (l.bonus[tid] || 0) + sec;
+  }
+  function toggleDifficulty(kind){
+    var tr = state.tracking;
+    if (tr.status !== "task" || !tr.taskId) return;
+    var wasOn = (kind === "driving") ? !!tr.driving : !!tr.physical;
+    var mins = null;
+    if (!wasOn){
+      var label = (kind === "driving") ? "conduciendo" : "de actividad física";
+      var ans = prompt("⏱ ¿Cuántos minutos vas a estar " + label + "?\n\nAl terminar ese tiempo el contador vuelve solo a ×1.\n(Déjalo en blanco para apagarlo tú manualmente):");
+      if (ans === null) return;
+      var m = parseFloat(String(ans).replace(",", "."));
+      mins = (m > 0 && !isNaN(m)) ? m : null;
+    }
+    flushTime(); /* lo anterior se cuenta con el multiplicador anterior */
+    if (kind === "driving"){
+      tr.driving = !wasOn;
+    } else {
+      tr.physical = !wasOn;
+      if (!state.physicalTasks) state.physicalTasks = {};
+      /* la física se recuerda por tarea solo si no tiene duración fija */
+      if (tr.physical && !mins) state.physicalTasks[tr.taskId] = true; else delete state.physicalTasks[tr.taskId];
+    }
+    if (!wasOn){
+      tr.x2Until = mins ? nowMs() + Math.round(mins * 60000) : null;
+      showToast((kind === "driving" ? "🚗 Conducción" : "🏃 Actividad física") + " ×2 activada" + (mins ? " por " + mins + " min" : "") + ". Requiere foto como evidencia.");
+    } else {
+      if (!tr.driving && !tr.physical) tr.x2Until = null;
+      showToast("Vuelve a ×1");
+    }
+    persist();
+    renderActiveTab();
+  }
+  function applyTaskDifficultyOnStart(id){
+    state.tracking.driving  = false; /* la conducción siempre arranca apagada */
+    state.tracking.x2Until  = null;
+    state.tracking.physical = !!(state.physicalTasks && state.physicalTasks[id]); /* la física se recuerda por tarea */
+  }
+
   function flushTime(atMs){
     if (!state.tracking || state.tracking.status === "inactive" || !state.tracking.startTime) return;
     var now = atMs || nowMs();
@@ -2540,6 +2589,7 @@ function defaultState(){
         var ptid = state.tracking.taskId;
         var psid = state.tracking.subtaskId;
         state.timeLog[prevDs].tasks[ptid] = (state.timeLog[prevDs].tasks[ptid] || 0) + secsToEndOfDay;
+        if (difficultyMult() > 1) addBonusSecs(prevDs, ptid, secsToEndOfDay);
         if (psid) {
           state.timeLog[prevDs].subtasks[psid] = (state.timeLog[prevDs].subtasks[psid] || 0) + secsToEndOfDay;
         }
@@ -2580,6 +2630,7 @@ function defaultState(){
       }
 
       state.timeLog[ds].tasks[tid] = (state.timeLog[ds].tasks[tid] || 0) + elapsedSec;
+      if (difficultyMult() > 1) addBonusSecs(ds, tid, elapsedSec); /* el tiempo extra que cuenta ×2 */
       
       /* Vuelca tiempo también a la subtarea si hay una activa */
       if (sid) {
@@ -2644,6 +2695,14 @@ function defaultState(){
       if (!ev || !(ev.note || ev.image)) return;
       if (getStatus(ds, id) !== "done") return;
       var secs = (state.timeLog[ds] && state.timeLog[ds].tasks && state.timeLog[ds].tasks[id]) || 0;
+      var bonus = (state.timeLog[ds] && state.timeLog[ds].bonus && state.timeLog[ds].bonus[id]) || 0; /* segundos en ×2 (extra = tiempo real del tramo) */
+      if (bonus > 0){
+        if (ev.image){ secs += bonus; }              /* con foto: el tramo cuenta doble */
+        else {
+          secs = Math.max(0, secs - bonus);          /* sin foto: el tramo ×2 no cuenta nada */
+          showToast("📷 El tiempo en ×2 (conducción/física) solo cuenta con foto de evidencia.");
+        }
+      }
       var c = coinState();
       if (!c.credited) c.credited = {};
       var delta = Math.floor(secs - (c.credited[key] || 0));
@@ -2854,6 +2913,7 @@ function defaultState(){
     flushTime();
     state.tracking.status    = "task";
     state.tracking.taskId    = id;
+    applyTaskDifficultyOnStart(id);
     state.tracking.subtaskId = subId || null;
     state.tracking.taskDs    = ds;
     state.tracking.startTime = nowMs();
@@ -2963,6 +3023,16 @@ function defaultState(){
   function updateLiveTimers(){
     if (!state || window.isImportingBackup) return; /* Bloqueo de seguridad durante restauraciones */
     tickCoins();
+    var trx = state.tracking;
+    if (trx && trx.status === "task" && trx.x2Until && nowMs() >= trx.x2Until && (trx.driving || trx.physical)){
+      var endX2 = trx.x2Until;
+      flushTime(endX2); /* cuenta ×2 justo hasta el instante en que terminó el tiempo */
+      trx.driving = false; trx.physical = false; trx.x2Until = null;
+      persist();
+      safeRerenderActiveTab();
+      showToast("⏱ Terminó el tiempo ×2: el contador vuelve a ×1.");
+      playNotifAudio();
+    }
     var today = todayStr();      /* hora del dispositivo: tareas, calendario, etc. */
     var now = new Date();
     var tnow = nowDate();        /* hora internacional: solo tiempo de ejecución del sistema */
@@ -3048,6 +3118,7 @@ function defaultState(){
 
             state.tracking.status = "task";
             state.tracking.taskId = t.id;
+            applyTaskDifficultyOnStart(t.id);
             state.tracking.subtaskId = null;
             state.tracking.taskDs = today;
             state.tracking.startTime = nowMs() - Math.max(0, now.getTime() - targetTimeMs); /* Inyección retroactiva (en reloj de ejecución) */
@@ -4039,6 +4110,18 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
     }
 
+    var diffHtml = "";
+    if (showTimeControls && state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds){
+      var dOn = !!state.tracking.driving, pOn = !!state.tracking.physical;
+      var chip = function(on, act, label){
+        return '<button data-action="' + act + '" style="cursor:pointer;font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid ' +
+          (on ? 'var(--brass-500)' : 'var(--ink-700)') + ';background:' + (on ? 'var(--brass-500)' : 'transparent') +
+          ';color:' + (on ? '#1a1a1a' : 'var(--text-muted)') + ';">' + label + (on ? ' ×2' + (state.tracking.x2Until ? ' · hasta ' + pad(new Date(state.tracking.x2Until).getHours()) + ':' + pad(new Date(state.tracking.x2Until).getMinutes()) : '') : '') + '</button>';
+      };
+      diffHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px 0;">' +
+        chip(dOn, "toggle-driving", "🚗 Conducción") + chip(pOn, "toggle-physical", "🏃 Actividad física") + '</div>';
+    }
+
     var mainRow = (
       '<div class="task-main-row">' +
         stampOrTimeHtml +
@@ -4148,7 +4231,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     
     return (
       '<div class="task-item' + (hasExtra ? " has-reminder" : "") + '">' +
-        mainRow + subtasksHtml + reminderBadge + panelHtml +
+        mainRow + diffHtml + subtasksHtml + reminderBadge + panelHtml +
       '</div>'
     );
   }
@@ -7037,6 +7120,12 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
     } else if (action === "stop-task"){
       stopTask(el.getAttribute("data-date"), el.getAttribute("data-id"));
+
+    } else if (action === "toggle-driving"){
+      toggleDifficulty("driving");
+
+    } else if (action === "toggle-physical"){
+      toggleDifficulty("physical");
     }
   });
 
