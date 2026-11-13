@@ -1,0 +1,13 @@
+{
+  "name": "bitacora-habitos",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/data-safety.test.cjs",
+    "test:browser": "node --test tests/regression.test.cjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.8",
+    "jsdom": "^31.0.1",
+    "playwright": "1.62.1"
+  }
+}

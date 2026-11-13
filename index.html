@@ -1505,6 +1505,21 @@
     text-align: right;
     margin-bottom: 6px;
   }
+  .data-operation main, .data-operation nav { pointer-events:none; opacity:.55; }
+  #dataOperationNotice { position:fixed; inset:0; z-index:10000; background:#0a1b27dd; color:var(--brass-300); padding:35vh 24px; text-align:center; }
+  #dataOperationNotice[hidden] { display:none; }
+  .save-status { max-width:680px; margin:10px auto 0; padding:0 16px; color:var(--text-muted); font-size:11px; }
+  .review-panel { background:var(--ink-800-solid); border:1px solid var(--ink-700); border-radius:var(--radius-lg); padding:16px; margin-bottom:22px; }
+  .review-panel p { color:var(--text-muted); font-size:13px; line-height:1.6; }
+  .period-buttons { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .period-buttons button[aria-pressed="true"] { color:var(--brass-300); border-color:var(--brass-500); }
+  .ai-preview { position:fixed; inset:0; z-index:900; padding:20px 12px; background:#000b; overflow:auto; }
+  .ai-preview-card { max-width:620px; margin:0 auto; background:var(--ink-900); border:1px solid var(--brass-600); border-radius:18px; padding:20px; }
+  .ai-preview-card fieldset { border:1px solid var(--ink-650); border-radius:10px; margin:14px 0; padding:12px; }
+  .ai-preview-card input[type="text"], .ai-preview-card textarea { width:100%; background:var(--ink-850); color:var(--text-light); border:1px solid var(--ink-650); border-radius:6px; padding:10px; font:inherit; margin:6px 0 12px; }
+  .ai-preview-card textarea { min-height:90px; resize:vertical; }
+  .ai-preview-card label, .ai-preview-card p { font-size:13px; line-height:1.5; }
+  .ai-preview-actions { display:flex; flex-wrap:wrap; gap:10px; }
 </style>
 </head>
 <body>
@@ -1522,6 +1537,8 @@
   <div class="voyage-line" id="voyageLine"></div>
 </header>
 
+<div id="dataOperationNotice" role="status" aria-live="assertive" hidden>Protegiendo y restaurando tus datos…</div>
+<div id="localSaveStatus" class="save-status" role="status"></div>
 <main id="app"></main>
 
 <div class="toast" id="toast"></div>
@@ -1691,6 +1708,7 @@
   /* ===================== Estado global ===================== */
   var state = null;
   var activeTab = "hoy";
+  var statsPeriodDays = 7;
   var statsOffsetDays = 0; /* Controla la navegación en las estadísticas */
   
   var nombreDeMiAudio = "blue-horizon-funk-256k.mp3";
@@ -2056,26 +2074,32 @@
       };
       req.onsuccess = function(e){
         db = e.target.result;
+        db.onversionchange = function(){ db.close(); db = null; dbReadyPromise = null; };
         resolve(db);
       };
-      req.onerror = function(){ reject(req.error); };
+      req.onerror = function(){ dbReadyPromise = null; reject(req.error); };
+      req.onblocked = function(){ showToast("Cierra otras pestañas de Bitácora para actualizar el almacenamiento."); };
     });
     return dbReadyPromise;
   }
 
   function dbSet(key, value){
-    return new Promise(function(resolve, reject){
-      if (!db){ resolve(false); return; }
-      try {
-        var tx  = db.transaction("evidence", "readwrite");
-        var store = tx.objectStore("evidence");
-        store.put(value, key);
-        tx.oncomplete = function(){ resolve(true); };
-        tx.onerror    = function(){ reject(tx.error); };
-        /* Seguro contra cortes de memoria en Android */
-        tx.onabort    = function(){ reject(new Error("Transacción abortada por el sistema")); };
-      } catch(e){ reject(e); }
+    if (window.isImportingBackup) return Promise.reject(new Error("Hay una restauración en curso."));
+    /* Registrar la intención antes de que empiece una subida en paralelo. */
+    localRevision++;
+    markSyncPending();
+    var write = pendingEvidenceWrites.then(function(){
+      return initDB().then(function(){
+        return new Promise(function(resolve, reject){
+          var tx = db.transaction("evidence", "readwrite");
+          tx.objectStore("evidence").put(value, key);
+          tx.oncomplete = function(){ resolve(true); };
+          tx.onerror = tx.onabort = function(){ reject(tx.error || new Error("No se pudo guardar la evidencia.")); };
+        });
+      });
     });
+    pendingEvidenceWrites = write.catch(function(){ return false; });
+    return write;
   }
 
   function dbGet(key){
@@ -2109,14 +2133,14 @@
 
   function dbGetAppData(key){
     return initDB().then(function(){
-      return new Promise(function(resolve){
+      return new Promise(function(resolve, reject){
         try {
           var tx  = db.transaction("appData", "readonly");
           var req = tx.objectStore("appData").get(key);
           req.onsuccess = function(){ resolve(req.result != null ? req.result : null); };
-          req.onerror   = function(){ resolve(null); };
-          tx.onabort    = function(){ resolve(null); };
-        } catch(e){ resolve(null); }
+          req.onerror   = function(){ reject(req.error); };
+          tx.onabort    = function(){ reject(tx.error || new Error("Lectura abortada")); };
+        } catch(e){ reject(e); }
       });
     });
   }
@@ -2233,9 +2257,9 @@
     return typeof window.storage === "object" && window.storage && typeof window.storage.get === "function";
   }
   function storageGet(key){
-    return new Promise(function(resolve){
+    return new Promise(function(resolve, reject){
       if (hasCloudStorage()){
-        window.storage.get(key, false).then(function(r){ resolve(r ? r.value : null); }).catch(function(){ resolve(null); });
+        window.storage.get(key, false).then(function(r){ resolve(r ? r.value : null); }).catch(reject);
       } else {
         dbGetAppData(key).then(function(val){
           if (val != null){ resolve(val); return; }
@@ -2248,9 +2272,9 @@
           } else {
             resolve(null);
           }
-        }).catch(function(){
-          /* IndexedDB no disponible: último recurso, localStorage */
-          try{ resolve(window.localStorage.getItem(key)); } catch(e){ resolve(null); }
+        }).catch(function(err){
+          if (db) { reject(err); return; }
+          try{ resolve(window.localStorage.getItem(key)); } catch(e){ reject(e); }
         });
       }
     });
@@ -2263,7 +2287,8 @@
       } else {
         dbSetAppData(key, value).then(function(){ resolve(true); })
           .catch(function(){
-            /* IndexedDB no disponible: último recurso, localStorage */
+            /* No crear una segunda copia desactualizada si IndexedDB sí está abierto. */
+            if (db) { showToast("No se pudo guardar. Conserva esta pestaña abierta y exporta un respaldo."); resolve(false); return; }
             try{ window.localStorage.setItem(key, value); resolve(true); }
             catch(e){ showToast("No se pudo guardar la bitácora."); resolve(false); }
           });
@@ -2291,20 +2316,64 @@ function defaultState(){
 
   var AUTO_SYNC_IDLE_MS = 4 * 60 * 1000; /* 4 minutos de inactividad antes de subir solo a Drive */
 
-  function persist(){ 
-    return storageSet(STORAGE_KEY, JSON.stringify(state)).then(function(){ 
-      bitacora_needs_sync = true;
-      try { localStorage.setItem("bitacora_needs_sync", "true"); } catch(e){}
-      setAutoSyncBadge("syncing", "Cambios pendientes de subir...");
+  var localRevision = 0;
+  var pendingLocalWrites = Promise.resolve(true);
+  var pendingEvidenceWrites = Promise.resolve();
+  var localSaveFailed = false;
+  var dataReady = false;
+  var driveBusy = false;
+  var syncConflict = null;
+  var conflictRecoveryToken = "";
+  var restorePreparing = false;
+  var groqApiKey = "";
+  try { groqApiKey = sessionStorage.getItem("bitacora_groq_key") || ""; } catch(e){}
 
-      /* Autoguardado a Drive tras un período de inactividad, para sesiones largas
-         donde el usuario nunca minimiza ni cierra la app. */
-      if (autoSyncDebounceTimer) clearTimeout(autoSyncDebounceTimer);
-      autoSyncDebounceTimer = setTimeout(function(){
-        autoSyncDebounceTimer = null;
-        if (bitacora_needs_sync) autoSyncToDrive();
-      }, AUTO_SYNC_IDLE_MS);
-    }); 
+  function setGroqKey(key){
+    groqApiKey = (key || "").trim();
+    try {
+      if (groqApiKey) sessionStorage.setItem("bitacora_groq_key", groqApiKey);
+      else sessionStorage.removeItem("bitacora_groq_key");
+    } catch(e){}
+  }
+  function markSyncPending(){
+    bitacora_needs_sync = true;
+    try { localStorage.setItem("bitacora_needs_sync", "true"); } catch(e){}
+  }
+  function markSyncComplete(revision){
+    if (revision !== localRevision || localSaveFailed) return false;
+    bitacora_needs_sync = false;
+    try { localStorage.setItem("bitacora_needs_sync", "false"); } catch(e){}
+    return true;
+  }
+  function refreshSaveStatus(){
+    var panel = document.getElementById("driveConflictPanel");
+    if (panel){ var html = renderDriveConflict(); if (panel.innerHTML !== html) panel.innerHTML = html; }
+    var el = document.getElementById("localSaveStatus");
+    if (el) el.textContent = localSaveFailed ? "⚠ Error al guardar · exporta un respaldo" :
+      syncConflict ? "⚠ Dos versiones · revisa Copia de seguridad" :
+      bitacora_needs_sync ? "Guardado en este dispositivo · pendiente de Drive" : "Guardado en este dispositivo";
+  }
+  function persist(){
+    if (!dataReady || window.isImportingBackup) return Promise.resolve(false);
+    var snapshot = JSON.stringify(state);
+    localRevision++;
+    markSyncPending();
+    pendingLocalWrites = pendingLocalWrites.catch(function(){ return false; }).then(function(){
+      return storageSet(STORAGE_KEY, snapshot);
+    }).then(function(ok){
+      localSaveFailed = !ok;
+      refreshSaveStatus();
+      setAutoSyncBadge(ok ? "" : "error", ok ? "Guardado local · pendiente de subir" : "Error de guardado local");
+      if (ok){
+        if (autoSyncDebounceTimer) clearTimeout(autoSyncDebounceTimer);
+        autoSyncDebounceTimer = setTimeout(function(){
+          autoSyncDebounceTimer = null;
+          if (bitacora_needs_sync) autoSyncToDrive();
+        }, AUTO_SYNC_IDLE_MS);
+      }
+      return ok;
+    });
+    return pendingLocalWrites;
   }
 
   /* El navegador avisa automáticamente cuando cambias de pestaña o minimizas la app */
@@ -2338,68 +2407,111 @@ function defaultState(){
   }
 
   async function autoSyncToDrive(){
-    /* Solo sincronizar si hay token válido — no interrumpir al usuario */
-    if (!driveAccessToken || Date.now() >= driveTokenExpiry) return;
-    setAutoSyncBadge("syncing", "Sincronizando…");
-    try {
-      var backup  = await buildMasterBackupJSON();
-      var jsonStr = JSON.stringify(backup);
-      var searchResp = await fetch(
-        DRIVE_API + "?spaces=" + DRIVE_SPACES +
-        "&fields=files(id,name,modifiedTime)" +
-        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      if (!searchResp.ok) throw new Error("search " + searchResp.status);
-      var searchData   = await searchResp.json();
-      var existingFile = searchData.files && searchData.files.length > 0 ? searchData.files[0] : null;
+    return uploadDriveBackup(false);
+  }
 
-      /* Antes de pisar Drive: ¿alguien subió una versión que no conocemos? */
-      var knownModTime = getKnownRemoteModTime();
-      if (existingFile && knownModTime && knownModTime !== existingFile.modifiedTime){
-        setAutoSyncBadge("syncing", "Versión más nueva detectada, descargando primero…");
-        await autoRestoreFromDrive(existingFile);
-        return;
-      }
-
-      var boundary     = "ab_" + Date.now();
-      var metadata     = JSON.stringify(
-        existingFile
-          ? { name: DRIVE_FILENAME }
-          : { name: DRIVE_FILENAME, parents: [DRIVE_SPACES] }
-      );
-      var body =
-        "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
-        metadata + "\r\n--" + boundary + "\r\nContent-Type: application/json\r\n\r\n" +
-        jsonStr + "\r\n--" + boundary + "--";
-      var url    = existingFile
-        ? DRIVE_UPLOAD_API + "/" + existingFile.id + "?uploadType=multipart&fields=id,modifiedTime"
-        : DRIVE_UPLOAD_API + "?uploadType=multipart&fields=id,modifiedTime";
-      var method = existingFile ? "PATCH" : "POST";
-      var upResp = await fetch(url, {
-        method: method,
-        headers: { "Authorization": "Bearer " + driveAccessToken, "Content-Type": "multipart/related; boundary=" + boundary },
-        body: body
-      });
-      if (!upResp.ok) throw new Error("upload " + upResp.status);
-      var upData = await upResp.json().catch(function(){ return null; });
-      if (upData && upData.modifiedTime) setKnownRemoteModTime(upData.modifiedTime);
-      lastAutoSyncTime = new Date();
-      var timeStr = lastAutoSyncTime.toLocaleDateString("es-BO") + " " +
-                    lastAutoSyncTime.toLocaleTimeString("es-BO", { hour:"2-digit", minute:"2-digit" });
-      setAutoSyncBadge("synced", "Respaldo automático: " + timeStr);
-      
-      /* Apagamos la bandera porque ya está todo seguro en la nube */
-      bitacora_needs_sync = false;
-      try { localStorage.setItem("bitacora_needs_sync", "false"); } catch(e){}
-      
-    } catch(err){
-      console.warn("autoSync error:", err);
-      setAutoSyncBadge("error", "Sin sincronizar");
+  async function noteSyncConflict(meta){
+    syncConflict = meta;
+    setAutoSyncBadge("error", "Dos versiones: se conservan tus cambios locales");
+    refreshSaveStatus();
+    setBackupStatus("error", "Drive tiene otra versión. Descarga tu copia local y usa Restaurar desde Google Drive para elegir. No se ha reemplazado ninguna versión.");
+    var recoveryToken = meta.id + ":" + meta.modifiedTime + ":" + localRevision;
+    if (!window.isImportingBackup && dataReady && recoveryToken !== conflictRecoveryToken){
+      try { await saveRecoveryPoint("Conflicto con Drive"); conflictRecoveryToken = recoveryToken; }
+      catch(e){ console.warn("Copia de conflicto no disponible", e); }
     }
   }
 
-  /* ===================== Sincronización Inteligente (versión de Drive como fuente de verdad) =====================
+  function renderDriveConflict(){
+    if (!syncConflict) return "";
+    return '<div class="review-panel"><strong>Hay dos versiones de tu bitácora</strong>' +
+      '<p>Tus cambios locales siguen aquí. Puedes descargar tu respaldo antes de elegir qué versión usar. La versión sustituida se conserva en Copias recuperables de este dispositivo.</p>' +
+      '<div class="ai-preview-actions"><button class="btn-secondary" data-action="backup-export">Descargar mi copia local</button>' +
+      '<button class="btn-secondary" data-action="drive-keep-local">Usar esta copia en Drive</button>' +
+      '<button class="btn-secondary" data-action="drive-restore">Usar copia de Drive</button></div></div>';
+  }
+
+  async function keepLocalDriveVersion(){
+    if (!dataReady || driveBusy || restorePreparing || window.isImportingBackup) return false;
+    if (!driveAccessToken || Date.now() >= driveTokenExpiry) { setBackupStatus("error", "Conecta Google Drive antes de resolver las versiones."); return false; }
+    driveBusy = true;
+    var readyToUpload = false;
+    try {
+      var meta = await getRemoteFileMeta(true);
+      var remote = null;
+      if (meta){
+        var response = await fetch(DRIVE_API + "/" + meta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
+        if (!response.ok) throw new Error("No se pudo conservar la copia de Drive. No se reemplazó nada.");
+        remote = await response.json(); validateBackup(remote);
+      }
+      if (!window.confirm("¿Usar la versión de este dispositivo en Google Drive? Antes se conservarán ambas versiones en Copias recuperables. No se fusionarán automáticamente.")) return false;
+      await saveRecoveryPoint("Copia local antes de resolver Drive");
+      if (remote) await saveRecoveryPoint("Copia de Drive antes de reemplazarla", remote);
+      var latest = await getRemoteFileMeta(true);
+      if ((meta && (!latest || latest.modifiedTime !== meta.modifiedTime)) || (!meta && latest)) {
+        await noteSyncConflict(latest || meta);
+        setBackupStatus("error", "Drive cambió mientras revisabas las versiones. Se conservaron las copias; vuelve a revisar antes de elegir.");
+        return false;
+      }
+      if (meta) setKnownRemoteModTime(meta.modifiedTime);
+      syncConflict = null; markSyncPending(); refreshSaveStatus(); readyToUpload = true;
+    } catch(err){ setBackupStatus("error", err.message || String(err)); }
+    finally { driveBusy = false; }
+    return readyToUpload ? uploadDriveBackup(true) : false;
+  }
+
+  async function uploadDriveBackup(manual){
+    if (!dataReady || driveBusy || restorePreparing || window.isImportingBackup) return false;
+    if (!driveAccessToken || Date.now() >= driveTokenExpiry) return false;
+    driveBusy = true;
+    try {
+      await pendingLocalWrites;
+      if (localSaveFailed) throw new Error("Primero resuelve el error de guardado local o descarga tu respaldo.");
+      if (syncConflict){ await noteSyncConflict(syncConflict); return false; }
+      setAutoSyncBadge("syncing", "Sincronizando…");
+      if (manual) setBackupStatus("working", "⏳ Preparando respaldo completo…");
+      var revision = localRevision;
+      var backup = await buildMasterBackupJSON();
+      var meta = await getRemoteFileMeta(true);
+      var known = getKnownRemoteModTime();
+      if (meta && (!known || known !== meta.modifiedTime)){
+        await noteSyncConflict(meta);
+        return false;
+      }
+      /* Volver a comprobar tras preparar las fotos evita subir sobre un cambio ya visible. */
+      var latest = await getRemoteFileMeta(true);
+      if ((meta && (!latest || latest.modifiedTime !== meta.modifiedTime)) || (!meta && latest)){
+        await noteSyncConflict(latest || meta);
+        return false;
+      }
+      var boundary = "bitacora_" + Date.now();
+      var metadata = JSON.stringify(meta ? { name: DRIVE_FILENAME } : { name: DRIVE_FILENAME, parents: [DRIVE_SPACES] });
+      var body = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + metadata +
+        "\r\n--" + boundary + "\r\nContent-Type: application/json\r\n\r\n" + JSON.stringify(backup) + "\r\n--" + boundary + "--";
+      var resp = await fetch(DRIVE_UPLOAD_API + (meta ? "/" + meta.id : "") + "?uploadType=multipart&fields=id,modifiedTime", {
+        method: meta ? "PATCH" : "POST",
+        headers: { Authorization: "Bearer " + driveAccessToken, "Content-Type": "multipart/related; boundary=" + boundary }, body: body
+      });
+      if (!resp.ok) throw new Error("No se pudo subir a Drive (" + resp.status + ").");
+      var result = await resp.json();
+      if (!result.modifiedTime) throw new Error("Drive no confirmó la versión del respaldo.");
+      setKnownRemoteModTime(result.modifiedTime);
+      syncConflict = null;
+      lastAutoSyncTime = new Date();
+      var complete = markSyncComplete(revision);
+      setAutoSyncBadge(complete ? "synced" : "", complete ? "Respaldo en Drive confirmado" : "Hay cambios nuevos pendientes de subir");
+      refreshSaveStatus();
+      if (manual) setBackupStatus("success", "✔ Respaldo confirmado en Drive · " + backup._meta.totalEvidenceKeys + " evidencias" + (complete ? "" : " · hay cambios posteriores pendientes"));
+      return true;
+    } catch(err){
+      setAutoSyncBadge("error", "Sin sincronizar · los datos locales se conservan");
+      if (manual) setBackupStatus("error", err.message || String(err));
+      console.warn("Drive sync:", err);
+      return false;
+    } finally { driveBusy = false; }
+  }
+
+  /* ===================== Sincronización con detección de versiones =====================
      Cada dispositivo recuerda, en localStorage, el "modifiedTime" (fecha que asigna Google Drive,
      no el reloj del dispositivo) de la última versión del respaldo que subió o descargó.
      Antes de subir cambios, siempre comprobamos si Drive tiene una versión distinta a la que
@@ -2414,64 +2526,43 @@ function defaultState(){
     try { if (t) localStorage.setItem(DRIVE_KNOWN_MODTIME_KEY, t); } catch(e){}
   }
 
-  async function getRemoteFileMeta(){
+  async function getRemoteFileMeta(strict){
     if (!driveAccessToken) return null;
     try {
-      var resp = await fetch(
-        DRIVE_API + "?spaces=" + DRIVE_SPACES +
-        "&fields=files(id,modifiedTime)" +
-        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      if (!resp.ok) return null;
+      var resp = await fetch(DRIVE_API + "?spaces=" + DRIVE_SPACES +
+        "&fields=files(id,modifiedTime)&q=" + encodeURIComponent("name='" + DRIVE_FILENAME + "' and trashed=false"),
+        { headers: { Authorization: "Bearer " + driveAccessToken } });
+      if (!resp.ok) throw new Error("No se pudo comprobar Drive (" + resp.status + ").");
       var data = await resp.json();
-      if (!data.files || data.files.length === 0) return null;
-      return data.files[0]; /* {id, modifiedTime} */
-    } catch(e){ return null; }
+      if (!Array.isArray(data.files)) throw new Error("Respuesta de Drive no válida.");
+      if (data.files.length > 1) throw new Error("Hay varios respaldos con el mismo nombre en Drive. No se sobrescribió ninguno.");
+      return data.files[0] || null;
+    } catch(e){ if (strict) throw e; return null; }
   }
 
   /* Descarga silenciosamente la versión indicada de Drive y la aplica localmente. */
   async function autoRestoreFromDrive(meta){
-    if (window.isImportingBackup) return;
+    if (!dataReady || driveBusy || window.isImportingBackup || bitacora_needs_sync || localSaveFailed) return false;
+    /* Una sesión activa no se sustituye desde otro dispositivo. */
+    if (state.tracking && state.tracking.status !== "inactive") return false;
+    driveBusy = true;
+    var revision = localRevision;
     try {
-      var dlResp = await fetch(
-        DRIVE_API + "/" + meta.id + "?alt=media",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      if (!dlResp.ok) throw new Error("download " + dlResp.status);
-      var text = await dlResp.text();
-      var parsed = JSON.parse(text);
-      var numHabits = (parsed.state && parsed.state.habits)   ? parsed.state.habits.length   : 0;
-      var numProj   = (parsed.state && parsed.state.projects) ? parsed.state.projects.length : 0;
-      var numOneoff = (parsed.state && parsed.state.oneoff)   ? parsed.state.oneoff.length   : 0;
-
-      /* Seguro: si la versión remota llega vacía, la ignoramos para no borrar datos buenos. */
-      if (numHabits === 0 && numProj === 0 && numOneoff === 0){
-        console.warn("[Drive] Versión remota vacía detectada; se ignora la auto-restauración.");
-        setKnownRemoteModTime(meta.modifiedTime);
-        return;
-      }
-
-      setAutoSyncBadge("syncing", "🔄 Nueva versión detectada, actualizando…");
-      showToast("🔄 Se encontró una versión más reciente en Google Drive. Actualizando…");
-      setKnownRemoteModTime(meta.modifiedTime);
-      bitacora_needs_sync = false;
-      try { localStorage.setItem("bitacora_needs_sync", "false"); } catch(e){}
-
-      var blob = new Blob([text], { type: "application/json" });
-      var virtualFile = new File([blob], DRIVE_FILENAME, { type: "application/json" });
-      /* silent:true -> es sincronización automática entre dispositivos, no una restauración manual:
-         no debe interrumpir con confirmaciones ni con el candado anti-retroceso. */
-      await importMasterBackup(virtualFile, { silent: true });
-    } catch(err){
-      console.warn("autoRestoreFromDrive error:", err);
-    }
+      var resp = await fetch(DRIVE_API + "/" + meta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
+      if (!resp.ok) throw new Error("No se pudo descargar el respaldo.");
+      var text = await resp.text();
+      validateBackup(JSON.parse(text));
+      if (revision !== localRevision || bitacora_needs_sync) { await noteSyncConflict(meta); return false; }
+      var file = new File([text], DRIVE_FILENAME, { type: "application/json" });
+      return await importMasterBackup(file, { silent: true, remoteModTime: meta.modifiedTime, expectedRevision: revision });
+    } catch(err){ setAutoSyncBadge("error", "No se pudo actualizar desde Drive · datos locales conservados"); return false; }
+    finally { driveBusy = false; }
   }
 
   var isCheckingRemoteUpdate = false;
   /* Revisa si Drive tiene una versión que este dispositivo todavía no conoce y, si es segura, la aplica sola. */
   async function checkForRemoteUpdates(){
-    if (!driveAccessToken || Date.now() >= driveTokenExpiry) return;
+    if (!dataReady || driveBusy || !driveAccessToken || Date.now() >= driveTokenExpiry) return;
     if (window.isImportingBackup || isCheckingRemoteUpdate) return;
     isCheckingRemoteUpdate = true;
     try {
@@ -2486,8 +2577,7 @@ function defaultState(){
       if (!meta) return;
       if (meta.modifiedTime === known) return; /* ya estamos al día */
       if (bitacora_needs_sync){
-        /* Tenemos cambios locales sin subir: dejamos que autoSyncToDrive() resuelva el
-           conflicto la próxima vez que se dispare (ella también compara antes de subir). */
+        await noteSyncConflict(meta);
         return;
       }
       await autoRestoreFromDrive(meta);
@@ -3065,6 +3155,7 @@ function defaultState(){
 
   /* ===================== Control de Pantalla (Apagar/Encender) ===================== */
   document.addEventListener("visibilitychange", function(){
+    if (!dataReady || window.isImportingBackup) return;
     if (document.visibilityState === "hidden"){
       /* 1. Cuando tapas la pantalla: Congela el tiempo exacto y guarda localmente */
       flushTime();
@@ -3130,9 +3221,9 @@ function defaultState(){
     });
     
     var key = ds + "_" + taskId;
-    dbSet(key, evidence).catch(function(){}).then(function(){
-      markDone(ds, taskId);
-    });
+    dbSet(key, evidence).then(function(){
+      if (!window.isImportingBackup) markDone(ds, taskId);
+    }).catch(function(){ showToast("No se pudo guardar la evidencia automática. La tarea no se marcó como cumplida."); });
   }
 
   /* Refresca los cronómetros visibles y ejecuta viajes en el tiempo */
@@ -3488,13 +3579,21 @@ function defaultState(){
     showToast("Hábito archivado.");
   }
 
-  function resetAll(){
-    if (!window.confirm("Esto borrará toda la bitácora: tareas, hábitos, proyectos, rutinas e historial. ¿Continuar?")) return;
-    state = defaultState();
-    selectedCalendarDate = todayStr();
-    persist();
-    renderActiveTab();
-    showToast("Bitácora reiniciada.");
+  async function resetAll(){
+    if (!dataReady || window.isImportingBackup || driveBusy) return;
+    if (!window.confirm("Esto reiniciará tareas, hábitos, proyectos, rutinas e historial. Antes se guardará una copia recuperable. ¿Continuar?")) return;
+    window.isImportingBackup = true;
+    document.body.classList.add("data-operation");
+    document.getElementById("dataOperationNotice").hidden = false;
+    try {
+      await saveRecoveryPoint("Antes de reiniciar");
+      var fresh = defaultState();
+      /* Mantiene el comportamiento previo: el reinicio no borra las fotos guardadas. */
+      if (!await storageSet(STORAGE_KEY, JSON.stringify(fresh))) throw new Error("No se pudo guardar el reinicio.");
+      state = fresh; localRevision++; markSyncPending(); selectedCalendarDate = todayStr();
+      renderActiveTab(); showToast("Bitácora reiniciada. La copia anterior está en Estadísticas → Copias recuperables.");
+    } catch(err){ showToast("No se reinició: " + err.message); }
+    finally { window.isImportingBackup = false; document.body.classList.remove("data-operation"); document.getElementById("dataOperationNotice").hidden = true; }
   }
 
   /* ===================== Proyectos ===================== */
@@ -3539,7 +3638,7 @@ function defaultState(){
       showToast("Escribe un nombre y elige al menos un día.");
       return;
     }
-    state.routines.push({ id: uid(), text: text, days: days, time: time || "" });
+    state.routines.push({ id: uid(), text: text, days: days, time: time || "", createdAt: todayStr() });
     persist();
     renderActiveTab();
     showToast("Rutina agregada.");
@@ -3842,7 +3941,10 @@ function defaultState(){
   }
 
   function saveEvidence(){
-    if (!pendingEvidence) return;
+    if (!dataReady || window.isImportingBackup || !pendingEvidence) return;
+    var saveButton = document.getElementById("evidenceSaveBtn");
+    if (saveButton.disabled) return;
+    saveButton.disabled = true;
     var note       = document.getElementById("evidenceNote").value.trim();
     var compressed = document.getElementById("evidenceFile").getAttribute("data-compressed") || null;
 
@@ -3884,11 +3986,12 @@ function defaultState(){
         savedAt: new Date().toISOString()
       });
 
-    dbSet(key, evidence).catch(function(){}).then(function(){
+    dbSet(key, evidence).then(function(){
+      if (window.isImportingBackup) return;
       if (editing){
         /* Solo actualiza IDB — no cambia el estado de log ni re-marca */
         closeEvidenceModal();
-        autoSyncToDrive();
+        persist().then(function(ok){ if (ok) autoSyncToDrive(); });
         showToast("✏️ Evidencia actualizada.");
         renderActiveTab();
         creditTaskCoins(ds, id); /* si la tarea ya estaba finalizada, ahora sí cuenta su tiempo */
@@ -3898,7 +4001,9 @@ function defaultState(){
         closeEvidenceModal();
         showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada! 🪙 +" + COIN_PROJECT_REWARD + " monedas" : "¡Tarea cumplida y evidencia guardada!");
       }
-    });
+    }).catch(function(){
+      showToast("No se pudo guardar la evidencia. Tu nota sigue abierta; vuelve a intentar antes de cerrar.");
+    }).finally(function(){ saveButton.disabled = false; });
   }
 
   function openViewEvidenceModal(ds, id){
@@ -4785,17 +4890,16 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         '</div>' +
       '</section>' +
       '<section class="block">' +
-        '<button data-action="open-class-recorder" style="width:100%; background:linear-gradient(135deg, var(--ink-850), var(--ink-900)); border:1px solid var(--brass-600); color:var(--brass-300); font-family:var(--font-display); font-size:15.5px; font-weight:600; padding:15px; border-radius:var(--radius-lg); cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.3); transition:transform .15s; letter-spacing:0.04em;">' +
-          '🎙️ GRABAR Y RESUMIR CLASE' +
-        '</button>' +
-      '</section>' +
-      renderMasterSwitch() +
-      renderRouletteButton(today) +
-      '<section class="block">' +
         '<div class="block-title">Agregar tarea de hoy</div>' +
         renderProjectSelector(today) +
         addFormHtml(today, true) +
         renderTaskList(today) +
+      '</section>' +
+      '<section class="block"><div class="block-title">Tu sesión de enfoque</div>' + renderMasterSwitch() + renderRouletteButton(today) + '</section>' +
+      '<section class="block">' +
+        '<button data-action="open-class-recorder" style="width:100%; background:linear-gradient(135deg, var(--ink-850), var(--ink-900)); border:1px solid var(--brass-600); color:var(--brass-300); font-family:var(--font-display); font-size:15.5px; font-weight:600; padding:15px; border-radius:var(--radius-lg); cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.3); transition:transform .15s; letter-spacing:0.04em;">' +
+          '🎙️ GRABAR Y RESUMIR CLASE' +
+        '</button>' +
       '</section>'
     );
   }
@@ -5160,6 +5264,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       '</section>' +
       '<section class="block">' +
         '<div class="block-title">Proyectos activos (' + active.length + ')</div>' +
+        '<p class="backup-panel-desc">La IA propone un plan editable; tú eliges qué agregar. <button class="btn-secondary" data-action="ai-key">Configurar clave de IA</button></p>' +
         activeHtml +
         completedHtml +
       '</section>'
@@ -5320,7 +5425,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     
     /* 1. Recopilamos los datos y buscamos el día récord (para escalar las barras) */
     for (var i = 6; i >= 0; i--) {
-      var tempD = new Date(); tempD.setDate(dObj.getDate() - i);
+      var tempD = new Date(dObj.getTime()); tempD.setDate(tempD.getDate() - i);
       var ds = dateToStr(tempD);
       var dayName = tempD.toLocaleDateString('es-ES', {weekday: 'short'}).slice(0,3);
       
@@ -5378,6 +5483,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }).join("");
 
     return (
+      renderPeriodReview() +
       renderTimePerformance() +
       '<section class="block">' +
         '<div class="block-title">Resumen general</div>' + statCards +
@@ -5420,6 +5526,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
             '</button>' +
           '</div>' +
           /* Drive actions */
+          '<div id="driveConflictPanel">' + renderDriveConflict() + '</div>' +
           '<div class="backup-actions">' +
             '<div class="backup-section-label">☁ Google Drive (privado)</div>' +
             '<div class="backup-row">' +
@@ -5454,11 +5561,67 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
               '<input type="file" id="backupFileInput" class="backup-file-input" accept=".json,application/json" />' +
             '</div>' +
           '</div>' +
-          '<div class="backup-status" id="backupStatus"></div>' +
+          '<div id="driveAutoSyncBadge" class="drive-autosync-badge" role="status"><span class="autosync-label"></span></div>' +
+          '<div class="backup-status" id="backupStatus" role="status"></div>' +
+          '<div class="backup-row"><button class="btn-secondary" data-action="show-recovery">Ver copias recuperables</button></div>' +
+          '<div id="recoveryPoints" class="backup-panel-desc" aria-live="polite"></div>' +
+          '<p class="backup-panel-desc">Se conservan las últimas 3 copias previas a restauraciones o reinicios en este dispositivo. Descárgalas para conservarlas fuera del navegador. Las claves de IA no se incluyen en los nuevos respaldos.</p>' +
           '<div class="backup-meta"><span class="backup-meta-dot"></span>Los datos locales se guardan en este dispositivo · El respaldo de Drive es privado y solo visible para ti</div>' +
         '</div>' +
       '</section>'
     );
+  }
+
+  /* Comparación de períodos: las subtareas no se suman otra vez al tiempo de su tarea. */
+  function periodSummary(start, end){
+    var result = { planned:0, done:0, taskSeconds:0, thinkingSeconds:0, activeDays:0, oneoffDone:0, projectTasksDone:0, projectsDone:0, days:0 };
+    dateRangeArray(start, end).forEach(function(ds){
+      if (state.firstUseDate && ds < state.firstUseDate) return;
+      result.days++;
+      var tasks = getHabitRoutineTasksForDate(ds).filter(function(task){
+        var source = (task.type === "habit" ? state.habits : state.routines).find(function(item){ return item.id === task.id; });
+        return !source || !source.createdAt || source.createdAt <= ds;
+      });
+      result.planned += tasks.length;
+      tasks.forEach(function(task){ if (state.log[ds] && state.log[ds][task.id]) result.done++; });
+      var time = state.timeLog[ds] || {};
+      var seconds = Object.values(time.tasks || {}).reduce(function(a,b){ return a + (Number.isFinite(b) && b > 0 ? b : 0); },0);
+      result.taskSeconds += seconds;
+      result.thinkingSeconds += Math.max(0, Number(time.thinking) || 0);
+      var checks = Object.values(state.log[ds] || {}).some(Boolean);
+      if (seconds > 0 || time.thinking > 0 || checks) result.activeDays++;
+      state.oneoff.forEach(function(task){ if (task.date === ds && state.log[ds] && state.log[ds][task.id]) result.oneoffDone++; });
+      state.projects.forEach(function(project){
+        (project.tasks || []).forEach(function(task){ if (task.done && task.doneAt === ds) result.projectTasksDone++; });
+        if (project.status === "completed" && project.completedAt === ds) result.projectsDone++;
+      });
+    });
+    result.rate = result.planned ? Math.round(result.done / result.planned * 100) : null;
+    return result;
+  }
+
+  function renderPeriodReview(){
+    var days = [7,30,90].indexOf(statsPeriodDays) >= 0 ? statsPeriodDays : 7;
+    var end = todayStr(), start = addDays(end, 1-days), previousEnd = addDays(start,-1);
+    var current = periodSummary(start,end), previous = periodSummary(addDays(start,-days), previousEnd);
+    var delta = current.rate !== null && previous.rate !== null ? current.rate - previous.rate : null;
+    var trend = delta === null ? "Aún no hay dos períodos con hábitos programados para comparar." :
+      (delta > 0 ? "+" : "") + delta + " puntos de cumplimiento frente al período anterior.";
+    var buttons = [7,30,90].map(function(n){ return '<button class="btn-secondary" data-action="stats-period" data-days="' + n + '" aria-pressed="' + (days === n) + '">' + n + ' días</button>'; }).join("");
+    var projectProgress = state.projects.filter(function(p){ return p.status === "active"; }).map(function(p){
+      var all = (p.tasks || []).length, done = (p.tasks || []).filter(function(t){ return t.done; }).length;
+      return '<li>' + escapeHtml(p.text) + ': ' + done + '/' + all + ' tareas' + (all ? ' · ' + Math.round(done/all*100) + '%' : ' · sin plan todavía') + '</li>';
+    }).join("");
+    return '<section class="review-panel" aria-label="Resumen por período"><h2 style="font-size:20px;margin-bottom:12px;">Tu avance</h2>' +
+      '<div class="period-buttons">' + buttons + '</div><p>' + formatDateShort(start) + ' — ' + formatDateShort(end) + ' · hoy es un día en curso</p>' +
+      '<div class="stat-grid">' +
+      '<div class="stat-card"><div class="sc-value">' + (current.rate === null ? '—' : current.rate + '%') + '</div><div class="sc-label">Hábitos y rutinas · ' + current.done + '/' + current.planned + '</div></div>' +
+      '<div class="stat-card"><div class="sc-value">' + formatDuration(current.taskSeconds) + '</div><div class="sc-label">Ejecutando tareas</div></div>' +
+      '<div class="stat-card"><div class="sc-value">' + current.activeDays + '/' + current.days + '</div><div class="sc-label">Días con actividad registrada</div></div>' +
+      '<div class="stat-card"><div class="sc-value">' + (current.oneoffDone + current.projectTasksDone) + '</div><div class="sc-label">Tareas puntuales y de proyectos completadas</div></div></div>' +
+      '<p>' + trend + '</p><p>Período anterior: ' + formatDuration(previous.taskSeconds) + ' ejecutando tareas. Proyectos completados en este período: ' + current.projectsDone + '.</p>' +
+      '<details><summary>Progreso actual de proyectos</summary>' + (projectProgress ? '<ul>' + projectProgress + '</ul>' : '<p>No hay proyectos activos.</p>') + '</details>' +
+      '<p>El tiempo de las subtareas ya está incluido en sus tareas. Los multiplicadores y las monedas no aumentan estas horas. La constancia usa los registros y la programación de hábitos disponibles.</p></section>';
   }
 
   /* ===================== Render: pestaña Gestor de Evidencias ===================== */
@@ -5730,10 +5893,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           if (cursor){
             all[cursor.key] = cursor.value;
             cursor.continue();
-          } else {
-            resolve(all);
           }
         };
+        tx.oncomplete = function(){ resolve(all); };
         req.onerror = function(){ reject(req.error); };
         tx.onabort  = function(){ reject(new Error("Lectura abortada")); };
       } catch(err){ reject(err); }
@@ -5835,7 +5997,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     Promise.all([statePromise, dbPromise]).then(function(results){
       var raw = results[0];
       if (raw){
-        try{ state = JSON.parse(raw); } catch(e){ state = defaultState(); }
+        try{ state = JSON.parse(raw); } catch(e){ throw new Error("No se pudieron leer tus datos. No se sobrescribió el original."); }
+        if (!isRecord(state) || !Array.isArray(state.habits) || !Array.isArray(state.oneoff)) throw new Error("Los datos guardados no tienen el formato esperado. No se reemplazaron.");
       } else {
         state = defaultState();
       }
@@ -5858,25 +6021,47 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       state.projects.forEach(function(p){ if (!p.tasks) p.tasks = []; });
       selectedCalendarDate = todayStr();
       
-      /* AQUÍ ESTÁ EL ARREGLO: Guardamos localmente pero SIN forzar la subida automática a Drive */
-      storageSet(STORAGE_KEY, JSON.stringify(state));
+      dataReady = true;
+      /* Migrar la clave antigua a la sesión, sin exportarla ni subirla a Drive. */
+      if (state.groqApiKey){ setGroqKey(state.groqApiKey); delete state.groqApiKey; persist(); }
+      /* No escribir durante el inicio: una lectura fallida nunca debe borrar el original. */
       
       scheduleTodayReminders();
       checkPendingSyncOnLoad();
       render();
+    }).catch(function(err){
+      dataReady = false;
+      var app = document.getElementById("app");
+      app.replaceChildren();
+      var message = document.createElement("p");
+      message.textContent = "⚠ No se pudo abrir la bitácora. " + err.message + " Recarga la página antes de continuar.";
+      app.appendChild(message);
     });
   }
 
   /* ============= restoreFromDrive: MÁQUINA DEL TIEMPO (Busca la versión intacta) ============= */
   async function restoreFromDrive(){
+    if (!dataReady || driveBusy || window.isImportingBackup) return;
     var btnSync    = document.getElementById("btnDriveSync");
     var btnRestore = document.getElementById("btnDriveRestore");
     var statusEl   = document.getElementById("backupStatus");
     if (btnSync)    btnSync.disabled    = true;
     if (btnRestore) btnRestore.disabled = true;
 
+    driveBusy = true;
     try {
-      setBackupStatus("working", "⏳ Buscando en la bóveda de Google Drive…");
+      var currentMeta = await getRemoteFileMeta(true);
+      if (!currentMeta) throw new Error("No hay ningún respaldo en Drive.");
+      var currentResp = await fetch(DRIVE_API + "/" + currentMeta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
+      if (!currentResp.ok) throw new Error("No se pudo descargar el respaldo de Drive.");
+      var currentText = await currentResp.text();
+      var validCurrent = false;
+      try { validateBackup(JSON.parse(currentText)); validCurrent = true; } catch(e){}
+      if (validCurrent){
+        await importMasterBackup(new File([currentText], DRIVE_FILENAME, { type: "application/json" }), { remoteModTime: currentMeta.modifiedTime });
+        return;
+      }
+      setBackupStatus("working", "⏳ Buscando una versión anterior válida en Google Drive…");
       var searchResp = await fetch(
         DRIVE_API + "?spaces=" + DRIVE_SPACES +
         "&fields=files(id)" +
@@ -5926,6 +6111,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
          
          try {
             var tempParse = JSON.parse(text);
+            validateBackup(tempParse);
             /* LA CLAVE: Buscamos un archivo que tenga TAREAS, HÁBITOS o PROYECTOS vivos */
             var numHabits = (tempParse.state && tempParse.state.habits) ? tempParse.state.habits.length : 0;
             var numTasks  = (tempParse.state && tempParse.state.oneoff) ? tempParse.state.oneoff.length : 0;
@@ -5948,13 +6134,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
       /* A partir de ahora este dispositivo "conoce" esta versión: la sync inteligente
          usará esta marca para detectar futuros cambios desde otros dispositivos. */
-      if (goldenModTime) setKnownRemoteModTime(goldenModTime);
+      /* La versión solo se reconoce después de restaurarse correctamente. */
 
       /* Inyectamos el JSON dorado (intacto) en el restaurador blindado */
       var blob = new Blob([goldenJsonText], { type: "application/json" });
       var virtualFile = new File([blob], DRIVE_FILENAME, { type: "application/json" });
       
-      await importMasterBackup(virtualFile);
+      /* Se conoce la versión actual, aunque se eligió recuperar una revisión anterior. */
+      var restored = await importMasterBackup(virtualFile, { remoteModTime: currentMeta.modifiedTime });
+      if (restored) markSyncPending();
 
     } catch(err){
       window.isImportingBackup = false;
@@ -5965,6 +6153,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
       showToast("Error al restaurar desde Google Drive.");
     } finally {
+      driveBusy = false;
       if (btnSync)    btnSync.disabled    = false;
       if (btnRestore) btnRestore.disabled = false;
     }
@@ -6216,43 +6405,152 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   }
 
   /* ============= buildMasterBackupJSON: construye el objeto maestro ============= */
+  function withoutCredentials(value){
+    return JSON.parse(JSON.stringify(value, function(key, val){
+      return /^(groqApiKey|accessToken|refreshToken|apiKey|tokenExpiry)$/i.test(key) ? undefined : val;
+    }));
+  }
+
   async function buildMasterBackupJSON(){
-    var rawState = await storageGet(STORAGE_KEY);
-    var currentState = null;
-    if (rawState){
-      try { currentState = JSON.parse(rawState); } catch(e){ currentState = state; }
-    } else {
-      currentState = state;
-    }
+    await pendingLocalWrites;
+    await pendingEvidenceWrites;
+    await initDB();
+    if (!state) throw new Error("La bitácora aún no está disponible.");
+    /* La memoria conserva los cambios incluso si el último guardado falló. */
+    var currentState = withoutCredentials(state);
     var allEvidence = await dbReadAllWithCursor();
-    var backup = {
-      _meta: {
-        version: 2,
-        exportedAt: new Date().toISOString(),
-        appName: "Bitácora — Hábitos",
-        totalEvidenceKeys: Object.keys(allEvidence).length
-      },
-      state: currentState,
-      evidenceByYear: {}
-    };
+    var backup = { _meta: { version: 3, exportedAt: new Date().toISOString(), appName: "Bitácora — Hábitos",
+      totalEvidenceKeys: Object.keys(allEvidence).length }, state: currentState, evidenceByYear: {}, logByYear: {} };
     Object.keys(allEvidence).forEach(function(key){
       var yr = extractYearFromKey(key);
       if (!backup.evidenceByYear[yr]) backup.evidenceByYear[yr] = {};
       backup.evidenceByYear[yr][key] = allEvidence[key];
     });
-    var logByYear = {};
-    if (currentState && currentState.log){
-      Object.keys(currentState.log).forEach(function(ds){
-        var yr = ds.substring(0, 4);
-        if (!logByYear[yr]) logByYear[yr] = {};
-        logByYear[yr][ds] = currentState.log[ds];
-      });
-    }
-    backup.logByYear = logByYear;
+    Object.keys(currentState.log || {}).forEach(function(ds){
+      var yr = ds.slice(0,4);
+      if (!backup.logByYear[yr]) backup.logByYear[yr] = {};
+      backup.logByYear[yr][ds] = currentState.log[ds];
+    });
     return backup;
   }
 
-  /* ===================== Backup: leer archivo como texto ===================== */
+  function isRecord(value){ return value !== null && typeof value === "object" && !Array.isArray(value); }
+  function validateBackup(backup){
+    if (!isRecord(backup) || !isRecord(backup.state)) throw new Error("El archivo no contiene una bitácora válida.");
+    if (backup._meta && backup._meta.version > 3) throw new Error("Este respaldo requiere una versión más reciente de Bitácora.");
+    var st = backup.state;
+    ["habits", "oneoff", "projects", "routines"].forEach(function(key){
+      if (!Array.isArray(st[key])) throw new Error("Respaldo incompleto: " + key + " debe ser una lista.");
+    });
+    function checkItems(items, project){
+      items.forEach(function(item){
+        if (!isRecord(item) || typeof item.id !== "string" || !/^[a-zA-Z0-9_-]+$/.test(item.id) || typeof item.text !== "string")
+          throw new Error("Hay tareas o identificadores inválidos en el respaldo.");
+        if (project && item.tasks !== undefined && !Array.isArray(item.tasks)) throw new Error("Plan de proyecto inválido.");
+        if (item.subtasks !== undefined && !Array.isArray(item.subtasks)) throw new Error("Subtareas inválidas.");
+        if (item.tasks) checkItems(item.tasks, false);
+        if (item.subtasks) checkItems(item.subtasks, false);
+        if (item.days && (!Array.isArray(item.days) || item.days.some(function(d){ return !Number.isInteger(d) || d < 0 || d > 6; }))) throw new Error("Días de rutina inválidos.");
+      });
+    }
+    checkItems(st.habits.concat(st.oneoff, st.routines), false); checkItems(st.projects, true);
+    function validDate(value){
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      var date = strToDate(value);
+      return Number.isFinite(date.getTime()) && dateToStr(date) === value;
+    }
+    if (st.firstUseDate !== undefined && !validDate(st.firstUseDate)) throw new Error("Fecha de inicio inválida.");
+    st.habits.forEach(function(h){ if (!validDate(h.createdAt)) throw new Error("Fecha de hábito inválida."); });
+    st.oneoff.forEach(function(t){ if (!validDate(t.date)) throw new Error("Fecha de tarea inválida."); });
+    st.projects.forEach(function(p){
+      if (!validDate(p.deadline) || !validDate(p.createdAt) || ["active","completed"].indexOf(p.status) < 0) throw new Error("Fechas o estado de proyecto inválidos.");
+    });
+    st.routines.forEach(function(r){ if (!Array.isArray(r.days) || (r.createdAt !== undefined && !validDate(r.createdAt))) throw new Error("Rutina inválida."); });
+    ["log", "timeLog", "reminders", "selectedProjectByDate"].forEach(function(key){
+      if (st[key] !== undefined && !isRecord(st[key])) throw new Error("Campo inválido: " + key);
+    });
+    if (st.tracking !== undefined && !isRecord(st.tracking)) throw new Error("Sesión de tiempo inválida.");
+    Object.keys(st.log || {}).forEach(function(ds){ if (!isRecord(st.log[ds])) throw new Error("Registro diario inválido."); });
+    Object.keys(st.timeLog || {}).forEach(function(ds){
+      var day = st.timeLog[ds];
+      if (!isRecord(day) || (day.thinking !== undefined && (!Number.isFinite(day.thinking) || day.thinking < 0))) throw new Error("Tiempo diario inválido.");
+      ["tasks", "subtasks"].forEach(function(key){
+        if (day[key] !== undefined && (!isRecord(day[key]) || Object.values(day[key]).some(function(n){ return !Number.isFinite(n) || n < 0; }))) throw new Error("Tiempo de tarea inválido.");
+      });
+    });
+    if (!isRecord(backup.evidenceByYear)) throw new Error("El respaldo no contiene la sección de evidencias.");
+    var flat = {};
+    Object.keys(backup.evidenceByYear).forEach(function(yr){
+      var group = backup.evidenceByYear[yr];
+      if (!isRecord(group)) throw new Error("Grupo de evidencias inválido.");
+      Object.keys(group).forEach(function(key){
+        if (Object.prototype.hasOwnProperty.call(flat, key)) throw new Error("Evidencia duplicada.");
+        var raw = group[key];
+        if (typeof raw !== "string") throw new Error("Evidencia inválida.");
+        var ev = JSON.parse(raw);
+        if (!isRecord(ev) || (ev.note != null && typeof ev.note !== "string") ||
+          (ev.image && (typeof ev.image !== "string" || !/^data:image\/(png|jpe?g|webp|gif);base64,[a-zA-Z0-9+/=\s]+$/.test(ev.image)))) throw new Error("Imagen de evidencia inválida.");
+        Object.defineProperty(flat, key, { value: raw, enumerable: true, configurable: true });
+      });
+    });
+    if (backup._meta && backup._meta.totalEvidenceKeys !== undefined && backup._meta.totalEvidenceKeys !== Object.keys(flat).length)
+      throw new Error("El respaldo está incompleto: no coincide la cantidad de evidencias.");
+    /* Claves especiales no deben entrar en objetos usados como mapas por la aplicación. */
+    JSON.stringify(backup, function(key, val){ if (key === "__proto__" || key === "constructor" || key === "prototype") throw new Error("Clave no permitida en el respaldo."); return val; });
+    return flat;
+  }
+
+  var RECOVERY_KEY = "bitacora_recovery_points";
+  async function saveRecoveryPoint(reason, suppliedBackup){
+    await initDB();
+    var backup = suppliedBackup ? withoutCredentials(suppliedBackup) : await buildMasterBackupJSON();
+    if (suppliedBackup) validateBackup(backup);
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction("appData", "readwrite"), store = tx.objectStore("appData");
+      var req = store.get(RECOVERY_KEY);
+      req.onsuccess = function(){
+        var points = req.result || [];
+        points.unshift({ id: uid(), date: new Date().toISOString(), reason: reason, backup: backup });
+        store.put(points.slice(0,3), RECOVERY_KEY);
+      };
+      tx.oncomplete = function(){ resolve(true); };
+      tx.onabort = tx.onerror = function(){ reject(tx.error || new Error("No se pudo conservar una copia de recuperación.")); };
+    });
+  }
+
+  function commitRestoredBackup(restored, evidence){
+    /* Estado y fotos cambian juntos: si falla cualquier escritura se revierte todo. */
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(["appData", "evidence"], "readwrite");
+      var evStore = tx.objectStore("evidence");
+      evStore.clear();
+      Object.keys(evidence).forEach(function(key){ evStore.put(evidence[key], key); });
+      tx.objectStore("appData").put(JSON.stringify(restored), STORAGE_KEY);
+      tx.oncomplete = function(){ resolve(true); };
+      tx.onabort = tx.onerror = function(){ reject(tx.error || new Error("Restauración cancelada; tus datos anteriores se conservan.")); };
+    });
+  }
+
+  function downloadJSON(value, filename){
+    var url = URL.createObjectURL(new Blob([JSON.stringify(withoutCredentials(value), null, 2)], { type: "application/json" }));
+    var a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+  async function showRecoveryPoints(){
+    var points = await dbGetAppData(RECOVERY_KEY) || [];
+    var host = document.getElementById("recoveryPoints");
+    if (!host) return;
+    host.replaceChildren();
+    if (!points.length) { host.textContent = "Aún no hay copias de recuperación. Se crean antes de restaurar o reiniciar."; return; }
+    points.forEach(function(point){
+      var button = document.createElement("button"); button.className = "btn-secondary"; button.style.marginTop = "8px";
+      button.textContent = "Descargar · " + new Date(point.date).toLocaleString("es-BO") + " · " + point.reason;
+      button.onclick = function(){ downloadJSON(point.backup, "bitacora_recuperacion_" + point.id + ".json"); };
+      host.appendChild(button);
+    });
+  }
+
   function readFileAsText(file){
     return new Promise(function(resolve, reject){
       var reader = new FileReader();
@@ -6285,221 +6583,60 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
                             archivo" / "Restaurar desde Google Drive") SIEMPRE pasan por el candado. */
   async function importMasterBackup(file, opts){
     opts = opts || {};
-    var statusEl = document.getElementById("backupStatus");
-    window.isImportingBackup = true;
+    if (!dataReady || restorePreparing || window.isImportingBackup || (driveBusy && !opts.remoteModTime)) return false;
+    restorePreparing = true;
+    var locked = false, finished = false;
     try {
-      setBackupStatus("working", "⏳ Leyendo archivo de respaldo…");
-      var text = await readFileAsText(file);
-      var backup = JSON.parse(text);
-
-      if (!backup || typeof backup !== "object"){
-        throw new Error("El archivo de respaldo no es válido.");
-      }
-
-      /* ---------- CANDADO DE SEGURIDAD ANTI-RETROCESO ----------
-         No se permite restaurar un respaldo que tenga MENOS información que la que hay
-         actualmente cargada en la app, salvo que la app esté completamente vacía (primera carga). */
+      setBackupStatus("working", "⏳ Validando el respaldo…");
+      var backup = JSON.parse(await readFileAsText(file));
+      var flatEvidence = validateBackup(backup);
+      if (opts.silent && (bitacora_needs_sync || localSaveFailed || opts.expectedRevision !== localRevision)) return false;
       if (!opts.silent){
-        var currentBackupSnapshot = await buildMasterBackupJSON();
-        var currentRichness  = computeBackupRichness(currentBackupSnapshot);
-        var incomingRichness = computeBackupRichness(backup);
-
-        if (currentRichness.total > 0 && incomingRichness.total < currentRichness.total){
-          window.isImportingBackup = false;
-          var msg = "✖ Restauración bloqueada: este respaldo tiene menos información (" +
-            incomingRichness.total + ") que la que ya tenés cargada ahora mismo (" +
-            currentRichness.total + "). Si continuás, perderías datos actuales. " +
-            "Solo se puede restaurar un respaldo con igual o más información, o cuando la app esté vacía.";
-          if (statusEl){
-            statusEl.style.background = ""; statusEl.style.border = "";
-            statusEl.className = "backup-status error";
-            statusEl.textContent = msg;
-          }
-          showToast("✖ Restauración bloqueada: el respaldo tiene menos información que la actual.");
-          return;
-        }
-
-        /* Advertencia de pérdida de datos antes de sobrescribir (confirmación explícita del usuario). */
-        var warnMsg = "⚠ Restaurar este respaldo va a REEMPLAZAR todos los datos actuales de la app " +
-          "(hábitos, proyectos, tareas, registro y evidencias). Cualquier información actual que no " +
-          "esté en este respaldo se PERDERÁ. ¿Querés continuar de todas formas?";
-        if (!window.confirm(warnMsg)){
-          window.isImportingBackup = false;
-          setBackupStatus("", "");
-          showToast("Restauración cancelada.");
-          return;
-        }
+        var before = computeBackupRichness(await buildMasterBackupJSON());
+        var after = computeBackupRichness(backup);
+        var message = "Se reemplazará la bitácora actual por este respaldo (" + after.total + " registros; actualmente " + before.total + "). " +
+          "Antes se conservará una copia recuperable de este dispositivo. ¿Continuar?";
+        if (!window.confirm(message)) { setBackupStatus("", "Restauración cancelada."); return false; }
       }
-
-      /* 1. Restaurar el estado (hábitos, proyectos, tareas, log, etc.) */
-      setBackupStatus("working", "⏳ Restaurando hábitos, proyectos y tareas…");
-      var restoredState = backup.state || defaultState();
-      restoredState.habits       = restoredState.habits       || [];
-      restoredState.oneoff       = restoredState.oneoff       || [];
-      restoredState.log          = restoredState.log          || {};
-      restoredState.firstUseDate = restoredState.firstUseDate || todayStr();
-      restoredState.reminders    = restoredState.reminders    || {};
-      restoredState.projects     = restoredState.projects     || [];
-      restoredState.routines     = restoredState.routines     || [];
-      restoredState.timeLog      = restoredState.timeLog      || {};
-      restoredState.tracking     = restoredState.tracking     || { status: "inactive", taskId: null, taskDs: null, startTime: null };
-      restoredState.selectedProjectByDate = restoredState.selectedProjectByDate || {};
-
-      /* Si el state no trajera el log completo, lo reconstruimos desde logByYear */
-      if ((!restoredState.log || Object.keys(restoredState.log).length === 0) && backup.logByYear){
-        var rebuiltLog = {};
-        Object.keys(backup.logByYear).forEach(function(yr){
-          Object.keys(backup.logByYear[yr]).forEach(function(ds){
-            rebuiltLog[ds] = backup.logByYear[yr][ds];
-          });
-        });
-        restoredState.log = rebuiltLog;
-      }
-
-      /* 2. Restaurar evidencias (fotos) en IndexedDB */
-      var flatEvidence = {};
-      if (backup.evidenceByYear){
-        Object.keys(backup.evidenceByYear).forEach(function(yr){
-          Object.keys(backup.evidenceByYear[yr]).forEach(function(key){
-            flatEvidence[key] = backup.evidenceByYear[yr][key];
-          });
-        });
-      }
-      var totalEv = Object.keys(flatEvidence).length;
-      if (db && totalEv > 0){
-        setBackupStatus("working", "⏳ Restaurando " + totalEv + " evidencias (esto puede tardar unos segundos)…");
-        await dbClearAll();
-        await dbBulkWrite(flatEvidence);
-      }
-
-      /* 3. Guardar el estado restaurado como el estado activo */
-      setBackupStatus("working", "⏳ Guardando…");
-      state = restoredState;
-      await storageSet(STORAGE_KEY, JSON.stringify(state));
-
-      window.isImportingBackup = false;
-      if (statusEl){
-        statusEl.style.background = ""; statusEl.style.border = "";
-        statusEl.className = "backup-status success";
-        statusEl.textContent = "✔ Restaurado correctamente · " + (restoredState.habits.length) + " hábitos · " +
-          (restoredState.projects.length) + " proyectos · " + totalEv + " evidencias";
-      }
+      window.isImportingBackup = true; locked = true;
+      /* Bloquea cambios en la interfaz mientras se toma la copia y se cambia la base. */
+      document.body.classList.add("data-operation");
+      document.getElementById("dataOperationNotice").hidden = false;
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      await pendingLocalWrites;
+      await saveRecoveryPoint("Antes de restaurar");
+      var restored = withoutCredentials(backup.state);
+      restored.log = restored.log || {};
+      restored.firstUseDate = restored.firstUseDate || todayStr();
+      restored.reminders = restored.reminders || {};
+      restored.timeLog = restored.timeLog || {};
+      restored.tracking = restored.tracking || { status: "inactive", taskId: null, taskDs: null, startTime: null };
+      restored.selectedProjectByDate = restored.selectedProjectByDate || {};
+      restored.projects.forEach(function(p){ p.tasks = p.tasks || []; });
+      await commitRestoredBackup(restored, flatEvidence);
+      state = restored; localRevision++; localSaveFailed = false;
+      if (opts.remoteModTime){
+        setKnownRemoteModTime(opts.remoteModTime);
+        markSyncComplete(localRevision); syncConflict = null;
+      } else { markSyncPending(); syncConflict = null; }
+      setBackupStatus("success", "✔ Respaldo restaurado. Tu versión anterior sigue disponible en Copias recuperables.");
       showToast("✅ Respaldo restaurado. Recargando…");
+      finished = true;
       setTimeout(function(){ window.location.reload(); }, 1200);
-
+      return true;
     } catch(err){
-      window.isImportingBackup = false;
-      console.error("importMasterBackup error:", err);
-      if (statusEl){
-        statusEl.style.background = ""; statusEl.style.border = "";
-        statusEl.className = "backup-status error";
-        statusEl.textContent = "✖ Error al restaurar: " + (err.message || err);
-      }
-      showToast("Error al restaurar el respaldo.");
+      setBackupStatus("error", "✖ " + (err.message || err));
+      showToast("No se restauró el respaldo. Tus datos anteriores se conservan.");
+      return false;
+    } finally {
+      restorePreparing = false;
+      if (locked && !finished){ window.isImportingBackup = false; document.body.classList.remove("data-operation"); document.getElementById("dataOperationNotice").hidden = true; }
     }
   }
 
   /* ============= syncToDrive: sube el backup a appDataFolder ============= */
   async function syncToDrive(){
-    var btnSync    = document.getElementById("btnDriveSync");
-    var btnRestore = document.getElementById("btnDriveRestore");
-    if (btnSync)    btnSync.disabled    = true;
-    if (btnRestore) btnRestore.disabled = true;
-
-    try {
-      setBackupStatus("working", "⏳ Preparando respaldo completo…");
-
-      /* 1. Construir JSON */
-      setBackupStatus("working", "⏳ Leyendo datos y evidencias…");
-      var backup = await buildMasterBackupJSON();
-      var jsonStr = JSON.stringify(backup, null, 2);
-
-      /* 2. Buscar si ya existe el archivo en appDataFolder */
-      setBackupStatus("working", "⏳ Comprobando respaldo existente en Drive…");
-      var searchResp = await fetch(
-        DRIVE_API + "?spaces=" + DRIVE_SPACES +
-        "&fields=files(id,name,modifiedTime)" +
-        "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
-        { headers: { "Authorization": "Bearer " + driveAccessToken } }
-      );
-      if (!searchResp.ok){
-        var errBody = await searchResp.text();
-        throw new Error("Error buscando en Drive (" + searchResp.status + "): " + errBody);
-      }
-      var searchData = await searchResp.json();
-      var existingFile = searchData.files && searchData.files.length > 0 ? searchData.files[0] : null;
-
-      /* Antes de pisar Drive: ¿alguien subió una versión que no conocemos? */
-      var knownModTime = getKnownRemoteModTime();
-      if (existingFile && knownModTime && knownModTime !== existingFile.modifiedTime){
-        setBackupStatus("working", "⏳ Se detectó una versión más nueva en Drive. Descargándola primero para no perder datos…");
-        await autoRestoreFromDrive(existingFile);
-        return;
-      }
-
-      /* 3. Crear o actualizar el archivo */
-      var boundary = "bitacora_boundary_" + Date.now();
-      var metadata = JSON.stringify(
-        existingFile
-          ? { name: DRIVE_FILENAME }
-          : { name: DRIVE_FILENAME, parents: [DRIVE_SPACES] }
-      );
-      var body =
-        "--" + boundary + "\r\n" +
-        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-        metadata + "\r\n" +
-        "--" + boundary + "\r\n" +
-        "Content-Type: application/json\r\n\r\n" +
-        jsonStr + "\r\n" +
-        "--" + boundary + "--";
-
-      var uploadUrl, uploadMethod;
-      if (existingFile){
-        setBackupStatus("working", "⏳ Actualizando respaldo en Drive…");
-        uploadUrl    = DRIVE_UPLOAD_API + "/" + existingFile.id + "?uploadType=multipart&fields=id,modifiedTime";
-        uploadMethod = "PATCH";
-      } else {
-        setBackupStatus("working", "⏳ Creando nuevo respaldo en Drive…");
-        uploadUrl    = DRIVE_UPLOAD_API + "?uploadType=multipart&fields=id,modifiedTime";
-        uploadMethod = "POST";
-      }
-
-      var uploadResp = await fetch(uploadUrl, {
-        method: uploadMethod,
-        headers: {
-          "Authorization": "Bearer " + driveAccessToken,
-          "Content-Type": "multipart/related; boundary=" + boundary
-        },
-        body: body
-      });
-
-      if (!uploadResp.ok){
-        var upErr = await uploadResp.text();
-        throw new Error("Error subiendo a Drive (" + uploadResp.status + "): " + upErr);
-      }
-
-      var upData = await uploadResp.json().catch(function(){ return null; });
-      if (upData && upData.modifiedTime) setKnownRemoteModTime(upData.modifiedTime);
-
-      var totalEv = Object.keys(backup._meta.totalEvidenceKeys !== undefined
-        ? { length: backup._meta.totalEvidenceKeys }
-        : {}).length;
-      var evCount = backup._meta.totalEvidenceKeys || 0;
-      var action  = existingFile ? "actualizado" : "creado";
-      setBackupStatus("success",
-        "✔ Respaldo " + action + " en Google Drive · " +
-        evCount + " evidencias · " +
-        new Date().toLocaleString("es")
-      );
-      showToast("✅ Respaldo " + action + " en Google Drive.");
-    } catch(err){
-      console.error("Drive sync error:", err);
-      setBackupStatus("error", "✖ " + (err.message || err));
-      showToast("Error al subir a Google Drive.");
-    } finally {
-      if (btnSync)    btnSync.disabled    = false;
-      if (btnRestore) btnRestore.disabled = false;
-    }
+    return uploadDriveBackup(true);
   }
 
   /* Inicializar GIS cuando el script esté disponible */
@@ -6611,15 +6748,168 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     else if (activeTab === "estadisticas") html = renderEstadisticas();
     else if (activeTab === "evidencias")   html = renderEvidencias();
     app.innerHTML = html;
+    refreshSaveStatus();
 
     /* ¡NUEVO! Actualiza el botón de Drive al volver a la pestaña */
     if (activeTab === "estadisticas") {
       updateDriveAuthUI();
+      if (syncConflict) setBackupStatus("error", "Hay dos versiones. Descarga la copia local antes de restaurar desde Drive.");
     }
     
     /* Disparador inteligente de audio */
     syncTrainAudio();
   }
+
+  var aiGenerating = false;
+  var aiSelectedModel = null;
+  var aiDraftProjectId = null;
+
+  function validateAIPlan(plan){
+    if (!isRecord(plan) || !Array.isArray(plan.tasks) || !plan.tasks.length || plan.tasks.length > 30)
+      throw new Error("La IA debe devolver entre 1 y 30 tareas.");
+    return plan.tasks.map(function(task){
+      if (!isRecord(task) || typeof task.text !== "string" || !task.text.trim() || task.text.length > 200)
+        throw new Error("La IA devolvió una tarea inválida o demasiado larga.");
+      var subs = task.subtasks === undefined ? [] : task.subtasks;
+      if (!Array.isArray(subs) || subs.length > 20 || subs.some(function(text){ return typeof text !== "string" || !text.trim() || text.length > 200; }))
+        throw new Error("La IA devolvió subtareas inválidas.");
+      return { text: task.text.trim(), subtasks: subs.map(function(text){ return text.trim(); }) };
+    });
+  }
+
+  function openAIPlanPreview(projectId, tasks){
+    var old = document.getElementById("aiPlanPreview");
+    if (old) old.remove();
+    var returnFocus = document.activeElement;
+    aiDraftProjectId = projectId;
+    var overlay = document.createElement("div"); overlay.id = "aiPlanPreview"; overlay.className = "ai-preview";
+    overlay.setAttribute("role", "dialog"); overlay.setAttribute("aria-modal", "true"); overlay.setAttribute("aria-labelledby", "aiPlanTitle");
+    var card = document.createElement("div"); card.className = "ai-preview-card";
+    card.innerHTML = '<h2 id="aiPlanTitle">Revisa tu plan de IA</h2><p>Elige y edita las tareas antes de agregarlas. Las tareas existentes se conservan y se omiten nombres duplicados.</p>';
+    tasks.forEach(function(task, index){
+      var fieldset = document.createElement("fieldset");
+      var legend = document.createElement("legend");
+      var select = document.createElement("input"); select.type = "checkbox"; select.checked = true; select.className = "ai-include"; select.id = "ai-include-" + index;
+      var label = document.createElement("label"); label.htmlFor = select.id; label.append(select, document.createTextNode(" Incluir tarea " + (index+1)));
+      legend.appendChild(label); fieldset.appendChild(legend);
+      var textLabel = document.createElement("label"); textLabel.htmlFor = "ai-text-" + index; textLabel.textContent = "Tarea";
+      var input = document.createElement("input"); input.type = "text"; input.className = "ai-task-text"; input.id = textLabel.htmlFor; input.maxLength = 200; input.value = task.text;
+      var subLabel = document.createElement("label"); subLabel.htmlFor = "ai-subs-" + index; subLabel.textContent = "Subtareas (una por línea, máximo 20)";
+      var textarea = document.createElement("textarea"); textarea.className = "ai-task-subs"; textarea.id = subLabel.htmlFor; textarea.value = task.subtasks.join("\n"); textarea.maxLength = 4020;
+      fieldset.append(textLabel, input, subLabel, textarea); card.appendChild(fieldset);
+    });
+    var message = document.createElement("p"); message.setAttribute("role", "status"); card.appendChild(message);
+    var actions = document.createElement("div"); actions.className = "ai-preview-actions";
+    var apply = document.createElement("button"); apply.className = "primary"; apply.textContent = "Agregar tareas seleccionadas";
+    var cancel = document.createElement("button"); cancel.className = "btn-secondary"; cancel.textContent = "Descartar plan";
+    function close(){ overlay.remove(); aiDraftProjectId = null; document.removeEventListener("keydown", keyboard, true); if (returnFocus && returnFocus.isConnected) returnFocus.focus(); }
+    function keyboard(event){
+      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+      if (event.key === "Tab"){
+        var focusables = Array.from(card.querySelectorAll("button, input, textarea")).filter(function(el){ return !el.disabled; });
+        var first = focusables[0], last = focusables[focusables.length-1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    }
+    cancel.onclick = close;
+    apply.onclick = async function(){
+      if (window.isImportingBackup) return;
+      var project = state.projects.find(function(p){ return p.id === projectId && p.status === "active"; });
+      if (!project){ message.textContent = "Este proyecto ya no está activo. Cierra la vista previa."; return; }
+      try {
+        var selected = Array.from(card.querySelectorAll("fieldset")).filter(function(row){ return row.querySelector(".ai-include").checked; }).map(function(row){
+          return { text: row.querySelector(".ai-task-text").value.trim(), subtasks: row.querySelector(".ai-task-subs").value.split("\n").map(function(x){ return x.trim(); }).filter(Boolean) };
+        });
+        selected = validateAIPlan({ tasks: selected });
+        var known = new Set((project.tasks || []).map(function(t){ return t.text.trim().toLocaleLowerCase(); }));
+        var added = [];
+        selected.forEach(function(task){
+          var normalized = task.text.toLocaleLowerCase();
+          if (known.has(normalized)) return;
+          known.add(normalized);
+          added.push({ id: uid(), text: task.text, done: false, createdAt: todayStr(), subtasks: Array.from(new Set(task.subtasks)).map(function(text){ return { id: uid(), text: text, done: false, createdAt: todayStr() }; }) });
+        });
+        if (!added.length) { message.textContent = "Las tareas seleccionadas ya existen en el proyecto. Puedes editar sus nombres o descartar el plan."; return; }
+        apply.disabled = true;
+        project.tasks = (project.tasks || []).concat(added);
+        var saved = await persist();
+        close(); renderProjectPlanModal(projectId);
+        showToast(saved ? "✨ " + added.length + " tareas agregadas y guardadas." : "Plan agregado en memoria. Error de guardado: descarga un respaldo antes de cerrar.");
+      } catch(err){ message.textContent = err.message; apply.disabled = false; }
+    };
+    actions.append(apply,cancel); card.appendChild(actions); overlay.appendChild(card); document.body.appendChild(overlay);
+    document.addEventListener("keydown", keyboard, true); overlay.querySelector("input").focus();
+  }
+
+  async function fetchAIJSON(url, options){
+    var controller = new AbortController(), timeout = setTimeout(function(){ controller.abort(); }, 45000);
+    try {
+      var resp = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+      if (!resp.ok){
+        if (resp.status === 401 || resp.status === 403) throw new Error("API_KEY_ERROR|Groq rechazó la clave de esta sesión.");
+        throw new Error(resp.status === 429 ? "Groq alcanzó su límite temporal. Intenta más tarde; tu clave se conserva." : "Groq no pudo responder (" + resp.status + "). Intenta de nuevo.");
+      }
+      return await resp.json();
+    } catch(err){
+      if (err.name === "AbortError") throw new Error("La IA tardó demasiado. Puedes volver a intentar; tu proyecto sigue igual.");
+      throw err;
+    } finally { clearTimeout(timeout); }
+  }
+
+  async function generateAIPlan(projectId, button){
+    if (aiGenerating || document.getElementById("aiPlanPreview")) { showToast("Termina o descarta el plan de IA abierto antes de generar otro."); return; }
+    var project = state.projects.find(function(p){ return p.id === projectId && p.status === "active"; });
+    if (!project) return;
+    if (!groqApiKey){
+      var key = prompt("Pega tu clave de Groq. Se conserva solo en esta sesión y nunca se incluye en tus nuevos respaldos.");
+      if (!key || !key.trim()) return;
+      setGroqKey(key);
+    }
+    aiGenerating = true;
+    var original = button.textContent; button.disabled = true; button.textContent = "⏳ Preparando plan…";
+    var requestKey = groqApiKey;
+    async function ask(prompt){
+      if (!aiSelectedModel){
+        var models = await fetchAIJSON("https://api.groq.com/openai/v1/models", { headers: { Authorization: "Bearer " + requestKey } });
+        var available = (models.data || []).filter(function(m){ return typeof m.id === "string" && m.id.includes("llama") && !/guard|prompt|embed|whisper/i.test(m.id); });
+        var chosen = available.find(function(m){ return m.id === "llama-3.3-70b-versatile"; }) || available.find(function(m){ return m.id.includes("70b"); }) || available[0];
+        if (!chosen) throw new Error("No se encontró un modelo de texto compatible en tu cuenta de Groq.");
+        aiSelectedModel = chosen.id;
+      }
+      var response = await fetchAIJSON("https://api.groq.com/openai/v1/chat/completions", { method:"POST",
+        headers: { "Content-Type":"application/json", Authorization:"Bearer " + requestKey },
+        body: JSON.stringify({ model:aiSelectedModel, messages:[{role:"user",content:prompt}], temperature:0.4, max_tokens:4000 }) });
+      var text = response.choices && response.choices[0] && response.choices[0].message && response.choices[0].message.content;
+      if (typeof text !== "string" || !text.trim()) throw new Error("La IA devolvió una respuesta vacía.");
+      return text;
+    }
+    try {
+      var context = "Proyecto: " + project.text + ". Fecha límite: " + project.deadline + ". Notas: " + (project.notes || "Sin notas") + ".";
+      var questions = await ask("Actúa como un planificador. " + context + " Haz como máximo 3 preguntas breves sobre recursos y contexto. No preguntes por la fecha límite, ya está definida. Responde solo con las preguntas.");
+      var answers = prompt("La IA necesita unos detalles:\n\n" + questions + "\n\nResponde o deja vacío para un plan general:");
+      if (answers === null) return;
+      button.textContent = "⏳ Generando propuesta…";
+      var existing = (project.tasks || []).map(function(t){ return t.text; }).join("; ");
+      var text = await ask(context + " Tareas existentes (no repetir): " + existing + ". Preguntas: " + questions + ". Respuestas: " + answers +
+        '. Propón entre 1 y 20 tareas concretas y realistas para llegar a esa fecha. Cada texto tendrá máximo 200 caracteres y cada tarea máximo 10 subtareas. Devuelve SOLO JSON con esta estructura: {"tasks":[{"text":"Tarea","subtasks":["Subtarea"]}]}');
+      var clean = text.replace(/```json/gi, "").replace(/```/g, "").trim(), match = clean.match(/\{[\s\S]*\}/);
+      var tasks;
+      try { tasks = validateAIPlan(JSON.parse(match ? match[0] : clean)); }
+      catch(err){ throw new Error("La IA devolvió un plan no válido. No se agregaron tareas. " + err.message); }
+      if (!state.projects.some(function(p){ return p.id === projectId && p.status === "active"; })) throw new Error("El proyecto cambió mientras se generaba el plan.");
+      openAIPlanPreview(projectId, tasks);
+    } catch(err){
+      if (err.message.indexOf("API_KEY_ERROR|") === 0) { setGroqKey(""); alert(err.message.split("|")[1]); }
+      else { aiSelectedModel = null; alert(err.message || "No se pudo generar el plan."); }
+    } finally { aiGenerating = false; button.disabled = false; button.textContent = original; }
+  }
+
+  ["click", "submit", "change"].forEach(function(type){
+    document.addEventListener(type, function(event){
+      if (window.isImportingBackup || !dataReady){ event.preventDefault(); event.stopImmediatePropagation(); }
+    }, true);
+  });
 
   /* ===================== Eventos: clicks ===================== */
   document.addEventListener("click", function(e){
@@ -6631,6 +6921,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     /* Nav tabs */
     var navBtn = e.target.closest(".nav-btn");
     if (navBtn && navBtn.hasAttribute("data-tab")){
+      if (!dataReady || window.isImportingBackup) return;
       activeTab = navBtn.getAttribute("data-tab");
       if (activeTab === "estadisticas") statsOffsetDays = 0;
       openReminderPanel = null;
@@ -6642,6 +6933,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var el = e.target.closest("[data-action]");
     if (!el) return;
     var action = el.getAttribute("data-action");
+    if (!dataReady || window.isImportingBackup) return;
+    if (action === "drive-keep-local") { keepLocalDriveVersion(); return; }
+    if (action === "show-recovery") { showRecoveryPoints().catch(function(e){ setBackupStatus("error", e.message); }); return; }
+    if (action === "stats-period") { statsPeriodDays = Number(el.getAttribute("data-days")); renderActiveTab(); return; }
+    if (action === "ai-key") {
+      var key = prompt("Clave de Groq (se conserva solo en esta sesión; no se incluye en respaldos):", "");
+      if (key !== null) { setGroqKey(key); showToast(key.trim() ? "Clave actualizada para esta sesión." : "Clave eliminada de esta sesión."); }
+      return;
+    }
 
     if (action === "toggle-task"){
       if (el.disabled) return;
@@ -7038,142 +7338,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       if (state.tracking.subtaskId === subId && isDone) pauseTask();
       persist(); renderActiveTab();
 
-    /* --- MOTOR DE INTELIGENCIA ARTIFICIAL (AGENTE GROQ DINÁMICO) --- */
+    /* La IA propone; el usuario revisa antes de incorporar tareas. */
     } else if (action === "ai-plan-start") {
-      var pID = el.getAttribute("data-id");
-      var proj = state.projects.find(function(x){ return x.id === pID; });
-      if (!proj) return;
-
-      /* 1. Pedir y Guardar la API Key de Groq */
-      if (!state.groqApiKey) {
-        var key = prompt("🤖 Configuración de IA (Groq Dinámico)\n\nPara que la IA nunca se vuelva a desactualizar, el código buscará los servidores activos automáticamente.\n\nPega tu API Key de Groq aquí (empieza con 'gsk_'):");
-        if (!key || !key.trim()) { showToast("Necesitas una API Key para usar la IA."); return; }
-        state.groqApiKey = key.trim();
-        persist();
-      }
-
-      /* Función Helper con Búsqueda Automática de Modelos Vivos */
-      async function askGroq(promptTxt) {
-        var modelsUrl = "https://api.groq.com/openai/v1/models";
-        var modelsRes = await fetch(modelsUrl, {
-          headers: { "Authorization": "Bearer " + state.groqApiKey }
-        });
-        
-        if (!modelsRes.ok) {
-           if (modelsRes.status === 401 || modelsRes.status === 403) throw new Error("API_KEY_ERROR|Clave inválida al verificar modelos.");
-           throw new Error("No se pudo obtener la lista de modelos de Groq.");
-        }
-        
-        var modelsData = await modelsRes.json();
-        var modelToUse = "llama-3.3-70b-versatile"; /* Fallback extremo por si acaso */
-        
-        if (modelsData && modelsData.data && modelsData.data.length > 0) {
-           var llamaModels = modelsData.data.filter(function(m){ return m.id.toLowerCase().includes("llama"); });
-           if (llamaModels.length > 0) {
-               var model70b = llamaModels.find(function(m){ return m.id.includes("70b"); });
-               modelToUse = model70b ? model70b.id : llamaModels[0].id;
-           } else {
-               modelToUse = modelsData.data[0].id;
-           }
-        }
-
-        var url = "https://api.groq.com/openai/v1/chat/completions";
-        var reqBody = {
-          model: modelToUse,
-          messages: [{ role: "user", content: promptTxt }],
-          temperature: 0.7
-        };
-        
-        var res = await fetch(url, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + state.groqApiKey
-          },
-          body: JSON.stringify(reqBody)
-        });
-        
-        if (!res.ok) {
-           var errorDetalle = await res.text();
-           if (res.status === 401 || res.status === 403) throw new Error("API_KEY_ERROR|La API Key fue rechazada al generar texto.");
-           throw new Error("Error " + res.status + " de Groq:\n" + errorDetalle);
-        }
-        var data = await res.json();
-        return data.choices[0].message.content;
-      }
-
-      var originalBtnText = el.innerHTML;
-      el.innerHTML = "⏳ Escaneando servidores de IA...";
-      el.disabled = true;
-
-      /* Ejecutamos asíncronamente */
-      (async function(){
-        try {
-          /* --- LE PASAMOS LA FECHA LÍMITE (proj.deadline) Y LE PROHIBIMOS PREGUNTAR POR PLAZOS --- */
-          var promptPreguntas = "Actúa como un project manager experto. El usuario quiere planificar un proyecto llamado '" + proj.text + "'. La fecha límite (deadline) establecida para este proyecto es el " + proj.deadline + ", así que NO preguntes sobre plazos de tiempo ni estimaciones de finalización. Tu objetivo será estructurar este proyecto en tareas y subtareas. Pero antes, OBLIGATORIAMENTE hazle al usuario máximo 3 preguntas clave, directas y concisas, para averiguar recursos, contexto o detalles específicos que necesites saber. Devuelve ÚNICAMENTE las preguntas en texto plano, separadas por viñetas, sin saludos ni introducciones.";
-          
-          var preguntasIA = await askGroq(promptPreguntas);
-          
-          var respuestas = prompt("🤖 La IA necesita unos detalles para planificar '" + proj.text + "':\n\n" + preguntasIA + "\n\nEscribe tus respuestas aquí (o deja en blanco para que asuma lo general):");
-          if (respuestas === null) throw new Error("Cancelaste la planificación.");
-
-          el.innerHTML = "⏳ Estructurando tareas...";
-
-          /* Le recordamos la fecha límite al construir el plan final */
-          var promptFinal = "Eres un project manager. Proyecto: '" + proj.text + "'. Fecha límite: " + proj.deadline + ". Mis preguntas fueron: '" + preguntasIA + "'. Respuestas del usuario: '" + respuestas + "'. \nCrea un plan estructurado basándote en toda esta información. \nOBLIGATORIO: Debes responder EXCLUSIVAMENTE con un objeto JSON válido, sin formato markdown, sin comillas triples y sin texto adicional. Usa estrictamente esta estructura exacta:\n{\"tasks\": [ {\"text\": \"Nombre de Tarea\", \"subtasks\": [\"Subtarea 1\", \"Subtarea 2\"]} ]}";
-          
-          var respuestaIA = await askGroq(promptFinal);
-          
-          /* Extracción robusta: ignora cualquier texto que la IA añada antes/después
-             (saludos, despedidas, etc.) y toma solo desde la primera "{" hasta la última "}" */
-          var jsonLimpio = respuestaIA.replace(/```json/gi, "").replace(/```/gi, "").trim();
-          var jsonMatch = jsonLimpio.match(/\{[\s\S]*\}/);
-          if (jsonMatch) jsonLimpio = jsonMatch[0];
-          var plan;
-          try { plan = JSON.parse(jsonLimpio); } 
-          catch(e) { throw new Error("La IA no devolvió un formato compatible. Intenta de nuevo."); }
-
-          if (!plan.tasks || !Array.isArray(plan.tasks)) throw new Error("Estructura de tareas inválida.");
-
-          if (!proj.tasks) proj.tasks = [];
-          
-          plan.tasks.forEach(function(aiTask){
-             var subT = [];
-             if (aiTask.subtasks && Array.isArray(aiTask.subtasks)) {
-                 subT = aiTask.subtasks.map(function(stText){
-                     return { id: uid(), text: stText, done: false, createdAt: todayStr() };
-                 });
-             }
-             proj.tasks.push({
-                 id: uid(),
-                 text: aiTask.text || "Tarea de Proyecto",
-                 done: false,
-                 createdAt: todayStr(),
-                 subtasks: subT
-             });
-          });
-
-          persist();
-          renderProjectPlanModal(pID);
-          showToast("✨ ¡Plan inyectado con éxito!");
-
-        } catch (error) {
-          console.error("Error de IA:", error);
-          if (error.message.startsWith("API_KEY_ERROR")) {
-              var detalleError = error.message.split("|")[1];
-              alert("⚠️ Groq rechazó la conexión.\n\nDetalle: " + detalleError + "\n\nLa API Key se ha borrado de tu sistema para que intentes con otra.");
-              state.groqApiKey = null; 
-              persist();
-          } else if (error.message !== "Cancelaste la planificación.") {
-              alert("⚠️ Diagnóstico:\n\n" + error.message + "\n\nLa clave se ha borrado por precaución.");
-              state.groqApiKey = null; 
-              persist();
-          }
-        } finally {
-          el.innerHTML = originalBtnText;
-          el.disabled = false;
-        }
-      })();
+      generateAIPlan(el.getAttribute("data-id"), el);
 
     } else if (action === "toggle-mute") {
       isTrainMuted = !isTrainMuted;
@@ -7276,6 +7443,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
   /* ===================== Eventos: submits ===================== */
   document.addEventListener("submit", function(e){
+    if (!dataReady || window.isImportingBackup) { e.preventDefault(); return; }
     /* Tarea / hábito */
     var taskForm = e.target.closest('[data-action="add-task"]');
     if (taskForm){

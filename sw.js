@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bitacora-cache-v3';
+const CACHE_NAME = 'bitacora-cache-v4';
 
 /* El MP3 NO se cachea aquí: la app lo guarda en IndexedDB y el Service Worker
    no debe interferir con su descarga. */
@@ -23,7 +23,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('bitacora-cache-') && k !== CACHE_NAME).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -47,8 +47,9 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       fetch(req)
         .then(res => {
+          if (!res.ok) throw new Error('Página no disponible');
           const copy = res.clone();
-          caches.open(CACHE_NAME).then(c => c.put('./index.html', copy));
+          caches.open(CACHE_NAME).then(c => c.put('./index.html', copy)).catch(() => {});
           return res;
         })
         .catch(() => caches.match('./index.html'))
