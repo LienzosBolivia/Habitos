@@ -225,7 +225,7 @@ test('shop respects unlock levels and costs and retains the old shop',()=>fixtur
   await a.seed({coins:{balance:50}});assert.equal(a.buyRpgItem('shield'),false);assert.equal(a.state.coins.balance,50);
   a.rpgState().xp=a.xpForLevel(5);assert.equal(a.buyRpgItem('shield'),true);assert.equal(a.state.coins.balance,30);assert.equal(a.rpgState().inv.shield,1);
   assert.equal(a.buyRpgItem('reroll'),true);assert.equal(a.consumeReroll(),true);assert.equal(a.consumeReroll(),false);
-  a.openShopModal();assert.ok(w.document.querySelector('#shopOverlay'));w.document.getElementById('legacyShopBtn').click();assert.ok(w.document.getElementById('shopModal').classList.contains('open'));
+  a.openShopModal();assert.ok(w.document.querySelector('[data-commerce-view="shop"]'));w.document.getElementById('legacyShopBtn').click();assert.ok(w.document.getElementById('shopModal').classList.contains('open'));
 }));
 
 test('shields preserve yesterday streak without completion, payout or repeated consumption',()=>fixture(async({a})=>{
