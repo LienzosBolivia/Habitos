@@ -75,6 +75,24 @@
     outline-offset:2px;
   }
 
+  /* ---------- Barra de monedas ---------- */
+  .coin-bar{
+    position:sticky; top:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:8px 14px; padding-top:calc(8px + env(safe-area-inset-top, 0px));
+    background:var(--ink-900); border-bottom:1px solid var(--ink-700);
+    font-family:var(--font-mono); font-size:12px; color:var(--brass-300);
+  }
+  .coin-bar .cb-count b{font-size:15px;}
+  .coin-bar .cb-status{flex:1; text-align:center; font-size:11px; color:var(--text-muted);}
+  .coin-bar .cb-btn{
+    padding:6px 12px; border-radius:8px; font-size:11.5px; font-weight:600; cursor:pointer;
+    border:1px solid var(--brass-600); background:var(--brass-500); color:#1a1a1a;
+  }
+  .coin-bar .cb-btn:disabled{opacity:.4; cursor:not-allowed; background:transparent; color:var(--text-muted); border-color:var(--ink-700);}
+  .coin-bar.is-break{background:#1c3527; border-bottom-color:#5FA177;}
+  .coin-bar.is-break .cb-status{color:#9CD4AF;}
+
   /* ---------- Masthead ---------- */
   .masthead{
     padding:30px 20px 20px;
@@ -1491,6 +1509,12 @@
 </head>
 <body>
 
+<div class="coin-bar" id="coinBar">
+  <span class="cb-count">🪙 <b id="coinCount">0</b></span>
+  <span class="cb-status" id="coinStatus"></span>
+  <button type="button" class="cb-btn" id="coinBtn" data-action="use-coin" disabled>Usar (3 min)</button>
+</div>
+
 <header class="masthead">
   <h1>Bitácora</h1>
   <div class="subtitle">Diario de hábitos y tareas</div>
@@ -2583,8 +2607,141 @@ function defaultState(){
     return base;
   }
 
-  var AUTO_START_HOUR = 6;      /* hora del encendido automático diario */
-  var AUTO_SESSION_HOURS = 18;   /* duración de la sesión automática */
+  var AUTO_START_HOUR = 6;        /* 06:00: encendido automático diario */
+  var AUTO_SESSION_HOURS = 16.5;  /* termina a las 22:30 (evita trasnochar esperando las 00:00) */
+  var LOCK_AUTO_AFTER_HOUR = 20;  /* desde las 20:00 hasta las 6:00 no se puede apagar el encendido automático */
+  var thinkingAlertFired = false; /* evita repetir el aviso de inactividad */
+
+  /* ===================== Monedas de descompresión ===================== */
+  var COIN_BREAK_SEC       = 180;   /* cada moneda = 3 min con el sistema "desactivado" */
+  var COIN_COOLDOWN_SEC    = 600;   /* 10 min obligatorios entre una moneda y la siguiente (desde que termina la anterior) */
+  var COIN_TASK_SEC        = 3600;  /* 1 moneda por cada hora de tareas ejecutadas */
+  var COIN_PROJECT_REWARD  = 5;     /* monedas por proyecto finalizado */
+
+  function coinState(){
+    if (!state.coins) state.coins = { balance: 0, progressSec: 0, breakUntil: 0, cooldownUntil: 0 };
+    return state.coins;
+  }
+  function breakActive(){
+    var c = state && state.coins;
+    return !!(c && c.breakUntil && nowMs() < c.breakUntil);
+  }
+  function addCoins(n, why, silent){
+    var c = coinState();
+    c.balance = (c.balance || 0) + n;
+    if (!silent) showToast("🪙 +" + n + (n === 1 ? " moneda" : " monedas") + (why ? " · " + why : ""));
+    updateCoinBar();
+  }
+  /* Acredita el tiempo de una tarea SOLO si está finalizada Y tiene evidencia (nota o foto).
+     Cada tarea acredita una sola vez cada segundo (mapa "credited"), así desmarcar y volver a marcar no repite. */
+  function creditTaskCoins(ds, id){
+    if (!ds || ds === "project") return;
+    if (getStatus(ds, id) !== "done") return;
+    var key = ds + "_" + id;
+    dbGet(key).then(function(raw){
+      var ev = null;
+      if (raw){ try { ev = JSON.parse(raw); } catch(e){} }
+      if (!ev || !(ev.note || ev.image)) return;
+      if (getStatus(ds, id) !== "done") return;
+      var secs = (state.timeLog[ds] && state.timeLog[ds].tasks && state.timeLog[ds].tasks[id]) || 0;
+      var c = coinState();
+      if (!c.credited) c.credited = {};
+      var delta = Math.floor(secs - (c.credited[key] || 0));
+      if (delta <= 0) return;
+      c.credited[key] = (c.credited[key] || 0) + delta;
+      earnFromTaskSeconds(delta);
+      persist();
+    });
+  }
+  /* Suma segundos validados al contador; cada hora completa = 1 moneda */
+  function earnFromTaskSeconds(sec){
+    if (!(sec > 0)) return;
+    var c = coinState();
+    c.progressSec = (c.progressSec || 0) + sec;
+    var n = Math.floor(c.progressSec / COIN_TASK_SEC);
+    if (n > 0){
+      c.progressSec -= n * COIN_TASK_SEC;
+      addCoins(n, "1 h de tareas con evidencia");
+    }
+  }
+  function useCoin(){
+    if (!state.tracking || state.tracking.status === "inactive"){
+      showToast("El sistema ya está apagado: no necesitas moneda.");
+      return;
+    }
+    var c = coinState(), now = nowMs();
+    if (breakActive()){
+      showToast("Ya estás en descompresión (" + Math.ceil((c.breakUntil - now) / 1000) + " s).");
+      return;
+    }
+    if (c.cooldownUntil && now < c.cooldownUntil){
+      showToast("⏳ Espera " + Math.ceil((c.cooldownUntil - now) / 60000) + " min para usar otra moneda.");
+      return;
+    }
+    if ((c.balance || 0) <= 0){
+      showToast("Sin monedas. 1 h de tareas = 1 moneda; proyecto = " + COIN_PROJECT_REWARD + ".");
+      return;
+    }
+    flushTime(); /* guarda lo trabajado hasta ahora */
+    state.tracking.status       = "thinking";
+    state.tracking.taskId       = null;
+    state.tracking.subtaskId    = null;
+    state.tracking.taskDs       = null;
+    state.tracking.targetLimit  = null;
+    state.tracking.startTime    = null; /* durante la descompresión NO cuenta tiempo de "pensando" */
+    c.balance--;
+    c.breakUntil    = now + COIN_BREAK_SEC * 1000;
+    c.cooldownUntil = c.breakUntil + COIN_COOLDOWN_SEC * 1000;
+    persist();
+    renderActiveTab();
+    updateCoinBar();
+    showToast("🪙 Descompresión: 3 minutos libres.");
+  }
+  function fmtMS(sec){
+    if (sec < 0) sec = 0;
+    sec = Math.ceil(sec);
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+  /* Actualiza la barra superior sin reconstruirla (el botón no "parpadea") */
+  function updateCoinBar(){
+    var cntEl = document.getElementById("coinCount");
+    if (!cntEl || !state) return;
+    var c = coinState(), now = nowMs();
+    var on = state.tracking && state.tracking.status !== "inactive";
+    var inBreak = breakActive();
+    var inCool = !inBreak && c.cooldownUntil && now < c.cooldownUntil;
+    cntEl.textContent = c.balance || 0;
+    var stEl = document.getElementById("coinStatus");
+    var btn = document.getElementById("coinBtn");
+    var liveSec = 0;
+    var txt;
+    if (inBreak) txt = "🟢 Libre · " + fmtMS((c.breakUntil - now) / 1000);
+    else if (inCool) txt = "⏳ Siguiente en " + fmtMS((c.cooldownUntil - now) / 1000);
+    else txt = "Próxima: " + Math.max(1, Math.ceil((COIN_TASK_SEC - (c.progressSec || 0)) / 60)) + " min con evidencia";
+    if (stEl) stEl.textContent = txt;
+    if (btn){
+      btn.disabled = !(on && !inBreak && !inCool && (c.balance || 0) > 0);
+      btn.textContent = inBreak ? "En pausa" : "Usar (3 min)";
+    }
+    document.getElementById("coinBar").classList.toggle("is-break", !!inBreak);
+  }
+  /* Un tick por segundo: termina la descompresión y entrega monedas "en vivo" */
+  function tickCoins(){
+    var c = coinState(), now = nowMs();
+    if (c.breakUntil && now >= c.breakUntil){
+      var endedAt = c.breakUntil;
+      c.breakUntil = 0;
+      if (state.tracking && state.tracking.status !== "inactive" && !state.tracking.startTime){
+        state.tracking.startTime = endedAt; /* el "pensando" se retoma justo al terminar la ficha */
+      }
+      persist();
+      playNotifAudio();
+      showToast("⏰ Se acabaron los 3 minutos. Volvé al foco.");
+      safeRerenderActiveTab();
+    }
+    updateCoinBar();
+  }
 
   /* Pide las horas de la sesión (máx. 24) y arranca la cuenta regresiva. Sin vuelta atrás. */
   function startSessionWithTimer(){
@@ -2642,6 +2799,7 @@ function defaultState(){
   }
 
   function playTask(ds, id, subId, presetSecs){
+    if (breakActive()){ showToast("🪙 Estás en descompresión. Esperá a que termine para empezar."); return; }
     var log = state.timeLog[ds];
     var elapsed = 0;
     var existingLimit = null;
@@ -2804,6 +2962,7 @@ function defaultState(){
   /* Refresca los cronómetros visibles y ejecuta viajes en el tiempo */
   function updateLiveTimers(){
     if (!state || window.isImportingBackup) return; /* Bloqueo de seguridad durante restauraciones */
+    tickCoins();
     var today = todayStr();      /* hora del dispositivo: tareas, calendario, etc. */
     var now = new Date();
     var tnow = nowDate();        /* hora internacional: solo tiempo de ejecución del sistema */
@@ -2855,7 +3014,7 @@ function defaultState(){
     var currentTotalMin = now.getHours() * 60 + now.getMinutes();
     var tasksToday = getTasksForDate(today);
 
-    if (state.tracking && state.tracking.status !== "inactive") {
+    if (state.tracking && state.tracking.status !== "inactive" && !breakActive()) {
       for (var i = 0; i < tasksToday.length; i++) {
         var t = tasksToday[i];
         if (getStatus(today, t.id) === "done") continue;
@@ -2913,6 +3072,20 @@ function defaultState(){
     if (!state.tracking || state.tracking.status === "inactive") return;
     var ds = state.tracking.taskDs || today;
 
+    /* Alerta tras 10 min seguidos en "Pensando" → invita a usar la Ruleta */
+    if (state.tracking.status === "thinking" && state.tracking.startTime){
+      var idleSec = (nowMs() - state.tracking.startTime) / 1000;
+      if (idleSec >= 600 && !thinkingAlertFired){
+        thinkingAlertFired = true;
+        playNotifAudio();
+        showToast("🚂 10 min parado en el andén. Girá la Ruleta para arrancar.");
+      } else if (idleSec < 600){
+        thinkingAlertFired = false;
+      }
+    } else {
+      thinkingAlertFired = false;
+    }
+
     var masterEl = document.querySelector("[data-live-master]");
     if (masterEl) masterEl.textContent = formatDuration(getThinkingLiveSeconds(ds));
 
@@ -2931,19 +3104,10 @@ function defaultState(){
       var target = state.tracking.targetLimit;
       var activeElapsed = sid ? subElapsed : taskElapsed;
 
-      /* AUTO-COMPLETAR CON 10 MINUTOS (600 SEGUNDOS) DE GRACIA */
+      /* Si se acaba el tiempo + 10 min de gracia NO se auto-completa: vuelve a "Pensando" */
       if (target && activeElapsed >= (target + 600)) {
-        if (sid) {
-           pauseTask();
-           autoMarkSubtaskDone(ds, tid, sid);
-        } else {
-           pauseTask();
-           autoMarkMainTaskDone(ds, tid);
-        }
-        persist(); 
-        safeRerenderActiveTab();
-        showToast("¡10 min de gracia superados! Completada automáticamente.");
-        
+        pauseTask();
+        showToast("⏰ Tiempo excedido. La tarea quedó pendiente (no se auto-completa).");
         playNotifAudio();
         return;
       }
@@ -3090,13 +3254,17 @@ function defaultState(){
     });
     if (ds === "project") {
       var p = state.projects.find(function(x){ return x.id === id; });
-      if (p){ p.status = "completed"; p.completedAt = todayStr(); }
+      if (p){
+        if (p.status !== "completed") addCoins(COIN_PROJECT_REWARD, "", true);
+        p.status = "completed"; p.completedAt = todayStr();
+      }
     } else if (!isProjTask) {
       if (!state.log[ds]) state.log[ds] = {};
       state.log[ds][id] = true;
     }
     persist();
     renderActiveTab();
+    if (ds !== "project" && !isProjTask) creditTaskCoins(ds, id);
   }
 
   function unmarkDone(ds, id){
@@ -3169,10 +3337,13 @@ function defaultState(){
 
   function completeProject(id){
     var p = state.projects.find(function(x){ return x.id === id; });
-    if (p){ p.status = "completed"; p.completedAt = todayStr(); }
+    if (p){
+      if (p.status !== "completed") addCoins(COIN_PROJECT_REWARD, "", true);
+      p.status = "completed"; p.completedAt = todayStr();
+    }
     persist();
     renderActiveTab();
-    showToast("¡Proyecto completado!");
+    showToast("¡Proyecto completado! 🪙 +" + COIN_PROJECT_REWARD + " monedas");
   }
 
   function deleteProject(id){
@@ -3542,11 +3713,12 @@ function defaultState(){
         autoSyncToDrive();
         showToast("✏️ Evidencia actualizada.");
         renderActiveTab();
+        creditTaskCoins(ds, id); /* si la tarea ya estaba finalizada, ahora sí cuenta su tiempo */
       } else {
         markDone(ds, id); /* markDone ya llama persist() → scheduleAutoSync() */
         
         closeEvidenceModal();
-        showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada!" : "¡Tarea cumplida y evidencia guardada!");
+        showToast(ds === "project" ? "¡Proyecto completado y evidencia guardada! 🪙 +" + COIN_PROJECT_REWARD + " monedas" : "¡Tarea cumplida y evidencia guardada!");
       }
     });
   }
@@ -3999,7 +4171,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var currentSelected = state.selectedProjectByDate && state.selectedProjectByDate[ds];
     var activeProjects = state.projects.filter(function(p){
       return p.status === "active" && p.deadline >= ds;
-    });
+    }).sort(function(a, b){
+      return a.deadline < b.deadline ? -1 : (a.deadline > b.deadline ? 1 : 0);
+    }).slice(0, 1); /* FIFO = 1: solo se ofrece el proyecto con la fecha límite más próxima */
     
     if (activeProjects.length === 0 && !currentSelected) return "";
     
@@ -4069,7 +4243,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   }
 
   /* ===================== MODO RULETA ===================== */
-  var ROULETTE_SECS = 15 * 60; /* tiempo base de cada tarea elegida */
+  var ROULETTE_SECS = (function(){
+    try { var m = parseInt(localStorage.getItem("bitacora_roulette_mins") || "15", 10); if ([10,15,20,30].indexOf(m) >= 0) return m * 60; } catch(e){}
+    return 15 * 60;
+  })(); /* tiempo base de cada tarea elegida (configurable en la ruleta) */
   var rouletteSpinning = false;
 
   /* Pendientes de hoy: tareas sin subtareas + cada subtarea pendiente como si fuera tarea */
@@ -4105,6 +4282,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       showToast("Enciende el sistema primero para usar la ruleta.");
       return;
     }
+    if (breakActive()){ showToast("🪙 Estás en descompresión. La ruleta se habilita al terminar."); return; }
     var pool = getRoulettePool();
     if (pool.length === 0){
       showToast("🎉 No tienes tareas pendientes para la ruleta.");
@@ -4120,6 +4298,12 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       '<div style="background:var(--ink-900);border:1px solid var(--brass-600);border-radius:16px;padding:18px;width:100%;max-width:340px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.6);">' +
         '<div style="font-family:var(--font-display);font-size:18px;color:var(--brass-300);letter-spacing:.04em;margin-bottom:4px;">🎰 MODO RULETA</div>' +
         '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">' + pool.length + ' pendiente' + (pool.length === 1 ? '' : 's') + ' · ' + (ROULETTE_SECS/60) + ' min cada una</div>' +
+        '<div style="display:flex;justify-content:center;gap:6px;margin-bottom:12px;">' +
+          [10, 15, 20, 30].map(function(m){
+            var act = (ROULETTE_SECS === m * 60);
+            return '<button type="button" class="r-min-btn" data-mins="' + m + '" style="padding:5px 11px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ' + (act ? 'var(--brass-300)' : 'var(--ink-700)') + ';background:' + (act ? 'var(--brass-500)' : 'var(--ink-800-solid)') + ';color:' + (act ? '#1a1a1a' : 'var(--text-muted)') + ';font-weight:600;">' + m + 'm</button>';
+          }).join("") +
+        '</div>' +
         '<canvas id="rouletteCanvas" style="width:' + SIZE + 'px;height:' + SIZE + 'px;max-width:100%;"></canvas>' +
         '<div id="rouletteResult" style="min-height:42px;margin:12px 0 10px;font-size:15px;color:var(--text-light);font-weight:600;display:flex;align-items:center;justify-content:center;">Pulsa girar y deja que la suerte decida</div>' +
         '<div style="display:flex;gap:8px;">' +
@@ -4166,6 +4350,17 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
     draw(angle);
 
+    overlay.querySelectorAll(".r-min-btn").forEach(function(b){
+      b.onclick = function(){
+        if (rouletteSpinning) return;
+        var m = parseInt(this.getAttribute("data-mins"), 10);
+        ROULETTE_SECS = m * 60;
+        try { localStorage.setItem("bitacora_roulette_mins", String(m)); } catch(e){}
+        openRoulette();
+        renderActiveTab();
+      };
+    });
+
     document.getElementById("rouletteCloseBtn").onclick = closeRoulette;
     document.getElementById("rouletteSpinBtn").onclick = function(){
       if (rouletteSpinning) return;
@@ -4205,7 +4400,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   function renderMasterSwitch(){
     var st = state.tracking.status;
     var taskName = st === "task" ? getActiveTrackingTaskName() : "";
-    var label = st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : (taskName ? "Ejecutando " + escapeHtml(taskName) : "Ejecutando tarea…"));
+    var label = breakActive() ? "🪙 Descompresión" : st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : (taskName ? "Ejecutando " + escapeHtml(taskName) : "Ejecutando tarea…"));
     var isOn = st !== "inactive";
     var msLeft = (isOn && state.tracking.sessionEndsAt) ? (state.tracking.sessionEndsAt - nowMs()) : 0;
     var btnHtml = isOn
@@ -6796,6 +6991,11 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
     } else if (action === "toggle-auto-start"){
       var enabling = state.tracking.autoStartEnabled === false;
+      var curHour = nowDate().getHours();
+      if (!enabling && (curHour >= LOCK_AUTO_AFTER_HOUR || curHour < AUTO_START_HOUR)){
+        showToast("🔒 Bloqueado de " + LOCK_AUTO_AFTER_HOUR + ":00 a " + AUTO_START_HOUR + ":00. Mañana ya está armado.");
+        return;
+      }
       state.tracking.autoStartEnabled = enabling;
       persist();
       if (enabling) {
@@ -6818,6 +7018,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     } else if (action === "toggle-master"){
       /* Solo se puede ENCENDER (pidiendo las horas). Apagar es automático al terminar el tiempo. */
       if (state.tracking.status === "inactive") startSessionWithTimer();
+
+    } else if (action === "use-coin"){
+      useCoin();
 
     } else if (action === "open-roulette"){
       openRoulette();
