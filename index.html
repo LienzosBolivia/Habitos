@@ -1520,14 +1520,22 @@
   .ai-preview-card textarea { min-height:90px; resize:vertical; }
   .ai-preview-card label, .ai-preview-card p { font-size:13px; line-height:1.5; }
   .ai-preview-actions { display:flex; flex-wrap:wrap; gap:10px; }
+  #xpBadge {font:11px var(--font-mono);color:var(--parchment);padding:4px 7px;border:1px solid var(--ink-700);border-radius:6px;white-space:nowrap;}
+  .coin-bar{flex-wrap:wrap;} .coin-bar .cb-status{min-width:110px;}
+  .rpg-overlay{position:fixed;inset:0;z-index:900;background:#000d;display:flex;align-items:center;justify-content:center;padding:12px;}
+  .rpg-card{background:var(--ink-900);border:1px solid var(--brass-600);border-radius:16px;padding:18px;width:100%;max-width:440px;max-height:90dvh;overflow:auto;}
+  .rpg-card h2{font-size:20px;color:var(--brass-300);} .rpg-card p{font-size:12px;line-height:1.6;color:var(--text-muted);}
+  .rpg-item{padding:12px;margin:10px 0;border:1px solid var(--ink-700);border-radius:10px;background:var(--ink-800-solid);}
+  .rpg-card button{margin:4px 4px 4px 0;} .rpg-damaged{color:var(--missed)!important;}
 </style>
 </head>
 <body>
 
 <div class="coin-bar" id="coinBar">
   <span class="cb-count">🪙 <b id="coinCount">0</b></span>
+  <span id="xpBadge">Nv. 1 · 0 XP</span>
   <span class="cb-status" id="coinStatus"></span>
-  <button type="button" class="cb-btn" id="shopBtn" data-action="open-shop" style="background:transparent;color:var(--brass-300);">🛍</button>
+  <button type="button" class="cb-btn" id="shopBtn" data-action="open-shop" style="background:transparent;color:var(--brass-300);">🎒 Tienda</button>
   <button type="button" class="cb-btn" id="coinBtn" data-action="use-coin" disabled>Usar (3 min)</button>
 </div>
 
@@ -2622,7 +2630,7 @@ function defaultState(){
   };
   function difficultyMult(){
     var tr = state.tracking || {};
-    if (tr.status !== "task" || !tr.taskId) return 1;
+    if (tr.status !== "task" || !tr.taskId || getLevelFromXp(rpgState().xp)<5) return 1;
     return (tr.driving || tr.physical || tr.cognitive) ? 2 : 1;
   }
   function addBonusSecs(ds, tid, sec){
@@ -2633,6 +2641,7 @@ function defaultState(){
   }
   function toggleDifficulty(kind){
     var tr = state.tracking;
+    if (!tr[kind] && getLevelFromXp(rpgState().xp)<5){showToast("🔒 El multiplicador ×2 se desbloquea en Nivel 5.");return;}
     if (tr.status !== "task" || !tr.taskId || !X2_INFO[kind]) return;
     var wasOn = !!tr[kind];
     var mins = null;
@@ -2686,7 +2695,7 @@ function defaultState(){
     state.tracking.driving   = false; /* conducción y cognitivo siempre arrancan apagados */
     state.tracking.cognitive = false;
     state.tracking.until     = {};
-    state.tracking.physical  = !!(state.physicalTasks && state.physicalTasks[id]); /* la física se recuerda por tarea */
+    state.tracking.physical  = getLevelFromXp(rpgState().xp)>=5 && !!(state.physicalTasks && state.physicalTasks[id]); /* la física se recuerda por tarea */
   }
 
   function flushTime(atMs){
@@ -2796,6 +2805,138 @@ function defaultState(){
   var COIN_TASK_SEC        = 1800;  /* 1 moneda por cada media hora de tareas ejecutadas */
   var COIN_PROJECT_REWARD  = 5;     /* monedas por proyecto finalizado */
 
+  /* RPG 3.0: pagos en medias monedas y XP en unidades de 1/120 para evitar redondeos diarios. */
+  var SHOP_ITEMS = {
+    reroll: { name:"🎟️ Ticket de Re-giro", cost:3, minLvl:3, desc:"Vuelve a girar la ruleta antes de iniciar la tarea." },
+    condenser: { name:"⚡ Condensador (50% tiempo)", cost:5, minLvl:3, desc:"Reduce a la mitad el límite estimado de la tarea o subtarea actual (mínimo 1 minuto)." },
+    shield: { name:"🛡️ Escudo de Racha", cost:20, minLvl:5, desc:"Protege automáticamente una racha de un hábito que falló ayer. No marca cumplimiento ni paga monedas." }
+  };
+  function rpgState(){
+    if (!state.rpg) state.rpg = { xp:0, damagedUntil:0, inv:{}, habitPaid:{}, shieldUsed:{}, forged:{} };
+    var r = state.rpg;
+    if (!Number.isFinite(r.xp) || r.xp < 0) r.xp = 0;
+    r.xp=Math.min(r.xp,1e12);
+    if (!Number.isSafeInteger(r.xpUnits) || r.xpUnits < 0 || Math.abs(r.xpUnits/120-r.xp)>1e-9) r.xpUnits = Math.round(r.xp * 120);
+    r.xp=r.xpUnits/120;
+    ["inv","habitPaid","shieldUsed","forged"].forEach(function(k){ if (!r[k]) r[k] = {}; });
+    Object.keys(SHOP_ITEMS).forEach(function(k){ if (!Number.isSafeInteger(r.inv[k]) || r.inv[k] < 0) r.inv[k] = 0; });
+    return r;
+  }
+  function xpForLevel(lvl){ return lvl <= 1 ? 0 : Math.round(300 * Math.pow(lvl - 1, 1.5)); }
+  function getLevelFromXp(xp){
+    if (!Number.isFinite(xp) || xp < 0) return 1;
+    xp=Math.min(xp,1e12);
+    var lvl = Math.max(1, Math.floor(Math.pow(xp / 300, 2/3)) + 1);
+    while (xp >= xpForLevel(lvl+1)) lvl++;
+    while (lvl > 1 && xp < xpForLevel(lvl)) lvl--;
+    return lvl;
+  }
+  function getRankName(lvl){ return lvl >= 50 ? "Director de Línea" : lvl >= 25 ? "Ingeniero de Vías" : lvl >= 10 ? "Maquinista" : "Fogonero"; }
+  function addXp(minutes){
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    var r = rpgState(), old = getLevelFromXp(r.xp);
+    var damaged = r.damagedUntil && nowMs() < r.damagedUntil;
+    r.xpUnits += Math.round(minutes * (damaged ? 60 : 120));
+    r.xp = r.xpUnits / 120;
+    var lvl = getLevelFromXp(r.xp);
+    if (lvl > old) showToast("🎉 ¡SUBISTE A NIVEL " + lvl + " (" + getRankName(lvl) + ")!");
+    updateCoinBar();
+  }
+  function getHabitDailyReward(streak){
+    return streak <= 0 || streak > 90 ? 0 : streak <= 7 ? .5 : streak <= 21 ? 1 : streak <= 45 ? 1.5 : 2.5;
+  }
+  function habitStreakAt(h, ds){
+    var count = 0, r = rpgState();
+    for (var i=0; i<5000 && ds >= h.createdAt; i++, ds=addDays(ds,-1)){
+      if (!(state.log[ds] && state.log[ds][h.id]) && !r.shieldUsed[ds+"_"+h.id]) break;
+      count++;
+    }
+    return count;
+  }
+  function payHabitStreakReward(ds, id){
+    var h = state.habits.find(function(x){ return x.id === id; });
+    if (!h || ds > todayStr() || ds < h.createdAt || !(state.log[ds] && state.log[ds][id])) return;
+    var r = rpgState(), key = ds+"_"+id;
+    if (r.habitPaid[key] || r.shieldUsed[key]) return;
+    var streak = habitStreakAt(h,ds), reward = r.forged[id] ? 0 : getHabitDailyReward(streak);
+    r.habitPaid[key] = true;
+    if (streak >= 90) r.forged[id] = ds;
+    if (reward > 0){ var c=coinState(); c.balance=Math.round(((c.balance||0)+reward)*100)/100; showToast("🔥 Racha " + streak + "d: +" + reward + " 🪙"); }
+    if (streak === 90) showToast("🏆 ¡Hábito Forjado! Completaste 90 días.");
+    updateCoinBar();
+  }
+  function checkHabitShields(){
+    var r=rpgState(), yesterday=addDays(todayStr(),-1), changed=false;
+    if (yesterday < state.firstUseDate) return;
+    state.habits.forEach(function(h){
+      var key=yesterday+"_"+h.id;
+      if (r.inv.shield <= 0 || (h.archivedAt && h.archivedAt <= yesterday) || !habitVisibleOn(h,yesterday) || yesterday < h.createdAt ||
+          (state.log[yesterday] && state.log[yesterday][h.id]) || r.shieldUsed[key] || habitStreakAt(h,addDays(yesterday,-1)) === 0) return;
+      r.inv.shield--; r.shieldUsed[key]=true; changed=true;
+      showToast("🛡️ Escudo consumido: salvó la racha de «"+h.text+"» (sin registrar cumplimiento).");
+    });
+    if (changed) persist();
+  }
+  function triggerTraversalAudit(){
+    var tr=state.tracking;
+    if (!tr.needsAudit) return;
+    delete tr.needsAudit;
+    var failed=window.confirm("⚠️ AUDITORÍA DE TRAVESÍA\n\nDesactivaste el encendido automático. ¿Fue por un fallo de disciplina?\n\nAceptar: saldo a 0, bajar 1 nivel y 50% XP durante 48 h.\nCancelar: mantenimiento o corte técnico, sin penalización.");
+    if (failed){
+      var r=rpgState(), c=coinState(); c.balance=0; c.progressSec=0;
+      r.xp=xpForLevel(Math.max(1,getLevelFromXp(r.xp)-1)); r.xpUnits=r.xp*120;
+      r.damagedUntil=nowMs()+48*3600000;
+      showToast("⚠️ Penalización aplicada. Caldera dañada durante 48 h.");
+    }
+    persist(); updateCoinBar();
+  }
+  function prepareRpgSession(){ checkHabitShields(); triggerTraversalAudit(); }
+  function buyRpgItem(kind){
+    var item=SHOP_ITEMS[kind], r=rpgState(), c=coinState();
+    if (!item || getLevelFromXp(r.xp)<item.minLvl || (c.balance||0)<item.cost) return false;
+    c.balance=Math.round((c.balance-item.cost)*100)/100; r.inv[kind]++;
+    persist(); updateCoinBar(); showToast("✅ Compraste: "+item.name); return true;
+  }
+  function useCondenser(){
+    var tr=state.tracking, r=rpgState();
+    if (r.inv.condenser<=0 || tr.status!=="task" || !tr.targetLimit || !tr.taskDs || !tr.taskId) return false;
+    flushTime();
+    var limit=Math.max(60,Math.round(tr.targetLimit/2));
+    if (limit>=tr.targetLimit){ showToast("El límite ya está en el mínimo de 1 minuto."); return false; }
+    var day=state.timeLog[tr.taskDs]||(state.timeLog[tr.taskDs]={thinking:0,tasks:{},subtasks:{}}), map=tr.subtaskId?"subtaskLimits":"taskLimits", key=tr.subtaskId||tr.taskId;
+    if (!day[map]) day[map]={}; day[map][key]=limit; tr.targetLimit=limit; r.inv.condenser--;
+    persist(); updateCoinBar(); renderActiveTab(); showToast("⚡ Condensador aplicado al límite estimado."); return true;
+  }
+  function consumeReroll(){
+    var r=rpgState(); if (r.inv.reroll<=0) return false;
+    r.inv.reroll--; persist(); return true;
+  }
+  function openShopModal(){
+    var previous=document.getElementById("shopOverlay"); if(previous) previous.remove();
+    var r=rpgState(), c=coinState(), lvl=getLevelFromXp(r.xp), origin=document.activeElement;
+    var ov=document.createElement("div"); ov.id="shopOverlay"; ov.className="rpg-overlay";
+    ov.setAttribute("role","dialog"); ov.setAttribute("aria-modal","true"); ov.setAttribute("aria-labelledby","rpgShopTitle");
+    var items=Object.keys(SHOP_ITEMS).map(function(k){var it=SHOP_ITEMS[k], locked=lvl<it.minLvl;
+      return '<section class="rpg-item"><strong>'+it.name+' (x'+r.inv[k]+')</strong><p>'+it.desc+'</p><button class="btn-secondary" data-rpg-buy="'+k+'" '+(locked||(c.balance||0)<it.cost?'disabled':'')+'>'+(locked?'🔒 Nv. '+it.minLvl:'Comprar · '+it.cost+' 🪙')+'</button>'+
+        (k==='condenser'&&r.inv[k]>0?'<button class="btn-secondary" data-rpg-use="condenser" '+(state.tracking.status!=='task'||!state.tracking.targetLimit?'disabled':'')+'>⚡ Usar ahora</button>':'')+'</section>';
+    }).join('');
+    ov.innerHTML='<div class="rpg-card"><h2 id="rpgShopTitle">🎒 Inventario y tienda</h2><p>🪙 '+(c.balance||0)+' · Nivel '+lvl+' · '+getRankName(lvl)+'<br>'+Math.floor(r.xp)+' / '+xpForLevel(lvl+1)+' XP</p>'+
+      (r.damagedUntil>nowMs()?'<p class="rpg-damaged">⚠️ Caldera dañada · 50% XP · '+Math.ceil((r.damagedUntil-nowMs())/3600000)+' h restantes</p>':'')+items+
+      '<p>Hábitos: 0,5 / 1 / 1,5 / 2,5 monedas por día según racha. Total de bonificaciones en un ciclo perfecto: 166 monedas. Desde el día 91, el hábito forjado deja de pagar.</p>'+
+      '<button class="btn-secondary" id="legacyShopBtn">🛍 Permisos de descanso, juego e interacción</button><button class="btn-secondary" id="closeShopBtn">Cerrar</button></div>';
+    function close(){ov.remove();document.removeEventListener("keydown",keyboard,true);if(origin&&origin.isConnected)origin.focus();}
+    function keyboard(e){
+      if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}
+      if(e.key==='Tab'){var buttons=Array.from(ov.querySelectorAll('button:not(:disabled)')),first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
+    }
+    document.body.appendChild(ov);document.addEventListener('keydown',keyboard,true);
+    ov.querySelector('#closeShopBtn').onclick=close;
+    ov.querySelector('#legacyShopBtn').onclick=function(){close();openShop();};
+    ov.querySelectorAll('[data-rpg-buy]').forEach(function(b){b.onclick=function(){if(buyRpgItem(b.dataset.rpgBuy)){close();openShopModal();}};});
+    var use=ov.querySelector('[data-rpg-use]');if(use)use.onclick=function(){if(useCondenser())close();};
+    ov.querySelector('button:not(:disabled)').focus();
+  }
+
   function coinState(){
     if (!state.coins) state.coins = { balance: 0, progressSec: 0, breakUntil: 0, cooldownUntil: 0 };
     return state.coins;
@@ -2820,7 +2961,7 @@ function defaultState(){
     dbGet(key).then(function(raw){
       var ev = null;
       if (raw){ try { ev = JSON.parse(raw); } catch(e){} }
-      if (!ev || !(ev.note || ev.image)) return;
+      if (window.isImportingBackup || !ev || !(ev.note || ev.image)) return;
       if (getStatus(ds, id) !== "done") return;
       var secs = (state.timeLog[ds] && state.timeLog[ds].tasks && state.timeLog[ds].tasks[id]) || 0;
       var bonus = (state.timeLog[ds] && state.timeLog[ds].bonus && state.timeLog[ds].bonus[id]) || 0; /* segundos en ×2 (extra = tiempo real del tramo) */
@@ -2843,6 +2984,7 @@ function defaultState(){
   /* Suma segundos validados al contador; cada media hora completa = 1 moneda */
   function earnFromTaskSeconds(sec){
     if (!(sec > 0)) return;
+    addXp(sec/60);
     var c = coinState();
     c.progressSec = (c.progressSec || 0) + sec;
     var n = Math.floor(c.progressSec / COIN_TASK_SEC);
@@ -2865,7 +3007,7 @@ function defaultState(){
       showToast("⏳ Espera " + Math.ceil((c.cooldownUntil - now) / 60000) + " min para usar otra moneda.");
       return;
     }
-    if ((c.balance || 0) <= 0){
+    if ((c.balance || 0) < 1){
       showToast("Sin monedas. 30 min de tareas = 1 moneda; proyecto = " + COIN_PROJECT_REWARD + ".");
       return;
     }
@@ -2879,7 +3021,8 @@ function defaultState(){
     c.balance--;
     c.breakUntil    = now + COIN_BREAK_SEC * 1000;
     c.breakLabel    = "";
-    c.cooldownUntil = c.breakUntil + COIN_COOLDOWN_SEC * 1000;
+    var coolSec=getLevelFromXp(rpgState().xp)>=10?480:COIN_COOLDOWN_SEC;
+    c.cooldownUntil = c.breakUntil + coolSec * 1000;
     persist();
     renderActiveTab();
     updateCoinBar();
@@ -2984,10 +3127,12 @@ function defaultState(){
     else txt = "Próxima: " + Math.max(1, Math.ceil((COIN_TASK_SEC - (c.progressSec || 0)) / 60)) + " min con evidencia";
     if (stEl) stEl.textContent = txt;
     if (btn){
-      btn.disabled = !(on && !inBreak && !inCool && (c.balance || 0) > 0);
+      btn.disabled = !(on && !inBreak && !inCool && (c.balance || 0) >= 1);
       btn.textContent = inBreak ? "En pausa" : "Usar (3 min)";
     }
     document.getElementById("coinBar").classList.toggle("is-break", !!inBreak);
+    var r=rpgState(), lvl=getLevelFromXp(r.xp), xpEl=document.getElementById("xpBadge");
+    if(xpEl){xpEl.textContent="Nv. "+lvl+" ("+getRankName(lvl)+") · "+Math.floor(r.xp)+" XP";xpEl.title=getRankName(lvl)+" · próximo nivel: "+xpForLevel(lvl+1)+" XP";}
   }
   /* Un tick por segundo: termina la descompresión y entrega monedas "en vivo" */
   function tickCoins(){
@@ -3021,6 +3166,7 @@ function defaultState(){
       showToast("El máximo es 24 horas.");
       return;
     }
+    prepareRpgSession();
     var now = nowMs();
     state.tracking.status       = "thinking";
     state.tracking.taskId       = null;
@@ -3258,6 +3404,7 @@ function defaultState(){
       if (tnow.getTime() >= autoStartMs){
         state.tracking.lastAutoStartDs = tToday; /* una sola vez por día */
         if (tnow.getTime() < autoEndMs){
+          prepareRpgSession();
           /* Arranca con la hora real de las 6:00 aunque la app se abra más tarde */
           state.tracking.status        = "thinking";
           state.tracking.taskId        = null;
@@ -3531,6 +3678,7 @@ function defaultState(){
       if (!state.log[ds]) state.log[ds] = {};
       state.log[ds][id] = true;
     }
+    if (ds !== "project" && !isProjTask) payHabitStreakReward(ds,id);
     persist();
     renderActiveTab();
     if (ds !== "project" && !isProjTask) creditTaskCoins(ds, id);
@@ -3707,18 +3855,9 @@ function defaultState(){
     return best;
   }
   function habitStreak(habit){
-    var cursor = strToDate(todayStr());
-    var streak = 0, guard = 0;
-    var todayDs = todayStr();
-    if (getStatus(todayDs, habit.id) !== "done") cursor.setDate(cursor.getDate()-1);
-    while (guard < 5000){
-      var ds = dateToStr(cursor);
-      if (ds < habit.createdAt) break;
-      if (getStatus(ds, habit.id) === "done"){ streak++; cursor.setDate(cursor.getDate()-1); }
-      else break;
-      guard++;
-    }
-    return streak;
+    var ds=todayStr(), r=rpgState();
+    if (!(state.log[ds]&&state.log[ds][habit.id])&&!r.shieldUsed[ds+"_"+habit.id]) ds=addDays(ds,-1);
+    return habitStreakAt(habit,ds);
   }
   function habitCompletionRate(habit){
     var today = todayStr();
@@ -4680,6 +4819,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         var win = pool[w];
         resEl.innerHTML = '👉 ' + escapeHtml(win.label) + (win.parent ? '<br><small style="color:var(--text-muted);font-weight:400;">de «' + escapeHtml(win.parent) + '»</small>' : '');
         setTimeout(function(){
+          var r=rpgState();
+          if(r.inv.reroll>0&&window.confirm("🎰 Salió: «"+win.label+"»\n\nTienes "+r.inv.reroll+" ticket(s). ¿Gastar uno para volver a girar?")){
+            consumeReroll();rouletteSpinning=false;closeRoulette();openRoulette();return;
+          }
           rouletteSpinning = false;
           closeRoulette();
           /* Aún existe y sigue pendiente? */
@@ -4879,6 +5022,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       stampHtml = '<div class="stamp-wrap"><div class="stamp stamp-enter"><div class="stamp-main">CUMPLIDO</div><div class="stamp-sub">Jornada completa</div></div></div>';
     }
     return (
+      '<section class="block"><div class="block-title">Tu sesión de enfoque</div>' + renderMasterSwitch() + renderRouletteButton(today) + '</section>' +
       '<section class="block">' +
         '<div class="progress-hero">' +
           '<div class="ph-row">' +
@@ -4895,7 +5039,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         addFormHtml(today, true) +
         renderTaskList(today) +
       '</section>' +
-      '<section class="block"><div class="block-title">Tu sesión de enfoque</div>' + renderMasterSwitch() + renderRouletteButton(today) + '</section>' +
       '<section class="block">' +
         '<button data-action="open-class-recorder" style="width:100%; background:linear-gradient(135deg, var(--ink-850), var(--ink-900)); border:1px solid var(--brass-600); color:var(--brass-300); font-family:var(--font-display); font-size:15.5px; font-weight:600; padding:15px; border-radius:var(--radius-lg); cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.3); transition:transform .15s; letter-spacing:0.04em;">' +
           '🎙️ GRABAR Y RESUMIR CLASE' +
@@ -5020,6 +5163,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       listHtml = active.map(function(h){
         var streak = habitStreak(h);
         var rate   = habitCompletionRate(h);
+        var rewardTag=rpgState().forged[h.id]||streak>=90?"🏆 Forjado":"+"+getHabitDailyReward(Math.max(1,streak))+" 🪙/día";
         return (
           '<div class="habit-row">' +
             '<div class="hr-top">' +
@@ -5037,6 +5181,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
               '<span>Racha: <b>' + streak + '</b> ' + (streak===1?"día":"días") + '</span>' +
               '<span>Cumplimiento: <b>' + (rate===null? "—" : rate+"%") + '</b></span>' +
               '<span>Desde: <b>' + formatDateShort(h.createdAt) + '</b></span>' +
+              '<span>Pago: <b>' + rewardTag + '</b></span>' +
             '</div>' +
           '</div>'
         );
@@ -6022,6 +6167,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       selectedCalendarDate = todayStr();
       
       dataReady = true;
+      rpgState();
+      state.habits.forEach(function(h){ if(habitStreak(h)>=90) rpgState().forged[h.id]=todayStr(); });
+      checkHabitShields();
+      if (state.tracking.status!=="inactive"&&state.tracking.needsAudit) triggerTraversalAudit();
       /* Migrar la clave antigua a la sesión, sin exportarla ni subirla a Drive. */
       if (state.groqApiKey){ setGroqKey(state.groqApiKey); delete state.groqApiKey; persist(); }
       /* No escribir durante el inicio: una lectura fallida nunca debe borrar el original. */
@@ -6439,6 +6588,14 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!isRecord(backup) || !isRecord(backup.state)) throw new Error("El archivo no contiene una bitácora válida.");
     if (backup._meta && backup._meta.version > 3) throw new Error("Este respaldo requiere una versión más reciente de Bitácora.");
     var st = backup.state;
+    if(st.rpg!==undefined){
+      var rp=st.rpg;
+      if(!isRecord(rp)||!Number.isFinite(rp.xp)||rp.xp<0||rp.xp>1e12) throw new Error("XP inválida en el respaldo.");
+      if(rp.damagedUntil!==undefined&&(!Number.isFinite(rp.damagedUntil)||rp.damagedUntil<0))throw new Error("Duración de penalización inválida.");
+      if(rp.xpUnits!==undefined&&(!Number.isSafeInteger(rp.xpUnits)||rp.xpUnits<0)) throw new Error("Unidades de XP inválidas.");
+      ["inv","habitPaid","shieldUsed","forged"].forEach(function(k){if(rp[k]!==undefined&&!isRecord(rp[k]))throw new Error("Inventario o registro RPG inválido.");});
+      Object.values(rp.inv||{}).forEach(function(n){if(!Number.isSafeInteger(n)||n<0)throw new Error("Cantidad de inventario inválida.");});
+    }
     ["habits", "oneoff", "projects", "routines"].forEach(function(key){
       if (!Array.isArray(st[key])) throw new Error("Respaldo incompleto: " + key + " debe ser una lista.");
     });
@@ -7359,6 +7516,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       state.tracking.autoStartEnabled = enabling;
       persist();
       if (enabling) {
+        prepareRpgSession();
         /* Al activarlo: si hoy no hubo encendido automático y aún estamos dentro de la ventana
            (6:00 + 8 h), se enciende ya, contando el tiempo desde las 6:00. Fuera de la ventana no se enciende. */
         var wasOff = state.tracking.status === "inactive";
@@ -7371,7 +7529,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           showToast("Encendido automático activado.");
         }
       } else {
-        showToast("Encendido automático apagado. No se encenderá solo hasta que lo actives.");
+        state.tracking.needsAudit=true;
+        persist();
+        showToast("Encendido automático apagado. Al reconectar se ejecutará la Auditoría de Travesía.");
       }
       renderActiveTab();
 
@@ -7407,7 +7567,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       toggleDifficulty("cognitive");
 
     } else if (action === "open-shop"){
-      openShop();
+      openShopModal();
 
     } else if (action === "close-shop"){
       closeShop();
