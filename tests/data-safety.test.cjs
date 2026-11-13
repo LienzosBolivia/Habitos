@@ -19,6 +19,8 @@ function openApp(){
       validateBackup,buildMasterBackupJSON,importMasterBackup,commitRestoredBackup,saveRecoveryPoint,
       uploadDriveBackup,autoRestoreFromDrive,keepLocalDriveVersion,periodSummary,openAIPlanPreview,validateAIPlan,
       generateAIPlan,todayStr,addDays,render,renderEstadisticas,resetAll,showRecoveryPoints,
+      WELCOME_PACKS,welcomeAvailability,claimWelcomePack,renderWelcomeRewards,
+      setWelcomeDay(fn){welcomeDay=fn;},setWelcomeCommit(fn){commitWelcomeGrant=fn;},
       rpgState,xpForLevel,getLevelFromXp,addXp,getHabitDailyReward,payHabitStreakReward,habitStreak,checkHabitShields,triggerTraversalAudit,buyRpgItem,useCondenser,consumeReroll,useCoin,openShopModal,toggleDifficulty,markDone,unmarkDone,earnFromTaskSeconds,playTask,nowMs,
       get state(){return state;},get dirty(){return bitacora_needs_sync;},get ready(){return dataReady;},
       get revision(){return localRevision;},get conflict(){return syncConflict;},get saveFailed(){return localSaveFailed;},
@@ -251,4 +253,43 @@ test('audit penalizes only confirmed pending discipline failures once',()=>fixtu
 test('marking a habit twice does not duplicate its daily reward',()=>fixture(async({a})=>{
   const today=a.todayStr();await a.seed({habits:[{id:'h',text:'Hábito',createdAt:today}]});a.markDone(today,'h');a.unmarkDone(today,'h');a.markDone(today,'h');await a.persist();assert.equal(a.state.coins.balance,.5);
   const b=await a.buildMasterBackupJSON();assert.ok(a.validateBackup(b));assert.equal(b.state.rpg.habitPaid[today+'_h'],true);
+}));
+
+test('welcome week grants exactly 45 coins and distributed items over seven days',()=>fixture(async({a})=>{
+  let day='2026-11-13';a.setWelcomeDay(()=>day);await a.seed();
+  assert.equal(a.WELCOME_PACKS.reduce((sum,p)=>sum+p.coins,0),45);
+  for(let n=1;n<=7;n++){
+    day=a.addDays('2026-11-13',n-1);assert.equal(a.welcomeAvailability().next,n);
+    assert.equal(await a.claimWelcomePack(n),true);assert.equal(await a.claimWelcomePack(n),false);
+    if(n<7)assert.equal(await a.claimWelcomePack(n+1),false);
+  }
+  assert.equal(a.state.coins.balance,45);assert.deepEqual(plain(a.rpgState().inv),{reroll:2,condenser:1,shield:1});
+  assert.equal(a.welcomeAvailability().complete,true);assert.equal(await a.claimWelcomePack(8),false);
+  const backup=await a.buildMasterBackupJSON();assert.ok(a.validateBackup(backup));assert.equal(backup.state.rpg.starter.claims.length,7);
+}));
+
+test('missed days retain packs but never allow a bulk claim',()=>fixture(async({a})=>{
+  let day='2026-11-13';a.setWelcomeDay(()=>day);await a.seed();a.rpgState();await a.persist();
+  day='2026-11-20';assert.equal(await a.claimWelcomePack(7),false);assert.equal(await a.claimWelcomePack(1),true);
+  assert.equal(await a.claimWelcomePack(2),false);day='2026-11-21';assert.equal(await a.claimWelcomePack(2),true);assert.equal(a.state.coins.balance,10);
+}));
+
+test('double click and failed saving never duplicate welcome grants',()=>fixture(async({a})=>{
+  a.setWelcomeDay(()=>'2026-11-13');await a.seed();
+  assert.deepEqual(await Promise.all([a.claimWelcomePack(1),a.claimWelcomePack(1)]),[true,false]);assert.equal(a.state.coins.balance,5);
+  a.setWelcomeDay(()=>'2026-11-14');a.setWelcomeCommit(async()=>{throw new Error('simulated quota failure');});
+  assert.equal(await a.claimWelcomePack(2),false);assert.equal(a.state.coins.balance,5);assert.equal(a.rpgState().inv.reroll,0);assert.equal(a.rpgState().starter.claims.length,1);
+}));
+
+test('welcome receipt survives reload and blocks same-day repeat claims',()=>fixture(async({a})=>{
+  a.setWelcomeDay(()=>'2026-11-13');await a.seed();assert.equal(await a.claimWelcomePack(1),true);
+  const saved=JSON.parse(await a.storageGet('bitacora-app-data'));await a.seed(saved);
+  assert.equal(await a.claimWelcomePack(1),false);assert.equal(await a.claimWelcomePack(2),false);assert.equal(a.state.coins.balance,5);
+}));
+
+test('welcome backup validation rejects duplicate days, future packs and invalid dates',()=>fixture(async({a})=>{
+  a.setWelcomeDay(()=>'2026-11-13');await a.seed();a.rpgState();const backup=await a.buildMasterBackupJSON();
+  for(const claims of [[{day:2,claimedOn:'2026-11-14'}],[{day:1,claimedOn:'2026-11-13'},{day:2,claimedOn:'2026-11-13'}],[{day:1,claimedOn:'not-a-date'}]]){
+    backup.state.rpg.starter.claims=claims;assert.throws(()=>a.validateBackup(backup));
+  }
 }));

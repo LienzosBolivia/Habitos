@@ -14,7 +14,8 @@ const instrumented = source.replace('  /* ===================== Arranque =======
     validateBackup, buildMasterBackupJSON, importMasterBackup, commitRestoredBackup,
     saveRecoveryPoint, showRecoveryPoints, uploadDriveBackup, autoRestoreFromDrive,
     periodSummary, openAIPlanPreview, validateAIPlan, generateAIPlan, resetAll,
-    rpgState,xpForLevel,nowMs,openShopModal,
+    rpgState,xpForLevel,nowMs,openShopModal,welcomeAvailability,claimWelcomePack,
+    setWelcomeDay(fn){welcomeDay=fn;},
     todayStr, addDays, render, renderEstadisticas,
     get state(){return state;}, get dirty(){return bitacora_needs_sync;},
     get ready(){return dataReady;}, get revision(){return localRevision;},
@@ -78,7 +79,7 @@ test('startup, mobile navigation, daily task persistence, original controls',asy
     const task=document.querySelector('form[data-action="add-task"]');const focus=document.querySelector('.master-switch-panel');
     return !!(focus.compareDocumentPosition(task)&Node.DOCUMENT_POSITION_FOLLOWING);
   });assert.equal(order,true);
-  for (const tab of ['calendario','habitos','proyectos','estadisticas','evidencias','hoy']) {
+  for (const tab of ['calendario','habitos','proyectos','estadisticas','bonos','evidencias','hoy']) {
     await page.locator(`.nav-btn[data-tab="${tab}"]`).click();
     assert.ok((await page.locator('#app').innerText()).length>0);
   }
@@ -231,7 +232,7 @@ test('offline service worker serves cached app instead of a server error page',a
     await page.waitForFunction(()=>navigator.serviceWorker.controller);
     await context.setOffline(true);
     await page.reload();assert.match(await page.title(),/Bitácora/);
-    assert.equal(await page.locator('.nav-btn').count(),6);
+    assert.equal(await page.locator('.nav-btn').count(),7);
   }finally{await context.close();}
 });
 
@@ -257,4 +258,21 @@ test('roulette reroll spends one ticket and returns to roulette before starting 
   await page.waitForFunction(()=>appTest.rpgState().inv.reroll===0,null,{timeout:12000});
   assert.equal(await page.evaluate(()=>appTest.state.tracking.status),'thinking');
   assert.equal(await page.locator('#rouletteSpinBtn').isEnabled(),true);
+}));
+
+test('welcome tab displays seven packs, claims one and stays within mobile width',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{appTest.setWelcomeDay(()=>'2026-11-13');await appTest.seed({});});
+  await page.locator('.nav-btn[data-tab="bonos"]').click();
+  assert.equal(await page.locator('.welcome-pack').count(),7);
+  assert.equal(await page.locator('[data-action="claim-welcome"]:enabled').count(),1);
+  await page.locator('[data-action="claim-welcome"][data-day="1"]').click();
+  await page.waitForFunction(()=>appTest.rpgState().starter.claims.length===1);
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),5);
+  assert.equal(await page.locator('[data-action="claim-welcome"]:enabled').count(),0);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.evaluate(()=>appTest.setWelcomeDay(()=>'2026-11-14'));
+  await page.locator('.nav-btn[data-tab="hoy"]').click();await page.locator('.nav-btn[data-tab="bonos"]').click();
+  await page.locator('[data-action="claim-welcome"][data-day="2"]').click();
+  await page.waitForFunction(()=>appTest.rpgState().starter.claims.length===2);
+  assert.equal(await page.evaluate(()=>appTest.rpgState().inv.reroll),1);
 }));

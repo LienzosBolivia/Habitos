@@ -43,3 +43,11 @@ El XP se acredita con el tiempo validado por evidencia, conservando fracciones s
 El inventario añade tickets de re-giro (3 monedas, nivel 3), condensadores (5 monedas, nivel 3) y escudos de racha (20 monedas, nivel 5). Los escudos protegen una racha existente si ayer no se cumplió el hábito, sin inventar un cumplimiento ni generar un pago. Los condensadores actualizan también el límite guardado de la tarea o subtarea, para que el descuento sobreviva a una pausa o recarga. La tienda anterior de permisos sigue disponible desde el inventario.
 
 Desactivar el arranque automático deja pendiente una auditoría para la siguiente reconexión. El usuario distingue un fallo de disciplina de mantenimiento: solo al confirmar disciplina se vacía el saldo, se baja un nivel (mínimo 1) y se recibe 50% XP durante 48 horas. Cerrar o recargar el navegador, por sí solo, no prueba un fallo de disciplina.
+
+## Packs de bienvenida
+
+La pestaña **Bonos** ofrece siete packs únicos: **5, 5, 6, 6, 7, 7 y 9 monedas** (45 en total). Los días 2 y 6 incluyen un ticket de re-giro; el día 4, un condensador; el día 7, un escudo. Los ítems se agregan al inventario y pueden usarse sin alcanzar todavía el nivel de compra.
+
+El programa empieza cuando el usuario abre por primera vez esta versión, incluso para cuentas existentes. El primer pack está disponible de inmediato para reclamarlo; los siguientes se desbloquean por fecha, en orden, con un máximo de un reclamo por día. Se usa el reloj de la aplicación. Los packs pendientes no vencen si se falta un día, pero no se pueden cobrar juntos al volver.
+
+El saldo, el inventario y el recibo del reclamo se guardan juntos antes de mostrar el premio. El progreso de bienvenida está incluido en los respaldos de la bitácora. Esta es una aplicación personal con datos locales y sincronización por respaldo: no es un sistema de premios validado por un servidor.
