@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bitacora-cache-v4';
+const CACHE_NAME = 'bitacora-cache-v5';
 
 /* El MP3 NO se cachea aquí: la app lo guarda en IndexedDB y el Service Worker
    no debe interferir con su descarga. */

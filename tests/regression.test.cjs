@@ -14,6 +14,7 @@ const instrumented = source.replace('  /* ===================== Arranque =======
     validateBackup, buildMasterBackupJSON, importMasterBackup, commitRestoredBackup,
     saveRecoveryPoint, showRecoveryPoints, uploadDriveBackup, autoRestoreFromDrive,
     periodSummary, openAIPlanPreview, validateAIPlan, generateAIPlan, resetAll,
+    rpgState,xpForLevel,nowMs,openShopModal,
     todayStr, addDays, render, renderEstadisticas,
     get state(){return state;}, get dirty(){return bitacora_needs_sync;},
     get ready(){return dataReady;}, get revision(){return localRevision;},
@@ -75,7 +76,7 @@ test('startup, mobile navigation, daily task persistence, original controls',asy
   assert.equal(await page.locator('[data-action="toggle-master"]').count(),1);
   const order=await page.evaluate(()=>{
     const task=document.querySelector('form[data-action="add-task"]');const focus=document.querySelector('.master-switch-panel');
-    return !!(task.compareDocumentPosition(focus)&Node.DOCUMENT_POSITION_FOLLOWING);
+    return !!(focus.compareDocumentPosition(task)&Node.DOCUMENT_POSITION_FOLLOWING);
   });assert.equal(order,true);
   for (const tab of ['calendario','habitos','proyectos','estadisticas','evidencias','hoy']) {
     await page.locator(`.nav-btn[data-tab="${tab}"]`).click();
@@ -233,3 +234,27 @@ test('offline service worker serves cached app instead of a server error page',a
     assert.equal(await page.locator('.nav-btn').count(),6);
   }finally{await context.close();}
 });
+
+test('RPG inventory works on mobile and keeps the original permissions shop reachable',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{
+    await appTest.seed({coins:{balance:40}});const r=appTest.rpgState();r.xp=appTest.xpForLevel(5);r.xpUnits=r.xp*120;
+    appTest.openShopModal();
+  });
+  await page.locator('[data-rpg-buy="shield"]').click();
+  assert.equal(await page.evaluate(()=>appTest.rpgState().inv.shield),1);
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),20);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.locator('#legacyShopBtn').click();assert.equal(await page.locator('#shopModal').evaluate(el=>el.classList.contains('open')),true);
+}));
+
+test('roulette reroll spends one ticket and returns to roulette before starting a task',async()=>withPage(async page=>{
+  page.on('dialog',dialog=>dialog.accept());
+  await page.evaluate(async()=>{
+    const ds=appTest.todayStr();await appTest.seed({oneoff:[{id:'a',text:'Primera tarea',date:ds},{id:'b',text:'Segunda tarea',date:ds}],tracking:{status:'thinking',startTime:null,sessionEndsAt:appTest.nowMs()+3600000}});
+    appTest.rpgState().inv.reroll=1;
+  });
+  await page.locator('[data-action="open-roulette"]').click();await page.locator('#rouletteSpinBtn').click();
+  await page.waitForFunction(()=>appTest.rpgState().inv.reroll===0,null,{timeout:12000});
+  assert.equal(await page.evaluate(()=>appTest.state.tracking.status),'thinking');
+  assert.equal(await page.locator('#rouletteSpinBtn').isEnabled(),true);
+}));

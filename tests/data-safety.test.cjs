@@ -19,6 +19,7 @@ function openApp(){
       validateBackup,buildMasterBackupJSON,importMasterBackup,commitRestoredBackup,saveRecoveryPoint,
       uploadDriveBackup,autoRestoreFromDrive,keepLocalDriveVersion,periodSummary,openAIPlanPreview,validateAIPlan,
       generateAIPlan,todayStr,addDays,render,renderEstadisticas,resetAll,showRecoveryPoints,
+      rpgState,xpForLevel,getLevelFromXp,addXp,getHabitDailyReward,payHabitStreakReward,habitStreak,checkHabitShields,triggerTraversalAudit,buyRpgItem,useCondenser,consumeReroll,useCoin,openShopModal,toggleDifficulty,markDone,unmarkDone,earnFromTaskSeconds,playTask,nowMs,
       get state(){return state;},get dirty(){return bitacora_needs_sync;},get ready(){return dataReady;},
       get revision(){return localRevision;},get conflict(){return syncConflict;},get saveFailed(){return localSaveFailed;},
       async seed(patch={}){await initDB();state=Object.assign(defaultState(),patch);state.tracking.autoStartEnabled=false;dataReady=true;await persist();render();},
@@ -46,7 +47,7 @@ test('startup and task submission preserve existing mobile controls and persist 
   assert.ok(w.document.querySelector('[data-action="open-class-recorder"]'));
   assert.ok(w.document.querySelector('[data-action="toggle-master"]'));
   const task=w.document.querySelector('form[data-action="add-task"]'), focus=w.document.querySelector('.master-switch-panel');
-  assert.ok(task.compareDocumentPosition(focus)&w.Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.ok(focus.compareDocumentPosition(task)&w.Node.DOCUMENT_POSITION_FOLLOWING);
   a.init();await wait();assert.match(w.document.querySelector('#app').textContent,/Lectura en familia/);
 }));
 
@@ -192,4 +193,62 @@ test('invalid and discarded AI plans leave project unchanged',()=>fixture(async(
   await a.seed({projects:[{id:'p',text:'Proyecto',status:'active',tasks:[]}]});
   for(const plan of [{tasks:[]},{tasks:[{text:42}]},{tasks:[{text:'Bien',subtasks:[{}]}]}])assert.throws(()=>a.validateAIPlan(plan));
   a.openAIPlanPreview('p',[{text:'No guardar',subtasks:[]}]);w.document.querySelector('#aiPlanPreview .btn-secondary').click();assert.equal(a.state.projects[0].tasks.length,0);
+}));
+
+test('90-day calibrated schedule pays exactly 166 once, then forges permanently',()=>fixture(async({a})=>{
+  const start=a.addDays(a.todayStr(),-89);await a.seed({habits:[{id:'h',text:'Hábito',createdAt:start}]});
+  for(let day=1;day<=90;day++){
+    const ds=a.addDays(start,day-1);a.state.log[ds]={h:true};a.payHabitStreakReward(ds,'h');
+    const balance=a.state.coins.balance;a.payHabitStreakReward(ds,'h');assert.equal(a.state.coins.balance,balance);
+  }
+  assert.equal(a.state.coins.balance,166);assert.ok(a.state.rpg.forged.h);
+  delete a.state.log[a.addDays(a.todayStr(),-1)];a.state.rpg.habitPaid={};a.payHabitStreakReward(a.todayStr(),'h');assert.equal(a.state.coins.balance,166);
+  assert.equal(a.getHabitDailyReward(91),0);assert.equal(a.getHabitDailyReward(0),0);
+  await a.persist();const saved=JSON.parse(await a.storageGet('bitacora-app-data'));assert.equal(saved.coins.balance,166);assert.ok(saved.rpg.forged.h);
+}));
+
+test('XP accumulates partial minutes exactly and uses rounded level thresholds',()=>fixture(async({a})=>{
+  await a.seed();for(let i=0;i<60;i++)a.earnFromTaskSeconds(1);assert.equal(a.rpgState().xp,1);
+  a.rpgState().damagedUntil=a.nowMs()+3600000;for(let i=0;i<60;i++)a.earnFromTaskSeconds(1);assert.equal(a.rpgState().xp,1.5);
+  for(let lvl=2;lvl<=50;lvl++){const threshold=a.xpForLevel(lvl);assert.equal(a.getLevelFromXp(threshold),lvl);assert.equal(a.getLevelFromXp(threshold-1),lvl-1);}
+}));
+
+test('fractional balances cannot buy a one-coin break; level 10 shortens cooldown',()=>fixture(async({a})=>{
+  await a.seed({coins:{balance:.5,progressSec:0},tracking:{status:'thinking',startTime:null}});a.useCoin();assert.equal(a.state.coins.balance,.5);assert.equal(a.state.coins.breakUntil,undefined);
+  a.state.coins.balance=1;a.rpgState().xp=a.xpForLevel(10);a.rpgState().xpUnits=a.rpgState().xp*120;
+  a.useCoin();assert.equal(a.state.coins.balance,0);assert.equal(a.state.coins.cooldownUntil-a.state.coins.breakUntil,480000);
+}));
+
+test('shop respects unlock levels and costs and retains the old shop',()=>fixture(async({w,a})=>{
+  await a.seed({coins:{balance:50}});assert.equal(a.buyRpgItem('shield'),false);assert.equal(a.state.coins.balance,50);
+  a.rpgState().xp=a.xpForLevel(5);assert.equal(a.buyRpgItem('shield'),true);assert.equal(a.state.coins.balance,30);assert.equal(a.rpgState().inv.shield,1);
+  assert.equal(a.buyRpgItem('reroll'),true);assert.equal(a.consumeReroll(),true);assert.equal(a.consumeReroll(),false);
+  a.openShopModal();assert.ok(w.document.querySelector('#shopOverlay'));w.document.getElementById('legacyShopBtn').click();assert.ok(w.document.getElementById('shopModal').classList.contains('open'));
+}));
+
+test('shields preserve yesterday streak without completion, payout or repeated consumption',()=>fixture(async({a})=>{
+  const today=a.todayStr(),yesterday=a.addDays(today,-1),before=a.addDays(today,-2);
+  await a.seed({firstUseDate:before,habits:[{id:'h',text:'Con racha',createdAt:before},{id:'empty',text:'Sin racha',createdAt:before}],log:{[before]:{h:true}}});
+  a.rpgState().inv.shield=2;a.checkHabitShields();assert.equal(a.rpgState().inv.shield,1);assert.equal(a.habitStreak(a.state.habits[0]),2);
+  assert.equal(a.state.log[yesterday],undefined);a.payHabitStreakReward(yesterday,'h');assert.equal((a.state.coins||{}).balance||0,0);
+  a.checkHabitShields();assert.equal(a.rpgState().inv.shield,1);
+}));
+
+test('condenser persists matching parent and subtask limits and does not spend at minimum',()=>fixture(async({a})=>{
+  const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Tarea',date:ds}],timeLog:{[ds]:{thinking:0,tasks:{t:150},subtasks:{s:100}}},tracking:{status:'task',taskId:'t',taskDs:ds,startTime:null,targetLimit:600}});
+  a.rpgState().inv.condenser=3;assert.equal(a.useCondenser(),true);assert.equal(a.state.timeLog[ds].taskLimits.t,300);
+  a.state.tracking.subtaskId='s';a.state.tracking.targetLimit=600;assert.equal(a.useCondenser(),true);assert.equal(a.state.timeLog[ds].subtaskLimits.s,300);
+  a.state.tracking.targetLimit=60;assert.equal(a.useCondenser(),false);assert.equal(a.rpgState().inv.condenser,1);
+}));
+
+test('audit penalizes only confirmed pending discipline failures once',()=>fixture(async({w,a})=>{
+  await a.seed({coins:{balance:12,progressSec:80}});a.rpgState().xp=a.xpForLevel(6);a.rpgState().xpUnits=a.rpgState().xp*120;
+  a.state.tracking.needsAudit=true;w.confirm=()=>false;a.triggerTraversalAudit();assert.equal(a.state.coins.balance,12);assert.equal(a.getLevelFromXp(a.rpgState().xp),6);
+  a.state.tracking.needsAudit=true;w.confirm=()=>true;const now=a.nowMs();a.triggerTraversalAudit();assert.equal(a.state.coins.balance,0);assert.equal(a.getLevelFromXp(a.rpgState().xp),5);assert.ok(a.rpgState().damagedUntil>=now+48*3600000);
+  a.triggerTraversalAudit();assert.equal(a.getLevelFromXp(a.rpgState().xp),5);
+}));
+
+test('marking a habit twice does not duplicate its daily reward',()=>fixture(async({a})=>{
+  const today=a.todayStr();await a.seed({habits:[{id:'h',text:'Hábito',createdAt:today}]});a.markDone(today,'h');a.unmarkDone(today,'h');a.markDone(today,'h');await a.persist();assert.equal(a.state.coins.balance,.5);
+  const b=await a.buildMasterBackupJSON();assert.ok(a.validateBackup(b));assert.equal(b.state.rpg.habitPaid[today+'_h'],true);
 }));
