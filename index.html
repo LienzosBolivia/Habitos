@@ -4256,6 +4256,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var tr = state.tracking || {};
     getTasksForDate(ds).forEach(function(t){
       if (getStatus(ds, t.id) === "done") return;
+      if (getReminder(ds, t.id)) return; /* tiene recordatorio con hora de ejecución automática */
       var subs = t.subtasks || [];
       if (subs.length === 0){
         if (tr.status === "task" && tr.taskId === t.id && !tr.subtaskId) return; /* ya en ejecución */
