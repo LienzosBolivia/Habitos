@@ -1512,6 +1512,7 @@
 <div class="coin-bar" id="coinBar">
   <span class="cb-count">🪙 <b id="coinCount">0</b></span>
   <span class="cb-status" id="coinStatus"></span>
+  <button type="button" class="cb-btn" id="shopBtn" data-action="open-shop" style="background:transparent;color:var(--brass-300);">🛍</button>
   <button type="button" class="cb-btn" id="coinBtn" data-action="use-coin" disabled>Usar (3 min)</button>
 </div>
 
@@ -1568,6 +1569,15 @@
       <button class="primary" id="projectNoteSaveBtn">Guardar cambios</button>
       <button class="btn-secondary" id="projectNoteCancelBtn">Cancelar</button>
     </div>
+  </div>
+</div>
+
+<div id="shopModal" class="modal-overlay" role="dialog">
+  <div class="modal-box" style="width:100%; max-width:440px;">
+    <h3 style="font-size:17px; color:var(--brass-300); margin-bottom:4px;">🛍 Tienda</h3>
+    <p class="modal-hint">Tienes <b id="shopBalance">0</b> 🪙 · Cada producto dura 10 minutos.</p>
+    <div style="display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--ink-700);border-radius:12px;background:rgba(0,0,0,0.2);margin-bottom:10px;"><div style="width:72px;height:72px;flex:none;"><svg viewBox="0 0 120 120" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="14" fill="#1b2a3a"/><rect x="38" y="12" width="44" height="96" rx="9" fill="#0e1722" stroke="#6fb1e8" stroke-width="3"/><rect x="44" y="24" width="32" height="20" rx="3" fill="#2f6f9f"/><rect x="44" y="49" width="32" height="20" rx="3" fill="#c9974a"/><rect x="44" y="74" width="32" height="20" rx="3" fill="#7a4fa3"/><path d="M96 46l8 10-8 10M96 56h-8" stroke="#6fb1e8" stroke-width="3" fill="none" stroke-linecap="round" transform="rotate(90 96 56)"/></svg></div><div style="flex:1;min-width:0;"><div style="font-size:14px;color:var(--brass-300);font-weight:600;">Scrollear 10 min</div><div style="font-size:11.5px;color:var(--text-muted);margin:2px 0 8px 0;">Apaga el sistema 10 min. Eliges una sola aplicación.</div><button type="button" class="cb-btn" data-action="shop-buy" data-item="scroll" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--brass-600);background:var(--brass-500);color:#1a1a1a;">🪙 6 monedas</button></div></div><div style="display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--ink-700);border-radius:12px;background:rgba(0,0,0,0.2);margin-bottom:10px;"><div style="width:72px;height:72px;flex:none;"><svg viewBox="0 0 120 120" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="14" fill="#2a1b3a"/><path d="M30 46h60c10 0 18 14 20 30 1 9-6 14-13 10l-12-8H35l-12 8c-7 4-14-1-13-10 2-16 10-30 20-30z" fill="#3a2a52" stroke="#b58cf0" stroke-width="3" stroke-linejoin="round"/><path d="M38 58v14M31 65h14" stroke="#e8dcff" stroke-width="4" stroke-linecap="round"/><circle cx="80" cy="60" r="4.5" fill="#e0675e"/><circle cx="90" cy="68" r="4.5" fill="#5FA177"/><circle cx="80" cy="76" r="4.5" fill="#6fb1e8"/><circle cx="70" cy="68" r="4.5" fill="#c9974a"/></svg></div><div style="flex:1;min-width:0;"><div style="font-size:14px;color:var(--brass-300);font-weight:600;">Jugar 10 min</div><div style="font-size:11.5px;color:var(--text-muted);margin:2px 0 8px 0;">Apaga el sistema 10 min. Eliges un juego.</div><button type="button" class="cb-btn" data-action="shop-buy" data-item="game" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--brass-600);background:var(--brass-500);color:#1a1a1a;">🪙 6 monedas</button></div></div><div style="display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--ink-700);border-radius:12px;background:rgba(0,0,0,0.2);margin-bottom:10px;"><div style="width:72px;height:72px;flex:none;"><svg viewBox="0 0 120 120" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="14" fill="#1c3527"/><path d="M18 24h52a8 8 0 0 1 8 8v26a8 8 0 0 1-8 8H42l-14 12V66h-10a8 8 0 0 1-8-8V32a8 8 0 0 1 8-8z" fill="#2c5a40" stroke="#9CD4AF" stroke-width="3" stroke-linejoin="round"/><path d="M52 62v6a8 8 0 0 0 8 8h18l14 12V76h8a8 8 0 0 0 8-8V46a8 8 0 0 0-8-8h-8" fill="#c9974a" stroke="#f0d49a" stroke-width="3" stroke-linejoin="round" transform="translate(-4 8)"/><circle cx="30" cy="45" r="3" fill="#e9fbef"/><circle cx="44" cy="45" r="3" fill="#e9fbef"/><circle cx="58" cy="45" r="3" fill="#e9fbef"/></svg></div><div style="flex:1;min-width:0;"><div style="font-size:14px;color:var(--brass-300);font-weight:600;">Interacción social 10 min</div><div style="font-size:11.5px;color:var(--text-muted);margin:2px 0 8px 0;">Se ejecuta como tarea con 10 min de límite.</div><button type="button" class="cb-btn" data-action="shop-buy" data-item="social" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--brass-600);background:var(--brass-500);color:#1a1a1a;">🪙 10 monedas</button></div></div>
+    <button type="button" data-action="close-shop" style="width:100%;margin-top:4px;padding:10px;border-radius:10px;border:1px solid var(--ink-700);background:transparent;color:var(--text-muted);cursor:pointer;">Cerrar</button>
   </div>
 </div>
 
@@ -2514,10 +2524,16 @@ function defaultState(){
    * Vuelca el tiempo transcurrido desde tracking.startTime hacia el registro correspondiente
    */
   /* ===== Dificultad ×2: conducción en tráfico (interruptor temporal) y actividad física (fija por tarea) ===== */
+  var X2_KINDS = ["driving", "physical", "cognitive"];
+  var X2_INFO = {
+    driving:   { icon: "🚗", chip: "Conducción",        ask: "conduciendo" },
+    physical:  { icon: "🏃", chip: "Actividad física",  ask: "de actividad física" },
+    cognitive: { icon: "🧠", chip: "Esfuerzo cognitivo", ask: "de esfuerzo cognitivo (leyendo, estudiando…)" }
+  };
   function difficultyMult(){
     var tr = state.tracking || {};
     if (tr.status !== "task" || !tr.taskId) return 1;
-    return (tr.driving || tr.physical) ? 2 : 1;
+    return (tr.driving || tr.physical || tr.cognitive) ? 2 : 1;
   }
   function addBonusSecs(ds, tid, sec){
     if (!(sec > 0)) return;
@@ -2527,39 +2543,60 @@ function defaultState(){
   }
   function toggleDifficulty(kind){
     var tr = state.tracking;
-    if (tr.status !== "task" || !tr.taskId) return;
-    var wasOn = (kind === "driving") ? !!tr.driving : !!tr.physical;
+    if (tr.status !== "task" || !tr.taskId || !X2_INFO[kind]) return;
+    var wasOn = !!tr[kind];
     var mins = null;
     if (!wasOn){
-      var label = (kind === "driving") ? "conduciendo" : "de actividad física";
-      var ans = prompt("⏱ ¿Cuántos minutos vas a estar " + label + "?\n\nAl terminar ese tiempo el contador vuelve solo a ×1.\n(Déjalo en blanco para apagarlo tú manualmente):");
+      var ans = prompt("⏱ ¿Cuántos minutos vas a estar " + X2_INFO[kind].ask + "?\n\nAl terminar ese tiempo el contador vuelve solo a ×1.\n(Déjalo en blanco para apagarlo tú manualmente):");
       if (ans === null) return;
       var m = parseFloat(String(ans).replace(",", "."));
       mins = (m > 0 && !isNaN(m)) ? m : null;
     }
     flushTime(); /* lo anterior se cuenta con el multiplicador anterior */
-    if (kind === "driving"){
-      tr.driving = !wasOn;
-    } else {
-      tr.physical = !wasOn;
+    if (!tr.until) tr.until = {};
+    tr[kind] = !wasOn;
+    if (kind === "physical"){
       if (!state.physicalTasks) state.physicalTasks = {};
       /* la física se recuerda por tarea solo si no tiene duración fija */
       if (tr.physical && !mins) state.physicalTasks[tr.taskId] = true; else delete state.physicalTasks[tr.taskId];
     }
     if (!wasOn){
-      tr.x2Until = mins ? nowMs() + Math.round(mins * 60000) : null;
-      showToast((kind === "driving" ? "🚗 Conducción" : "🏃 Actividad física") + " ×2 activada" + (mins ? " por " + mins + " min" : "") + ". Requiere foto como evidencia.");
+      if (mins) tr.until[kind] = nowMs() + Math.round(mins * 60000); else delete tr.until[kind];
+      showToast(X2_INFO[kind].icon + " " + X2_INFO[kind].chip + " ×2 activado" + (mins ? " por " + mins + " min" : "") + ". Requiere foto como evidencia.");
     } else {
-      if (!tr.driving && !tr.physical) tr.x2Until = null;
+      delete tr.until[kind];
       showToast("Vuelve a ×1");
     }
     persist();
     renderActiveTab();
   }
+  /* Apaga los ×2 cuyo tiempo ya terminó, contando ×2 justo hasta ese instante */
+  function expireDifficulty(){
+    var tr = state.tracking;
+    if (!tr || tr.status !== "task" || !tr.until) return;
+    var changed = false;
+    for (var guard = 0; guard < 6; guard++){
+      var now = nowMs(), kind = null, at = Infinity;
+      X2_KINDS.forEach(function(k){
+        if (tr[k] && tr.until[k] && tr.until[k] <= now && tr.until[k] < at){ kind = k; at = tr.until[k]; }
+      });
+      if (!kind) break;
+      if (tr.startTime && at > tr.startTime) flushTime(at);
+      tr[kind] = false; delete tr.until[kind];
+      changed = true;
+    }
+    if (changed){
+      persist();
+      safeRerenderActiveTab();
+      showToast("⏱ Terminó un tiempo ×2." + (difficultyMult() > 1 ? "" : " El contador vuelve a ×1."));
+      playNotifAudio();
+    }
+  }
   function applyTaskDifficultyOnStart(id){
-    state.tracking.driving  = false; /* la conducción siempre arranca apagada */
-    state.tracking.x2Until  = null;
-    state.tracking.physical = !!(state.physicalTasks && state.physicalTasks[id]); /* la física se recuerda por tarea */
+    state.tracking.driving   = false; /* conducción y cognitivo siempre arrancan apagados */
+    state.tracking.cognitive = false;
+    state.tracking.until     = {};
+    state.tracking.physical  = !!(state.physicalTasks && state.physicalTasks[id]); /* la física se recuerda por tarea */
   }
 
   function flushTime(atMs){
@@ -2688,6 +2725,7 @@ function defaultState(){
   function creditTaskCoins(ds, id){
     if (!ds || ds === "project") return;
     if (getStatus(ds, id) !== "done") return;
+    if ((state.oneoff || []).some(function(o){ return o.id === id && o.purchased; })) return; /* tarea comprada en la tienda: no da monedas */
     var key = ds + "_" + id;
     dbGet(key).then(function(raw){
       var ev = null;
@@ -2700,7 +2738,7 @@ function defaultState(){
         if (ev.image){ secs += bonus; }              /* con foto: el tramo cuenta doble */
         else {
           secs = Math.max(0, secs - bonus);          /* sin foto: el tramo ×2 no cuenta nada */
-          showToast("📷 El tiempo en ×2 (conducción/física) solo cuenta con foto de evidencia.");
+          showToast("📷 El tiempo en ×2 (conducción, física o cognitivo) solo cuenta con foto de evidencia.");
         }
       }
       var c = coinState();
@@ -2750,11 +2788,87 @@ function defaultState(){
     state.tracking.startTime    = null; /* durante la descompresión NO cuenta tiempo de "pensando" */
     c.balance--;
     c.breakUntil    = now + COIN_BREAK_SEC * 1000;
+    c.breakLabel    = "";
     c.cooldownUntil = c.breakUntil + COIN_COOLDOWN_SEC * 1000;
     persist();
     renderActiveTab();
     updateCoinBar();
     showToast("🪙 Descompresión: 3 minutos libres.");
+  }
+  /* ===================== Tienda de monedas ===================== */
+  var SHOP_PRICE = { scroll: 6, game: 6, social: 10 };  /* monedas por producto */
+  var SHOP_MIN   = 10;      /* minutos que dura cada producto */
+  function closeShop(){
+    var m = document.getElementById("shopModal");
+    if (m) m.classList.remove("open");
+  }
+  function openShop(){
+    var m = document.getElementById("shopModal");
+    if (!m) return;
+    var b = document.getElementById("shopBalance");
+    if (b) b.textContent = coinState().balance || 0;
+    m.classList.add("open");
+  }
+  function buyShopItem(kind){
+    var c = coinState();
+    if (!state.tracking || state.tracking.status === "inactive"){
+      showToast("El sistema está apagado: no necesitas comprar esto ahora.");
+      return;
+    }
+    if (breakActive()){
+      showToast("Ya estás en un tiempo libre. Espera a que termine.");
+      return;
+    }
+    var price = SHOP_PRICE[kind];
+    if (!price) return;
+    if ((c.balance || 0) < price){
+      showToast("Te faltan " + (price - (c.balance || 0)) + " monedas.");
+      return;
+    }
+    var q = {
+      scroll: "📱 ¿En qué aplicación vas a scrollear?\n(Solo puedes elegir una):",
+      game:   "🎮 ¿Qué juego vas a jugar exactamente?",
+      social: "🗣 ¿Qué interacción social vas a tener exactamente?"
+    }[kind];
+    if (!q) return;
+    var what = prompt(q);
+    if (what === null) return;
+    what = String(what).trim();
+    if (!what){ showToast("Tienes que especificarlo para poder comprar."); return; }
+    what = what.slice(0, 80);
+    var now = nowMs();
+    if (!state.purchases) state.purchases = [];
+    state.purchases.push({ ts: now, kind: kind, what: what, price: price });
+
+    if (kind === "social"){
+      var ds = todayStr();
+      var id = uid();
+      c.balance -= price;
+      state.oneoff.push({ id: id, text: "🗣 Interacción social: " + what, date: ds, purchased: true });
+      closeShop();
+      persist();
+      updateCoinBar();
+      playTask(ds, id, null, SHOP_MIN * 60); /* se ejecuta como tarea con 10 min */
+      showToast("🛍 Comprado: interacción social (" + SHOP_MIN + " min).");
+      return;
+    }
+
+    /* scroll / juego: el sistema se apaga durante SHOP_MIN minutos */
+    flushTime();
+    state.tracking.status      = "thinking";
+    state.tracking.taskId      = null;
+    state.tracking.subtaskId   = null;
+    state.tracking.taskDs      = null;
+    state.tracking.targetLimit = null;
+    state.tracking.startTime   = null; /* durante el permiso NO cuenta tiempo */
+    c.balance -= price;
+    c.breakUntil = now + SHOP_MIN * 60 * 1000;
+    c.breakLabel = (kind === "scroll" ? "📱 " : "🎮 ") + what;
+    closeShop();
+    persist();
+    renderActiveTab();
+    updateCoinBar();
+    showToast("🛍 Permiso de " + SHOP_MIN + " min: " + what);
   }
   function fmtMS(sec){
     if (sec < 0) sec = 0;
@@ -2775,7 +2889,7 @@ function defaultState(){
     var btn = document.getElementById("coinBtn");
     var liveSec = 0;
     var txt;
-    if (inBreak) txt = "🟢 Libre · " + fmtMS((c.breakUntil - now) / 1000);
+    if (inBreak) txt = "🟢 " + (c.breakLabel ? c.breakLabel + " · " : "Libre · ") + fmtMS((c.breakUntil - now) / 1000);
     else if (inCool) txt = "⏳ Siguiente en " + fmtMS((c.cooldownUntil - now) / 1000);
     else txt = "Próxima: " + Math.max(1, Math.ceil((COIN_TASK_SEC - (c.progressSec || 0)) / 60)) + " min con evidencia";
     if (stEl) stEl.textContent = txt;
@@ -2790,13 +2904,15 @@ function defaultState(){
     var c = coinState(), now = nowMs();
     if (c.breakUntil && now >= c.breakUntil){
       var endedAt = c.breakUntil;
+      var endedLabel = c.breakLabel;
       c.breakUntil = 0;
+      c.breakLabel = "";
       if (state.tracking && state.tracking.status !== "inactive" && !state.tracking.startTime){
         state.tracking.startTime = endedAt; /* el "pensando" se retoma justo al terminar la ficha */
       }
       persist();
       playNotifAudio();
-      showToast("⏰ Se acabaron los 3 minutos. Volvé al foco.");
+      showToast(endedLabel ? "⏰ Terminó tu tiempo comprado (" + endedLabel + "). Volvé al foco." : "⏰ Se acabaron los 3 minutos. Volvé al foco.");
       safeRerenderActiveTab();
     }
     updateCoinBar();
@@ -3023,16 +3139,7 @@ function defaultState(){
   function updateLiveTimers(){
     if (!state || window.isImportingBackup) return; /* Bloqueo de seguridad durante restauraciones */
     tickCoins();
-    var trx = state.tracking;
-    if (trx && trx.status === "task" && trx.x2Until && nowMs() >= trx.x2Until && (trx.driving || trx.physical)){
-      var endX2 = trx.x2Until;
-      flushTime(endX2); /* cuenta ×2 justo hasta el instante en que terminó el tiempo */
-      trx.driving = false; trx.physical = false; trx.x2Until = null;
-      persist();
-      safeRerenderActiveTab();
-      showToast("⏱ Terminó el tiempo ×2: el contador vuelve a ×1.");
-      playNotifAudio();
-    }
+    expireDifficulty();
     var today = todayStr();      /* hora del dispositivo: tareas, calendario, etc. */
     var now = new Date();
     var tnow = nowDate();        /* hora internacional: solo tiempo de ejecución del sistema */
@@ -3259,7 +3366,7 @@ function defaultState(){
     });
     /* Tareas one-off */
     state.oneoff.forEach(function(o){
-      if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff", subtasks: o.subtasks });
+      if (o.date === ds) tasks.push({ id:o.id, text:o.text, type:"oneoff", subtasks: o.subtasks, purchased: !!o.purchased });
     });
     /* Rutinas semanales */
     var dayOfWeek = strToDate(ds).getDay();
@@ -4111,15 +4218,16 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
 
     var diffHtml = "";
-    if (showTimeControls && state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds){
-      var dOn = !!state.tracking.driving, pOn = !!state.tracking.physical;
-      var chip = function(on, act, label){
-        return '<button data-action="' + act + '" style="cursor:pointer;font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid ' +
+    if (showTimeControls && !t.purchased && state.tracking.status === "task" && state.tracking.taskId === t.id && state.tracking.taskDs === ds){
+      var chip = function(kind){
+        var on = !!state.tracking[kind];
+        var until = (state.tracking.until || {})[kind];
+        var extra = on ? ' ×2' + (until ? ' · hasta ' + pad(new Date(until).getHours()) + ':' + pad(new Date(until).getMinutes()) : '') : '';
+        return '<button data-action="toggle-' + kind + '" style="cursor:pointer;font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid ' +
           (on ? 'var(--brass-500)' : 'var(--ink-700)') + ';background:' + (on ? 'var(--brass-500)' : 'transparent') +
-          ';color:' + (on ? '#1a1a1a' : 'var(--text-muted)') + ';">' + label + (on ? ' ×2' + (state.tracking.x2Until ? ' · hasta ' + pad(new Date(state.tracking.x2Until).getHours()) + ':' + pad(new Date(state.tracking.x2Until).getMinutes()) : '') : '') + '</button>';
+          ';color:' + (on ? '#1a1a1a' : 'var(--text-muted)') + ';">' + X2_INFO[kind].icon + ' ' + X2_INFO[kind].chip + extra + '</button>';
       };
-      diffHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px 0;">' +
-        chip(dOn, "toggle-driving", "🚗 Conducción") + chip(pOn, "toggle-physical", "🏃 Actividad física") + '</div>';
+      diffHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px 0;">' + X2_KINDS.map(chip).join("") + '</div>';
     }
 
     var mainRow = (
@@ -4339,6 +4447,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var tr = state.tracking || {};
     getTasksForDate(ds).forEach(function(t){
       if (getStatus(ds, t.id) === "done") return;
+      if (t.purchased) return;
       if (getReminder(ds, t.id)) return; /* tiene recordatorio con hora de ejecución automática */
       var subs = t.subtasks || [];
       if (subs.length === 0){
@@ -7126,6 +7235,18 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
     } else if (action === "toggle-physical"){
       toggleDifficulty("physical");
+
+    } else if (action === "toggle-cognitive"){
+      toggleDifficulty("cognitive");
+
+    } else if (action === "open-shop"){
+      openShop();
+
+    } else if (action === "close-shop"){
+      closeShop();
+
+    } else if (action === "shop-buy"){
+      buyShopItem(el.getAttribute("data-item"));
     }
   });
 
