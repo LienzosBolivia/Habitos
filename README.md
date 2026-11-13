@@ -46,8 +46,12 @@ Desactivar el arranque automático deja pendiente una auditoría para la siguien
 
 ## Packs de bienvenida
 
-La pestaña **Bonos** ofrece siete packs únicos: **5, 5, 6, 6, 7, 7 y 9 monedas** (45 en total). Los días 2 y 6 incluyen un ticket de re-giro; el día 4, un condensador; el día 7, un escudo. Los ítems se agregan al inventario y pueden usarse sin alcanzar todavía el nivel de compra.
+El botón **🎁** de la barra superior abre los bonos de bienvenida, con siete packs únicos: **5, 5, 6, 6, 7, 7 y 9 monedas** (45 en total). Los días 2 y 6 incluyen un ticket de re-giro; el día 4, un condensador; el día 7, un escudo. Los ítems se agregan al inventario y pueden usarse sin alcanzar todavía el nivel de compra.
 
 El programa empieza cuando el usuario abre por primera vez esta versión, incluso para cuentas existentes. El primer pack está disponible de inmediato para reclamarlo; los siguientes se desbloquean por fecha, en orden, con un máximo de un reclamo por día. Se usa el reloj de la aplicación. Los packs pendientes no vencen si se falta un día, pero no se pueden cobrar juntos al volver.
 
 El saldo, el inventario y el recibo del reclamo se guardan juntos antes de mostrar el premio. El progreso de bienvenida está incluido en los respaldos de la bitácora. Esta es una aplicación personal con datos locales y sincronización por respaldo: no es un sistema de premios validado por un servidor.
+
+## Tienda e inventario
+
+La pestaña inferior **Tienda** abre una pantalla con dos secciones independientes: **Tienda**, para comprar suministros o acceder a los permisos de tiempo libre, e **Inventario**, para ver cantidades y usar los ítems disponibles. Los packs de bienvenida se abren desde el botón de regalo de la barra superior. Esta reorganización visual conserva los precios, los desbloqueos de nivel, los saldos, los premios y las condiciones de uso anteriores.

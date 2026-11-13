@@ -1541,6 +1541,35 @@
   .welcome-pack.is-ready{border-color:var(--brass-500);box-shadow:0 0 20px #c9974a18;} .welcome-pack.is-claimed{border-color:var(--done);}
   .welcome-pack.is-locked .welcome-chest{filter:grayscale(1);opacity:.6;} .welcome-pack:last-child{grid-column:1/-1;}
   .nav-btn{min-width:0;} @media(max-width:340px){.welcome-grid{grid-template-columns:1fr;}.nav-btn{font-size:8px;}}
+  .coin-bar .gift-btn{position:relative;min-width:42px;min-height:36px;padding:5px 9px;background:var(--ink-800-solid);border-color:var(--ink-650);font-size:19px;line-height:1;}
+  .gift-btn.has-gift,.gift-btn.is-active{border-color:var(--brass-500);box-shadow:0 0 12px #c9974a20;}
+  #welcomeGiftDot{position:absolute;right:3px;top:2px;font-size:9px;}
+  .commerce-hero{padding:24px 20px;border:1px solid var(--brass-600);border-radius:18px;background:radial-gradient(ellipse at 95% 5%,#c9974a25,transparent 60%),var(--ink-800-solid);}
+  .commerce-kicker{font:10px var(--font-mono);letter-spacing:.12em;color:var(--brass-300);}
+  .commerce-hero h2{font-size:30px;margin-top:9px;color:var(--parchment);}
+  .commerce-hero p,.commerce-footer p{font-size:13px;color:var(--text-muted);line-height:1.6;}
+  .commerce-wallet{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:20px;border-top:1px solid var(--ink-650);padding-top:16px;}
+  .commerce-wallet strong{font:600 22px var(--font-mono);color:var(--brass-300);} .commerce-wallet span{font-size:11px;color:var(--text-muted);}
+  .commerce-tabs{display:flex;gap:5px;background:var(--ink-850);border:1px solid var(--ink-700);padding:5px;border-radius:12px;margin:18px 0 25px;}
+  .commerce-tabs button{flex:1;padding:12px 6px;background:transparent;border:1px solid transparent;border-radius:8px;color:var(--text-muted);font-size:13px;font-weight:600;cursor:pointer;}
+  .commerce-tabs button[aria-pressed="true"]{background:var(--ink-800-solid);border-color:var(--brass-600);color:var(--brass-300);}
+  .commerce-tabs button span{font:10px var(--font-mono);padding:2px 5px;border:1px solid var(--ink-650);border-radius:5px;margin-left:3px;}
+  .commerce-section-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px;}
+  .commerce-section-heading h3{font-size:18px;color:var(--parchment);} .commerce-section-heading>span{font:10px var(--font-mono);color:var(--text-muted);white-space:nowrap;}
+  .commerce-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+  .commerce-card{display:flex;flex-direction:column;gap:12px;padding:16px 14px;min-width:0;border:1px solid var(--ink-650);border-radius:14px;background:linear-gradient(145deg,var(--ink-800-solid),var(--ink-850));}
+  .commerce-card:last-child{grid-column:1/-1;} .commerce-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+  .commerce-icon{font-size:34px;line-height:1.3;} .commerce-chip{font:8px var(--font-mono);color:var(--brass-300);letter-spacing:.06em;}
+  .commerce-card h3{font-size:19px;color:var(--parchment);} .commerce-price,.commerce-quantity{font:600 25px var(--font-mono);color:var(--brass-300);}
+  .commerce-quantity>span{font:11px var(--font-body);color:var(--text-muted);margin-left:7px;}
+  .commerce-card p{font-size:12px;line-height:1.6;color:var(--text-muted);margin:0 0 4px;}
+  .commerce-card button{margin-top:auto;width:100%;font-size:12px;padding:10px 7px;min-height:42px;}
+  .commerce-card small,.commerce-hint{color:var(--text-faint);font-size:11px;line-height:1.5;}
+  .commerce-hint{margin-top:auto;border-top:1px solid var(--ink-700);padding-top:10px;} .commerce-card.is-locked .commerce-icon{filter:grayscale(1);opacity:.65;}
+  .commerce-card button:disabled{opacity:.55;cursor:not-allowed;} .commerce-footer{margin-top:22px;padding:20px;border:1px solid var(--ink-700);border-radius:14px;background:var(--ink-850);}
+  .commerce-footer h3{font-size:21px;margin-top:9px;} .commerce-footer button{margin:10px 8px 0 0;font-size:12px;}
+  .commerce-permits{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--brass-300);}
+  @media(max-width:340px){.commerce-grid{grid-template-columns:1fr;}.commerce-section-heading{align-items:flex-start;flex-direction:column;gap:5px;}}
 </style>
 </head>
 <body>
@@ -1549,7 +1578,7 @@
   <span class="cb-count">🪙 <b id="coinCount">0</b></span>
   <span id="xpBadge">Nv. 1 · 0 XP</span>
   <span class="cb-status" id="coinStatus"></span>
-  <button type="button" class="cb-btn" id="shopBtn" data-action="open-shop" style="background:transparent;color:var(--brass-300);">🎒 Tienda</button>
+  <button type="button" class="cb-btn gift-btn" id="welcomeGiftBtn" data-action="open-bonos" aria-label="Bonos de bienvenida" title="Bonos de bienvenida">🎁<span id="welcomeGiftDot" aria-hidden="true"></span></button>
   <button type="button" class="cb-btn" id="coinBtn" data-action="use-coin" disabled>Usar (3 min)</button>
 </div>
 
@@ -1690,9 +1719,9 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="19" y1="20" x2="19" y2="4"/></svg>
       <span>Estadísticas</span>
     </button>
-    <button class="nav-btn" data-tab="bonos" aria-label="Bonos de bienvenida">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13M12 8H8a3 3 0 1 1 3-3l1 3zm0 0h4a3 3 0 1 0-3-3l-1 3z"/></svg>
-      <span>Bonos<span id="welcomeNavDot" aria-hidden="true"></span></span>
+    <button class="nav-btn" data-tab="tienda" aria-label="Tienda e inventario">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l2-6h14l2 6M4 9v12h16V9M9 21v-7h6v7M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></svg>
+      <span>Tienda</span>
     </button>
     <button class="nav-btn" data-tab="evidencias" aria-label="Galería">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -2855,8 +2884,10 @@ function defaultState(){
   }
   function updateWelcomeBadge(){
     if(!state)return;
-    var dot=document.getElementById("welcomeNavDot"), available=welcomeAvailability().available;
-    if(dot){dot.textContent=available?" ●":"";dot.style.color="var(--brass-300)";}
+    var dot=document.getElementById("welcomeGiftDot"), available=welcomeAvailability().available;
+    if(dot){dot.textContent=available?"●":"";dot.style.color="var(--brass-300)";}
+    var gift=document.getElementById("welcomeGiftBtn");
+    if(gift){gift.classList.toggle("has-gift",available);gift.classList.toggle("is-active",activeTab==="bonos");gift.setAttribute("aria-pressed",String(activeTab==="bonos"));gift.title=available?"Tu pack de bienvenida está disponible":"Bonos de bienvenida";}
   }
   function commitWelcomeGrant(expectedClaims, expectedRaw, next){
     return new Promise(function(resolve,reject){
@@ -3013,30 +3044,39 @@ function defaultState(){
     var r=rpgState(); if (r.inv.reroll<=0) return false;
     r.inv.reroll--; persist(); return true;
   }
-  function openShopModal(){
-    var previous=document.getElementById("shopOverlay"); if(previous) previous.remove();
-    var r=rpgState(), c=coinState(), lvl=getLevelFromXp(r.xp), origin=document.activeElement;
-    var ov=document.createElement("div"); ov.id="shopOverlay"; ov.className="rpg-overlay";
-    ov.setAttribute("role","dialog"); ov.setAttribute("aria-modal","true"); ov.setAttribute("aria-labelledby","rpgShopTitle");
-    var items=Object.keys(SHOP_ITEMS).map(function(k){var it=SHOP_ITEMS[k], locked=lvl<it.minLvl;
-      return '<section class="rpg-item"><strong>'+it.name+' (x'+r.inv[k]+')</strong><p>'+it.desc+'</p><button class="btn-secondary" data-rpg-buy="'+k+'" '+(locked||(c.balance||0)<it.cost?'disabled':'')+'>'+(locked?'🔒 Nv. '+it.minLvl:'Comprar · '+it.cost+' 🪙')+'</button>'+
-        (k==='condenser'&&r.inv[k]>0?'<button class="btn-secondary" data-rpg-use="condenser" '+(state.tracking.status!=='task'||!state.tracking.targetLimit?'disabled':'')+'>⚡ Usar ahora</button>':'')+'</section>';
+  /* Pantallas separadas para comprar y consultar/usar los objetos ya adquiridos. */
+  var commerceSection="shop";
+  function openShopModal(){ commerceSection="shop";activeTab="tienda";render(); }
+  function renderCommerce(){
+    var r=rpgState(), c=coinState(), lvl=getLevelFromXp(r.xp), inventory=commerceSection==="inventory";
+    var total=Object.keys(SHOP_ITEMS).reduce(function(sum,k){return sum+r.inv[k];},0);
+    var icons={reroll:"🎟️",condenser:"⚡",shield:"🛡️"};
+    var names={reroll:"Ticket de Re-giro",condenser:"Condensador",shield:"Escudo de Racha"};
+    var cards=Object.keys(SHOP_ITEMS).map(function(k){
+      var it=SHOP_ITEMS[k], count=r.inv[k], locked=lvl<it.minLvl, canBuy=!locked&&(c.balance||0)>=it.cost;
+      var action;
+      if(inventory){
+        if(k==="condenser"&&count>0){
+          var usable=state.tracking.status==="task"&&!!state.tracking.targetLimit;
+          action='<button class="primary" data-action="commerce-use" data-rpg-use="condenser" '+(usable?'':'disabled')+'>⚡ Usar en tarea actual</button>'+
+            (!usable?'<small>Inicia una tarea con tiempo estimado para usarlo.</small>':'');
+        } else action='<div class="commerce-hint">'+(count===0?'Aún no tienes este objeto.':k==='reroll'?'Se usa desde la ruleta, después del giro.':'Se aplica automáticamente para proteger tu racha.')+'</div>';
+      } else action='<button class="'+(canBuy?'primary':'btn-secondary')+'" data-action="commerce-buy" data-rpg-buy="'+k+'" '+(canBuy?'':'disabled')+'>'+
+        (locked?'🔒 Se abre en Nv. '+it.minLvl:canBuy?'Comprar · '+it.cost+' 🪙':'Necesitas '+it.cost+' 🪙')+'</button>';
+      return '<article class="commerce-card '+(!inventory&&locked?'is-locked':'')+'"><div class="commerce-card-top"><span class="commerce-icon" aria-hidden="true">'+icons[k]+'</span><span class="commerce-chip">'+
+        (inventory?'EN TU EQUIPAJE': 'NV. '+it.minLvl)+'</span></div><h3>'+names[k]+'</h3>'+
+        (inventory?'<div class="commerce-quantity">'+count+'<span> disponible'+(count===1?'':'s')+'</span></div>':'<div class="commerce-price">'+it.cost+' <span>🪙</span></div>')+
+        '<p>'+it.desc+'</p>'+action+'</article>';
     }).join('');
-    ov.innerHTML='<div class="rpg-card"><h2 id="rpgShopTitle">🎒 Inventario y tienda</h2><p>🪙 '+(c.balance||0)+' · Nivel '+lvl+' · '+getRankName(lvl)+'<br>'+Math.floor(r.xp)+' / '+xpForLevel(lvl+1)+' XP</p>'+
-      (r.damagedUntil>nowMs()?'<p class="rpg-damaged">⚠️ Caldera dañada · 50% XP · '+Math.ceil((r.damagedUntil-nowMs())/3600000)+' h restantes</p>':'')+items+
-      '<p>Hábitos: 0,5 / 1 / 1,5 / 2,5 monedas por día según racha. Total de bonificaciones en un ciclo perfecto: 166 monedas. Desde el día 91, el hábito forjado deja de pagar.</p>'+
-      '<button class="btn-secondary" id="legacyShopBtn">🛍 Permisos de descanso, juego e interacción</button><button class="btn-secondary" id="closeShopBtn">Cerrar</button></div>';
-    function close(){ov.remove();document.removeEventListener("keydown",keyboard,true);if(origin&&origin.isConnected)origin.focus();}
-    function keyboard(e){
-      if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}
-      if(e.key==='Tab'){var buttons=Array.from(ov.querySelectorAll('button:not(:disabled)')),first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
-    }
-    document.body.appendChild(ov);document.addEventListener('keydown',keyboard,true);
-    ov.querySelector('#closeShopBtn').onclick=close;
-    ov.querySelector('#legacyShopBtn').onclick=function(){close();openShop();};
-    ov.querySelectorAll('[data-rpg-buy]').forEach(function(b){b.onclick=function(){if(buyRpgItem(b.dataset.rpgBuy)){close();openShopModal();}};});
-    var use=ov.querySelector('[data-rpg-use]');if(use)use.onclick=function(){if(useCondenser())close();};
-    ov.querySelector('button:not(:disabled)').focus();
+    return '<section class="commerce-hero" aria-label="Tienda e inventario"><div class="commerce-kicker">ESTACIÓN DE SUMINISTROS</div><h2>'+ (inventory?'Tu equipaje':'La tienda')+'</h2>'+
+      '<p>'+(inventory?'Tus objetos, listos para acompañarte en la travesía.':'Prepara tu próxima travesía, una buena elección a la vez.')+'</p>'+
+      '<div class="commerce-wallet"><strong>🪙 '+(c.balance||0)+'</strong><span>Nv. '+lvl+' · '+getRankName(lvl)+'</span></div></section>'+
+      '<div class="commerce-tabs" role="group" aria-label="Secciones de tienda e inventario"><button data-action="commerce-section" data-section="shop" aria-pressed="'+!inventory+'">🛍 Tienda</button>'+
+      '<button data-action="commerce-section" data-section="inventory" aria-pressed="'+inventory+'">🎒 Inventario <span>'+total+'</span></button></div>'+
+      '<section data-commerce-view="'+(inventory?'inventory':'shop')+'" aria-label="'+(inventory?'Objetos de tu inventario':'Objetos para comprar')+'"><div class="commerce-section-heading"><h3>'+(inventory?'Lo que llevas contigo':'Herramientas para avanzar')+'</h3><span>'+(inventory?total+' objeto'+(total===1?'':'s'):'3 suministros')+'</span></div>'+
+      '<div class="commerce-grid">'+cards+'</div></section>'+
+      (inventory?'<section class="commerce-footer"><strong>¿Necesitas más suministros?</strong><p>Encuéntralos en la tienda o recibe los ítems de tus packs de bienvenida.</p><button class="btn-secondary" data-action="commerce-section" data-section="shop">Visitar la tienda</button><button class="btn-secondary" data-action="open-bonos">🎁 Ver mis beneficios</button></section>':
+      '<section class="commerce-footer"><span class="commerce-kicker">TAMBIÉN EN LA ESTACIÓN</span><h3>Un respiro en el camino</h3><p>Tus permisos de descanso, juego e interacción siguen disponibles aquí.</p><div class="commerce-permits"><span>📱 Scroll · '+SHOP_PRICE.scroll+' 🪙</span><span>🎮 Juego · '+SHOP_PRICE.game+' 🪙</span><span>🗣 Interacción · '+SHOP_PRICE.social+' 🪙</span></div><button class="btn-secondary" id="legacyShopBtn" data-action="open-legacy-shop">Ver permisos de tiempo libre</button></section>');
   }
 
   function coinState(){
@@ -7018,6 +7058,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     else if (activeTab === "estadisticas") html = renderEstadisticas();
     else if (activeTab === "evidencias")   html = renderEvidencias();
     else if (activeTab === "bonos")        html = renderWelcomeRewards();
+    else if (activeTab === "tienda")       html = renderCommerce();
     app.innerHTML = html;
     refreshSaveStatus();
     updateWelcomeBadge();
@@ -7206,6 +7247,11 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!el) return;
     var action = el.getAttribute("data-action");
     if (!dataReady || window.isImportingBackup) return;
+    if (action === "open-bonos") { activeTab="bonos";render();window.scrollTo(0,0);return; }
+    if (action === "commerce-section") { commerceSection=el.getAttribute("data-section")==="inventory"?"inventory":"shop";activeTab="tienda";render();return; }
+    if (action === "commerce-buy") { if(buyRpgItem(el.getAttribute("data-rpg-buy")))renderActiveTab();return; }
+    if (action === "commerce-use") { useCondenser();return; }
+    if (action === "open-legacy-shop") { openShop();return; }
     if (action === "claim-welcome") { claimWelcomePack(Number(el.getAttribute("data-day"))); return; }
     if (action === "drive-keep-local") { keepLocalDriveVersion(); return; }
     if (action === "show-recovery") { showRecoveryPoints().catch(function(e){ setBackupStatus("error", e.message); }); return; }

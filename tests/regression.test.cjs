@@ -79,7 +79,7 @@ test('startup, mobile navigation, daily task persistence, original controls',asy
     const task=document.querySelector('form[data-action="add-task"]');const focus=document.querySelector('.master-switch-panel');
     return !!(focus.compareDocumentPosition(task)&Node.DOCUMENT_POSITION_FOLLOWING);
   });assert.equal(order,true);
-  for (const tab of ['calendario','habitos','proyectos','estadisticas','bonos','evidencias','hoy']) {
+  for (const tab of ['calendario','habitos','proyectos','estadisticas','tienda','evidencias','hoy']) {
     await page.locator(`.nav-btn[data-tab="${tab}"]`).click();
     assert.ok((await page.locator('#app').innerText()).length>0);
   }
@@ -245,6 +245,11 @@ test('RPG inventory works on mobile and keeps the original permissions shop reac
   assert.equal(await page.evaluate(()=>appTest.rpgState().inv.shield),1);
   assert.equal(await page.evaluate(()=>appTest.state.coins.balance),20);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.locator('[data-action="commerce-section"][data-section="inventory"]').first().click();
+  assert.equal(await page.locator('[data-commerce-view="inventory"]').count(),1);
+  assert.equal(await page.locator('[data-rpg-buy]').count(),0);
+  assert.match(await page.locator('[data-commerce-view="inventory"]').innerText(),/1 disponible/);
+  await page.locator('[data-action="commerce-section"][data-section="shop"]').first().click();
   await page.locator('#legacyShopBtn').click();assert.equal(await page.locator('#shopModal').evaluate(el=>el.classList.contains('open')),true);
 }));
 
@@ -262,7 +267,9 @@ test('roulette reroll spends one ticket and returns to roulette before starting 
 
 test('welcome tab displays seven packs, claims one and stays within mobile width',async()=>withPage(async page=>{
   await page.evaluate(async()=>{appTest.setWelcomeDay(()=>'2026-11-13');await appTest.seed({});});
-  await page.locator('.nav-btn[data-tab="bonos"]').click();
+  assert.equal(await page.locator('.bottom-nav [data-tab="tienda"]').count(),1);
+  assert.equal(await page.locator('.bottom-nav [data-tab="bonos"]').count(),0);
+  await page.locator('#welcomeGiftBtn').click();
   assert.equal(await page.locator('.welcome-pack').count(),7);
   assert.equal(await page.locator('[data-action="claim-welcome"]:enabled').count(),1);
   await page.locator('[data-action="claim-welcome"][data-day="1"]').click();
@@ -271,7 +278,7 @@ test('welcome tab displays seven packs, claims one and stays within mobile width
   assert.equal(await page.locator('[data-action="claim-welcome"]:enabled').count(),0);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.evaluate(()=>appTest.setWelcomeDay(()=>'2026-11-14'));
-  await page.locator('.nav-btn[data-tab="hoy"]').click();await page.locator('.nav-btn[data-tab="bonos"]').click();
+  await page.locator('.nav-btn[data-tab="hoy"]').click();await page.locator('#welcomeGiftBtn').click();
   await page.locator('[data-action="claim-welcome"][data-day="2"]').click();
   await page.waitForFunction(()=>appTest.rpgState().starter.claims.length===2);
   assert.equal(await page.evaluate(()=>appTest.rpgState().inv.reroll),1);
