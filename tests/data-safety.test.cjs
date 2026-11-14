@@ -20,6 +20,8 @@ function openApp(){
       uploadDriveBackup,autoRestoreFromDrive,keepLocalDriveVersion,periodSummary,openAIPlanPreview,validateAIPlan,
       generateAIPlan,todayStr,addDays,render,renderEstadisticas,resetAll,showRecoveryPoints,
       WELCOME_PACKS,welcomeAvailability,claimWelcomePack,renderWelcomeRewards,
+      tickCoins,updateLiveTimers,flushTime,getThinkingLiveSeconds,getTaskLiveSeconds,renderMasterSwitch,buyShopItem,
+      setNow(fn){nowMs=fn;},
       setWelcomeDay(fn){welcomeDay=fn;},setWelcomeCommit(fn){commitWelcomeGrant=fn;},
       rpgState,xpForLevel,getLevelFromXp,addXp,getHabitDailyReward,payHabitStreakReward,habitStreak,checkHabitShields,triggerTraversalAudit,buyRpgItem,useCondenser,consumeReroll,useCoin,openShopModal,toggleDifficulty,markDone,unmarkDone,earnFromTaskSeconds,playTask,nowMs,
       get state(){return state;},get dirty(){return bitacora_needs_sync;},get ready(){return dataReady;},
@@ -292,4 +294,37 @@ test('welcome backup validation rejects duplicate days, future packs and invalid
   for(const claims of [[{day:2,claimedOn:'2026-11-14'}],[{day:1,claimedOn:'2026-11-13'},{day:2,claimedOn:'2026-11-13'}],[{day:1,claimedOn:'not-a-date'}]]){
     backup.state.rpg.starter.claims=claims;assert.throws(()=>a.validateBackup(backup));
   }
+}));
+
+test('coin break turns locomotive off, freezes thinking time and resumes only after expiry',()=>fixture(async({a})=>{
+  let now=a.nowMs();a.setNow(()=>now);const ds=a.todayStr();
+  await a.seed({coins:{balance:2,progressSec:0},timeLog:{[ds]:{thinking:10,tasks:{}}},tracking:{status:'thinking',startTime:now-1000,sessionEndsAt:now+3600000}});
+  a.useCoin();const before=a.getThinkingLiveSeconds(ds),until=a.state.coins.breakUntil,sessionEnd=a.state.tracking.sessionEndsAt;
+  assert.match(a.renderMasterSwitch(),/status-paused/);assert.match(a.renderMasterSwitch(),/Sistema apagado/);assert.doesNotMatch(a.renderMasterSwitch(),/status-thinking|data-live-master/);
+  now+=120000;a.updateLiveTimers();a.flushTime();assert.equal(a.getThinkingLiveSeconds(ds),before);assert.equal(a.state.tracking.startTime,null);assert.equal(a.state.tracking.sessionEndsAt,sessionEnd);
+  await a.persist();const saved=JSON.parse(await a.storageGet('bitacora-app-data'));await a.seed(saved);assert.match(a.renderMasterSwitch(),/status-paused/);
+  now=until+1000;a.tickCoins();assert.equal(a.state.tracking.startTime,until);assert.match(a.renderMasterSwitch(),/status-thinking/);assert.equal(a.getThinkingLiveSeconds(ds),before+1);
+}));
+
+test('scroll and game passes stop execution for their full duration',async()=>{
+  for(const kind of ['scroll','game'])await fixture(async({w,a})=>{
+    let now=a.nowMs();a.setNow(()=>now);w.prompt=()=>'Permiso de prueba';const ds=a.todayStr();
+    await a.seed({coins:{balance:20},tracking:{status:'task',taskId:'t',taskDs:ds,startTime:now-2000,sessionEndsAt:now+3600000},oneoff:[{id:'t',text:'Tarea',date:ds}]});
+    a.buyShopItem(kind);assert.equal(a.state.coins.balance,14);const seconds=a.getTaskLiveSeconds(ds,'t');
+    now+=300000;a.updateLiveTimers();assert.match(a.renderMasterSwitch(),/status-paused/);assert.equal(a.getTaskLiveSeconds(ds,'t'),seconds);assert.equal(a.getThinkingLiveSeconds(ds),0);
+    assert.equal(a.state.tracking.taskId,null);assert.equal(a.state.tracking.startTime,null);
+  });
+});
+
+test('a session that ends during free time does not restart when the permit expires',()=>fixture(async({a})=>{
+  let now=a.nowMs();a.setNow(()=>now);await a.seed({coins:{balance:1},tracking:{status:'thinking',startTime:now,sessionEndsAt:now+60000}});
+  a.useCoin();const until=a.state.coins.breakUntil;now+=61000;a.updateLiveTimers();assert.equal(a.state.tracking.status,'inactive');assert.match(a.renderMasterSwitch(),/status-paused/);
+  now=until+1;a.tickCoins();assert.equal(a.state.tracking.status,'inactive');assert.equal(a.state.tracking.startTime,null);assert.doesNotMatch(a.renderMasterSwitch(),/status-thinking/);
+}));
+
+test('a scheduled task never backfills the paid break after restarting',()=>fixture(async({a})=>{
+  let now=a.nowMs();a.setNow(()=>now);const ds=a.todayStr();
+  await a.seed({coins:{balance:1},oneoff:[{id:'scheduled',text:'Tarea programada',date:ds}],reminders:{[ds+'|scheduled']:'00:00'},tracking:{status:'thinking',startTime:now,sessionEndsAt:now+3600000}});
+  a.useCoin();const end=a.state.coins.breakUntil;now=end+1000;a.updateLiveTimers();
+  assert.equal(a.state.tracking.status,'task');assert.ok(a.state.tracking.startTime>=end);assert.ok(a.getTaskLiveSeconds(ds,'scheduled')<=1.01);
 }));

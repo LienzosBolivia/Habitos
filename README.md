@@ -55,3 +55,7 @@ El saldo, el inventario y el recibo del reclamo se guardan juntos antes de mostr
 ## Tienda e inventario
 
 La pestaña inferior **Tienda** abre una pantalla con dos secciones independientes: **Tienda**, para comprar suministros o acceder a los permisos de tiempo libre, e **Inventario**, para ver cantidades y usar los ítems disponibles. Los packs de bienvenida se abren desde el botón de regalo de la barra superior. Esta reorganización visual conserva los precios, los desbloqueos de nivel, los saldos, los premios y las condiciones de uso anteriores.
+
+## Locomotora durante el tiempo libre
+
+Al usar una moneda de 3 minutos o un pase de scroll/juego, la ejecución se apaga temporalmente: locomotora y humo detenidos, sonido apagado y sin sumar tiempo de tareas o de pensando. El panel muestra el tiempo libre restante. La sesión conserva su fecha de fin y el cooldown vigente; al finalizar el permiso se retoma el estado de espera únicamente si la sesión sigue activa. Un permiso guardado se respeta después de recargar la aplicación.
