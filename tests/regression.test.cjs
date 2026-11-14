@@ -15,7 +15,7 @@ const instrumented = source.replace('  /* ===================== Arranque =======
     saveRecoveryPoint, showRecoveryPoints, uploadDriveBackup, autoRestoreFromDrive,
     periodSummary, openAIPlanPreview, validateAIPlan, generateAIPlan, resetAll,
     rpgState,xpForLevel,nowMs,openShopModal,welcomeAvailability,claimWelcomePack,
-    useCoin,buyShopItem,updateLiveTimers,tickCoins,
+    useCoin,buyShopItem,updateLiveTimers,tickCoins,markDone,unmarkDone,creditCompletionCoins,
     setNow(fn){nowMs=fn;},
     setWelcomeDay(fn){welcomeDay=fn;},
     todayStr, addDays, render, renderEstadisticas,
@@ -304,4 +304,20 @@ test('coin and purchased breaks stop wheels and smoke, survive reload and resume
   await page.evaluate(()=>{appTest.setNow(()=>Date.now());appTest.buyShopItem('game');});
   await page.locator('.train-track-container.status-paused').waitFor();
   assert.equal(await page.locator('.loco-wheelset').first().evaluate(el=>getComputedStyle(el).animationName),'none');
+}));
+
+test('saving task evidence grants a completion coin in addition to accumulated time',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{const ds=appTest.todayStr();await appTest.seed({oneoff:[{id:'t',text:'Trabajo terminado',date:ds}],timeLog:{[ds]:{thinking:0,tasks:{t:1200},taskLimits:{t:1800}}},tracking:{status:'thinking',startTime:null,sessionEndsAt:appTest.nowMs()+3600000}});});
+  await page.locator('[data-action="play-task"][data-id="t"]').click();await page.locator('[data-action="stop-task"][data-id="t"]').click();await page.locator('[data-action="edit-evidence"][data-id="t"]').click();await page.locator('#evidenceNote').fill('Trabajo completado y revisado');await page.locator('#evidenceSaveBtn').click();
+  await page.waitForFunction(()=>appTest.state.coins.balance===1);assert.equal(await page.locator('#coinCount').innerText(),'1');
+  await page.evaluate(async()=>{const ds=appTest.todayStr();appTest.unmarkDone(ds,'t');appTest.markDone(ds,'t');await appTest.creditCompletionCoins(ds,'t');});
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),1);
+}));
+
+test('daily subtask checkboxes credit their parent evidence without paying the parent again',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{const ds=appTest.todayStr();await appTest.seed({oneoff:[{id:'t',text:'Trabajo dividido',date:ds,subtasks:[{id:'a',text:'Paso uno',done:false},{id:'b',text:'Paso dos',done:false}]}]});await appTest.dbSet(ds+'_t',JSON.stringify({note:'Avance con evidencia',image:null}));});
+  await page.locator('[data-action="toggle-subtasks-view"][data-id="t"]').click();
+  await page.locator('[data-action="toggle-subtask"][data-subid="a"]').check();await page.waitForFunction(()=>appTest.state.coins.balance===1);
+  await page.locator('[data-action="toggle-subtask"][data-subid="b"]').check();await page.waitForFunction(()=>appTest.state.coins.balance===2);
+  await page.evaluate(()=>appTest.markDone(appTest.todayStr(),'t'));assert.equal(await page.evaluate(()=>appTest.state.coins.balance),2);
 }));

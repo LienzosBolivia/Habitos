@@ -59,3 +59,11 @@ La pestaña inferior **Tienda** abre una pantalla con dos secciones independient
 ## Locomotora durante el tiempo libre
 
 Al usar una moneda de 3 minutos o un pase de scroll/juego, la ejecución se apaga temporalmente: locomotora y humo detenidos, sonido apagado y sin sumar tiempo de tareas o de pensando. El panel muestra el tiempo libre restante. La sesión conserva su fecha de fin y el cooldown vigente; al finalizar el permiso se retoma el estado de espera únicamente si la sesión sigue activa. Un permiso guardado se respeta después de recargar la aplicación.
+
+## Moneda extra por completar trabajo con evidencia
+
+Completar una tarea sin subtareas y con una nota o foto de evidencia otorga **1 moneda adicional**, independientemente de las monedas acumuladas por tiempo. Si tiene subtareas, cada subtarea efectivamente completada otorga **1 moneda**, validada con la evidencia de su tarea principal; en ese caso no se agrega otra moneda al cerrar la principal. Si se completan primero las subtareas y se guarda después la evidencia, se acreditan las pendientes al guardar o editar esa evidencia.
+
+El bono aplica a tareas puntuales, tareas de proyectos y hábitos/rutinas. En hábitos y rutinas se registra una vez por tarea o subtarea y por fecha; en tareas puntuales y de proyectos, una sola vez por identificador aunque se cambien de fecha. Los permisos comprados no generan este bono. Desmarcar, volver a marcar, editar la evidencia o recargar no repite los pagos. Una tarea ya premiada como principal no vuelve a pagar al añadir subtareas; una premiada por subtareas no paga después como principal al borrarlas.
+
+Los recibos se conservan en `coins.completionRewards`, junto con el saldo en los respaldos. No hay un barrido automático de registros antiguos: se comprueba el bono al completar trabajo, marcar subtareas o guardar/editar la evidencia. El XP y las reglas de monedas por tiempo conservan su cálculo anterior.
