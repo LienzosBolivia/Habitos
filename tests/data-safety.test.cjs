@@ -391,3 +391,11 @@ test('project subtasks pay from the planning modal and do not require parent com
   await a.dbSet(ds+'_t',JSON.stringify({note:'Avance'}));w.document.querySelector('[data-tab="proyectos"]').click();w.document.querySelector('[data-action="plan-project"]').click();
   w.document.querySelector('[data-action="toggle-proj-subtask-modal"]').click();await wait();assert.equal(a.state.coins.balance,1);assert.equal(a.state.projects[0].tasks[0].done,false);
 }));
+
+test('a project keeps its parent evidence reference when the first subtask is completed on another day',()=>fixture(async({a})=>{
+  const ds=a.todayStr(),before=a.addDays(ds,-1);
+  await a.seed({projects:[{id:'p',text:'Proyecto',createdAt:before,deadline:a.addDays(ds,7),status:'active',tasks:[{id:'t',text:'Trabajo',done:true,doneAt:before,subtasks:[{id:'s',text:'Paso',done:false}]}]}]});
+  await a.dbSet(before+'_t',JSON.stringify({note:'Evidencia de la principal'}));assert.equal(await a.creditCompletionCoins(before,'t'),0);
+  const parent=a.state.projects[0].tasks[0];parent.done=false;delete parent.doneAt;parent.subtasks[0].done=true;parent.subtasks[0].doneAt=ds;
+  assert.equal(await a.creditCompletionCoins(ds,'t'),1);assert.equal(a.state.coins.balance,1);
+}));

@@ -3118,7 +3118,7 @@ function defaultState(){
     if(meta.type==="oneoff")ds=meta.item.date;
     if(!ds||ds>todayStr()||(meta.recurring&&meta.item.createdAt&&ds<meta.item.createdAt))return 0;
     var rewardKey=completionRewardKey(meta,ds), c=coinState(), previous=(c.completionRewards||{})[rewardKey];
-    var candidates=meta.recurring?[ds]:[ds,previous&&previous.evidenceDay,meta.item.doneAt,meta.item.date];
+    var candidates=meta.recurring?[ds]:[ds,previous&&previous.evidenceDay,meta.item.completionEvidenceDay,meta.item.doneAt,meta.item.date];
     candidates=candidates.filter(function(day,index,all){return typeof day==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(day)&&day<=todayStr()&&all.indexOf(day)===index;});
     var evidenceDay=null;
     try {
@@ -3129,6 +3129,8 @@ function defaultState(){
       }
       if(!evidenceDay||state!==source||window.isImportingBackup)return 0;
       meta=completionTask(id);if(!meta||meta.item.purchased)return 0;
+      var evidenceChanged=!meta.recurring&&meta.item.completionEvidenceDay!==evidenceDay;
+      if(evidenceChanged)meta.item.completionEvidenceDay=evidenceDay;
       var item=meta.item, subs=(item.subtasks||[]).filter(function(sub){return (!sub.createdAt||sub.createdAt<=ds)&&(!sub.archivedAt||ds<sub.archivedAt);});
       c=coinState();if(!c.completionRewards)c.completionRewards={};
       var receipt=c.completionRewards[rewardKey], mode=receipt?receipt.mode:(subs.length?"subtasks":"task");
@@ -3138,7 +3140,7 @@ function defaultState(){
         ((meta.type==="project"?!!item.done:!!(state.log[ds]&&state.log[ds][id]))?["main"]:[]);
       var paid=receipt?receipt.paid:{};
       var unpaid=units.filter(function(unit,index,all){return !paid[unit]&&all.indexOf(unit)===index;});
-      if(!unpaid.length)return 0;
+      if(!unpaid.length){if(evidenceChanged)await persist();return 0;}
       if(!receipt)receipt=c.completionRewards[rewardKey]={mode:mode,paid:{},evidenceDay:evidenceDay};
       receipt.evidenceDay=evidenceDay;
       unpaid.forEach(function(unit){receipt.paid[unit]=true;});
