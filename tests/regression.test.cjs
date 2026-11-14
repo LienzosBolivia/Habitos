@@ -15,6 +15,8 @@ const instrumented = source.replace('  /* ===================== Arranque =======
     saveRecoveryPoint, showRecoveryPoints, uploadDriveBackup, autoRestoreFromDrive,
     periodSummary, openAIPlanPreview, validateAIPlan, generateAIPlan, resetAll,
     rpgState,xpForLevel,nowMs,openShopModal,welcomeAvailability,claimWelcomePack,
+    useCoin,buyShopItem,updateLiveTimers,tickCoins,
+    setNow(fn){nowMs=fn;},
     setWelcomeDay(fn){welcomeDay=fn;},
     todayStr, addDays, render, renderEstadisticas,
     get state(){return state;}, get dirty(){return bitacora_needs_sync;},
@@ -282,4 +284,24 @@ test('welcome tab displays seven packs, claims one and stays within mobile width
   await page.locator('[data-action="claim-welcome"][data-day="2"]').click();
   await page.waitForFunction(()=>appTest.rpgState().starter.claims.length===2);
   assert.equal(await page.evaluate(()=>appTest.rpgState().inv.reroll),1);
+}));
+
+test('coin and purchased breaks stop wheels and smoke, survive reload and resume after expiry',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{const now=appTest.nowMs();await appTest.seed({coins:{balance:20},tracking:{status:'thinking',startTime:now,sessionEndsAt:now+3600000}});});
+  await page.locator('#coinBtn').click();
+  await page.locator('.train-track-container.status-paused').waitFor();
+  assert.match(await page.locator('.ms-label').innerText(),/Sistema apagado/);
+  assert.equal(await page.locator('.loco-wheelset').first().evaluate(el=>getComputedStyle(el).animationName),'none');
+  assert.equal(await page.locator('.loco-smoke').evaluate(el=>getComputedStyle(el).display),'none');
+  await page.waitForFunction(()=>document.querySelector('[data-live-break-countdown]')?.textContent!=='00:03:00');
+  assert.equal(await page.evaluate(()=>appTest.state.tracking.startTime),null);
+  await page.reload();await page.evaluate(()=>appTest.init());await page.waitForFunction(()=>appTest.ready);
+  await page.locator('.train-track-container.status-paused').waitFor();
+  await page.evaluate(()=>{appTest.state.tracking.autoStartEnabled=false;const after=appTest.state.coins.breakUntil+1000;appTest.setNow(()=>after);appTest.tickCoins();});
+  await page.locator('.train-track-container.status-thinking').waitFor();
+  // A game pass goes through the same complete shutdown instead of animating "thinking".
+  page.on('dialog',dialog=>dialog.accept('Juego de prueba'));
+  await page.evaluate(()=>{appTest.setNow(()=>Date.now());appTest.buyShopItem('game');});
+  await page.locator('.train-track-container.status-paused').waitFor();
+  assert.equal(await page.locator('.loco-wheelset').first().evaluate(el=>getComputedStyle(el).animationName),'none');
 }));

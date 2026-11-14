@@ -1570,6 +1570,10 @@
   .commerce-footer h3{font-size:21px;margin-top:9px;} .commerce-footer button{margin:10px 8px 0 0;font-size:12px;}
   .commerce-permits{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--brass-300);}
   @media(max-width:340px){.commerce-grid{grid-template-columns:1fr;}.commerce-section-heading{align-items:flex-start;flex-direction:column;gap:5px;}}
+  .status-paused .loco-smoke{display:none;}
+  .status-paused .loco-lamp-glow{opacity:0;}
+  .status-paused .loco-headlamp-core{opacity:.25;}
+  .status-paused .train-loco,.status-paused .loco-wheelset,.status-paused .loco-coupling-rod,.status-paused .loco-rod-pin{animation:none;}
 </style>
 </head>
 <body>
@@ -2007,7 +2011,7 @@
   function syncTrainAudio() {
     if (!audioCtx || !trainBuffer || !audioUnlocked) return;
     if (audioCtx.state !== "running") { audioCtx.resume().catch(function(){}); }
-    var want = !!(state && state.tracking && state.tracking.status === "task" && !isTrainMuted);
+    var want = !!(state && state.tracking && state.tracking.status === "task" && !breakActive() && !isTrainMuted);
     if (want) startTrainSound(); else stopTrainSound();
   }
 
@@ -2746,6 +2750,7 @@ function defaultState(){
   }
 
   function flushTime(atMs){
+    if (breakActive()) return; /* Un permiso de tiempo libre apaga todo el rastreo. */
     if (!state.tracking || state.tracking.status === "inactive" || !state.tracking.startTime) return;
     var now = atMs || nowMs();
 
@@ -2826,7 +2831,7 @@ function defaultState(){
   function getTaskLiveSeconds(ds, id){
     var log  = state.timeLog[ds];
     var base = (log && log.tasks && log.tasks[id]) || 0;
-    if (state.tracking.status === "task" && state.tracking.taskId === id && state.tracking.taskDs === ds && state.tracking.startTime){
+    if (!breakActive() && state.tracking.status === "task" && state.tracking.taskId === id && state.tracking.taskDs === ds && state.tracking.startTime){
       base += (nowMs() - state.tracking.startTime) / 1000;
     }
     return base;
@@ -2835,7 +2840,7 @@ function defaultState(){
   function getThinkingLiveSeconds(ds){
     var log  = state.timeLog[ds];
     var base = (log && log.thinking) || 0;
-    if (state.tracking.status === "thinking" && state.tracking.startTime && (state.tracking.taskDs || dateToStr(nowDate())) === ds){
+    if (!breakActive() && state.tracking.status === "thinking" && state.tracking.startTime && (state.tracking.taskDs || dateToStr(nowDate())) === ds){
       base += (nowMs() - state.tracking.startTime) / 1000;
     }
     return base;
@@ -3283,6 +3288,7 @@ function defaultState(){
     if (c.breakUntil && now >= c.breakUntil){
       var endedAt = c.breakUntil;
       var endedLabel = c.breakLabel;
+      c.lastBreakEndedAt = endedAt;
       c.breakUntil = 0;
       c.breakLabel = "";
       if (state.tracking && state.tracking.status !== "inactive" && !state.tracking.startTime){
@@ -3298,6 +3304,7 @@ function defaultState(){
 
   /* Pide las horas de la sesión (máx. 24) y arranca la cuenta regresiva. Sin vuelta atrás. */
   function startSessionWithTimer(){
+    if (breakActive()){showToast("El sistema está apagado durante tu tiempo libre.");return;}
     var raw = prompt("⏳ ¿Cuántas horas durará esta sesión? (máximo 24)\n\nCuando se acabe el tiempo el sistema se apagará solo. No se puede apagar antes.");
     if (raw === null) return;
     var hours = parseFloat(String(raw).replace(",", "."));
@@ -3418,6 +3425,7 @@ function defaultState(){
   }
 
   function pauseTask(){
+    if (breakActive()) return;
     flushTime();
     state.tracking.status    = "thinking";
     state.tracking.taskId    = null;
@@ -3430,6 +3438,7 @@ function defaultState(){
   }
 
   function stopTask(ds, id){
+    if (breakActive()) return;
     flushTime();
     state.tracking.status    = "thinking";
     state.tracking.taskId    = null;
@@ -3540,6 +3549,14 @@ function defaultState(){
       if (cdEl) cdEl.textContent = formatCountdown(state.tracking.sessionEndsAt - nowMs());
     }
 
+    if (breakActive()){
+      thinkingAlertFired=false;
+      var freeClock=document.querySelector("[data-live-break-countdown]");
+      if(freeClock)freeClock.textContent=formatCountdown(coinState().breakUntil-nowMs());
+      syncTrainAudio();
+      return; /* Sin arranque automático, alarmas de inactividad ni ejecución durante el permiso. */
+    }
+
     /* --- FASE 0b: ENCENDIDO AUTOMÁTICO DIARIO (6:00, sesión de 8 h) --- */
     if (state.tracking && state.tracking.status === "inactive" && state.tracking.autoStartEnabled !== false && state.tracking.lastAutoStartDs !== tToday){
       var autoStartMs = new Date(tnow.getFullYear(), tnow.getMonth(), tnow.getDate(), AUTO_START_HOUR, 0, 0, 0).getTime();
@@ -3553,7 +3570,7 @@ function defaultState(){
           state.tracking.taskId        = null;
           state.tracking.subtaskId     = null;
           state.tracking.taskDs        = null;
-          state.tracking.startTime     = autoStartMs;
+          state.tracking.startTime     = Math.max(autoStartMs,Math.min(nowMs(),coinState().lastBreakEndedAt||0));
           state.tracking.targetLimit   = null;
           state.tracking.sessionHours  = AUTO_SESSION_HOURS;
           state.tracking.sessionEndsAt = autoEndMs;
@@ -3609,7 +3626,7 @@ function defaultState(){
             applyTaskDifficultyOnStart(t.id);
             state.tracking.subtaskId = null;
             state.tracking.taskDs = today;
-            state.tracking.startTime = nowMs() - Math.max(0, now.getTime() - targetTimeMs); /* Inyección retroactiva (en reloj de ejecución) */
+            state.tracking.startTime = Math.max(nowMs() - Math.max(0, now.getTime() - targetTimeMs), Math.min(nowMs(),coinState().lastBreakEndedAt||0)); /* Nunca atribuir el tiempo libre a una tarea pendiente. */
 
             /* Le inyectamos su límite de tiempo si lo tenía configurado */
             state.tracking.targetLimit = (logDay.taskLimits && logDay.taskLimits[t.id]) ? logDay.taskLimits[t.id] : null;
@@ -4982,12 +4999,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
   /* ===================== Render: Interruptor Maestro ===================== */
   function renderMasterSwitch(){
-    var st = state.tracking.status;
+    var paused=breakActive();
+    var st = paused ? "paused" : state.tracking.status;
     var taskName = st === "task" ? getActiveTrackingTaskName() : "";
-    var label = breakActive() ? "🪙 Descompresión" : st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : (taskName ? "Ejecutando " + escapeHtml(taskName) : "Ejecutando tarea…"));
-    var isOn = st !== "inactive";
+    var label = paused ? "Sistema apagado · Tiempo libre" : st === "inactive" ? "Modo Reposo" : (st === "thinking" ? "Pensando" : (taskName ? "Ejecutando " + escapeHtml(taskName) : "Ejecutando tarea…"));
+    var isOn = state.tracking.status !== "inactive";
     var msLeft = (isOn && state.tracking.sessionEndsAt) ? (state.tracking.sessionEndsAt - nowMs()) : 0;
-    var btnHtml = isOn
+    var btnHtml = paused
+      ? '<div class="ms-countdown-box"><div style="font-size:10px;color:var(--text-muted);">🪙 Tiempo libre restante</div><div class="ms-timer" style="font-size:16px;color:var(--brass-300);" data-live-break-countdown>' + formatCountdown(coinState().breakUntil-nowMs()) + '</div></div>'
+      : isOn
       ? '<div class="ms-countdown-box" title="El sistema se apaga solo al llegar a cero">' +
           '<div style="font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted);">🔒 Se apaga en</div>' +
           '<div class="ms-timer" style="font-size:16px; color:var(--brass-300);" data-live-countdown>' + formatCountdown(msLeft) + '</div>' +
@@ -5002,7 +5022,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         '</span>' +
         '<span>Auto ' + AUTO_START_HOUR + ':00 · ' + (autoOn ? 'activado' : 'apagado') + '</span>' +
       '</button>';
-    var timerSec = st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
+    var timerSec = paused || st === "inactive" ? 0 : getThinkingLiveSeconds(state.tracking.taskDs || todayStr());
     
     var muteIcon = isTrainMuted 
       ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>' 
@@ -5133,7 +5153,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
             '<span class="ms-dot"></span>' +
             '<div>' +
               '<div class="ms-label">' + label + '</div>' +
-              '<div class="ms-timer" data-live-master>' + formatDuration(timerSec) + '</div>' +
+              (paused ? '<div class="ms-timer">Locomotora detenida</div>' : '<div class="ms-timer" data-live-master>' + formatDuration(timerSec) + '</div>') +
             '</div>' +
           '</div>' +
           btnHtml +
@@ -5145,8 +5165,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   /* ===================== Render: pestaña Hoy ===================== */
   function renderRouletteButton(today){
     var n = getRoulettePool().length;
-    var on = state.tracking && state.tracking.status !== "inactive";
-    var sub = !on ? "Enciende el sistema para usarla" : (n === 0 ? "Sin pendientes por ahora" : n + " pendiente" + (n === 1 ? "" : "s") + " · " + (ROULETTE_SECS/60) + " min cada una");
+    var on = state.tracking && state.tracking.status !== "inactive" && !breakActive();
+    var sub = breakActive() ? "Sistema apagado durante tu tiempo libre" : !on ? "Enciende el sistema para usarla" : (n === 0 ? "Sin pendientes por ahora" : n + " pendiente" + (n === 1 ? "" : "s") + " · " + (ROULETTE_SECS/60) + " min cada una");
     return '<section class="block">' +
       '<button data-action="open-roulette" style="width:100%; background:linear-gradient(135deg, var(--ink-850), var(--ink-900)); border:1px solid var(--brass-600); color:var(--brass-300); font-family:var(--font-display); font-size:15.5px; font-weight:600; padding:13px; border-radius:var(--radius-lg); cursor:pointer; letter-spacing:0.04em; opacity:' + (on && n > 0 ? '1' : '.6') + ';">' +
         '🎰 MODO RULETA' +
