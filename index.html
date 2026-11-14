@@ -2077,6 +2077,7 @@
                       await dbSet(ds + "_" + taskId, evidence);
                       if (!state.log[ds]) state.log[ds] = {};
                       state.log[ds][taskId] = true;
+                      creditCompletionCoins(ds,taskId);
                   }
                   
                   persist(); 
@@ -3081,7 +3082,7 @@ function defaultState(){
       '<section data-commerce-view="'+(inventory?'inventory':'shop')+'" aria-label="'+(inventory?'Objetos de tu inventario':'Objetos para comprar')+'"><div class="commerce-section-heading"><h3>'+(inventory?'Lo que llevas contigo':'Herramientas para avanzar')+'</h3><span>'+(inventory?total+' objeto'+(total===1?'':'s'):'3 suministros')+'</span></div>'+
       '<div class="commerce-grid">'+cards+'</div></section>'+
       (inventory?'<section class="commerce-footer"><strong>¿Necesitas más suministros?</strong><p>Encuéntralos en la tienda o recibe los ítems de tus packs de bienvenida.</p><button class="btn-secondary" data-action="commerce-section" data-section="shop">Visitar la tienda</button><button class="btn-secondary" data-action="open-bonos">🎁 Ver mis beneficios</button></section>':
-      '<section class="commerce-footer"><span class="commerce-kicker">TAMBIÉN EN LA ESTACIÓN</span><h3>Un respiro en el camino</h3><p>Tus permisos de descanso, juego e interacción siguen disponibles aquí.</p><div class="commerce-permits"><span>📱 Scroll · '+SHOP_PRICE.scroll+' 🪙</span><span>🎮 Juego · '+SHOP_PRICE.game+' 🪙</span><span>🗣 Interacción · '+SHOP_PRICE.social+' 🪙</span></div><button class="btn-secondary" id="legacyShopBtn" data-action="open-legacy-shop">Ver permisos de tiempo libre</button></section>');
+      '<section class="commerce-footer"><span class="commerce-kicker">TAMBIÉN EN LA ESTACIÓN</span><h3>Un respiro en el camino</h3><p>Gana también +1 moneda por tarea completada con evidencia. Si tiene subtareas, se paga por cada subtarea completada y no por la principal. Se suma a las monedas por tiempo.</p><p>Tus permisos de descanso, juego e interacción siguen disponibles aquí.</p><div class="commerce-permits"><span>📱 Scroll · '+SHOP_PRICE.scroll+' 🪙</span><span>🎮 Juego · '+SHOP_PRICE.game+' 🪙</span><span>🗣 Interacción · '+SHOP_PRICE.social+' 🪙</span></div><button class="btn-secondary" id="legacyShopBtn" data-action="open-legacy-shop">Ver permisos de tiempo libre</button></section>');
   }
 
   function coinState(){
@@ -3098,17 +3099,70 @@ function defaultState(){
     if (!silent) showToast("🪙 +" + n + (n === 1 ? " moneda" : " monedas") + (why ? " · " + why : ""));
     updateCoinBar();
   }
+  /* Bono de producción: principal O subtareas, con evidencia compartida y recibos únicos. */
+  function completionTask(id){
+    var item=state.oneoff.find(function(t){return t.id===id;});
+    if(item)return {item:item,recurring:false,type:"oneoff"};
+    for(var i=0;i<state.projects.length;i++){
+      item=(state.projects[i].tasks||[]).find(function(t){return t.id===id;});
+      if(item)return {item:item,recurring:false,type:"project"};
+    }
+    item=state.habits.find(function(t){return t.id===id;})||state.routines.find(function(t){return t.id===id;});
+    return item?{item:item,recurring:true,type:"recurring"}:null;
+  }
+  function completionRewardKey(meta,ds){return meta.recurring?"day:"+ds+":"+meta.item.id:"task:"+meta.item.id;}
+  async function creditCompletionCoins(ds,id){
+    if(!dataReady||window.isImportingBackup||ds==="project"||typeof ds!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(ds)||ds>todayStr())return 0;
+    var source=state,meta=completionTask(id);
+    if(!meta||meta.item.purchased)return 0;
+    if(meta.type==="oneoff")ds=meta.item.date;
+    if(!ds||ds>todayStr()||(meta.recurring&&meta.item.createdAt&&ds<meta.item.createdAt))return 0;
+    var rewardKey=completionRewardKey(meta,ds), c=coinState(), previous=(c.completionRewards||{})[rewardKey];
+    var candidates=meta.recurring?[ds]:[ds,previous&&previous.evidenceDay,meta.item.completionEvidenceDay,meta.item.doneAt,meta.item.date];
+    candidates=candidates.filter(function(day,index,all){return typeof day==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(day)&&day<=todayStr()&&all.indexOf(day)===index;});
+    var evidenceDay=null;
+    try {
+      for(var i=0;i<candidates.length;i++){
+        var raw=await dbGet(candidates[i]+"_"+id), ev=null;
+        if(raw){try{ev=JSON.parse(raw);}catch(e){}}
+        if(ev&&((typeof ev.note==="string"&&ev.note.trim())||(typeof ev.image==="string"&&ev.image.trim()))){evidenceDay=candidates[i];break;}
+      }
+      if(!evidenceDay||state!==source||window.isImportingBackup)return 0;
+      meta=completionTask(id);if(!meta||meta.item.purchased)return 0;
+      var evidenceChanged=!meta.recurring&&meta.item.completionEvidenceDay!==evidenceDay;
+      if(evidenceChanged)meta.item.completionEvidenceDay=evidenceDay;
+      var item=meta.item, subs=(item.subtasks||[]).filter(function(sub){return (!sub.createdAt||sub.createdAt<=ds)&&(!sub.archivedAt||ds<sub.archivedAt);});
+      c=coinState();if(!c.completionRewards)c.completionRewards={};
+      var receipt=c.completionRewards[rewardKey], mode=receipt?receipt.mode:(subs.length?"subtasks":"task");
+      var units=mode==="subtasks"?subs.filter(function(sub){
+        return meta.recurring?!!(state.log[ds]&&state.log[ds][sub.id]):!!sub.done&&(!sub.doneAt||sub.doneAt<=todayStr());
+      }).map(function(sub){return sub.id;}):
+        ((meta.type==="project"?!!item.done:!!(state.log[ds]&&state.log[ds][id]))?["main"]:[]);
+      var paid=receipt?receipt.paid:{};
+      var unpaid=units.filter(function(unit,index,all){return !paid[unit]&&all.indexOf(unit)===index;});
+      if(!unpaid.length){if(evidenceChanged)await persist();return 0;}
+      if(!receipt)receipt=c.completionRewards[rewardKey]={mode:mode,paid:{},evidenceDay:evidenceDay};
+      receipt.evidenceDay=evidenceDay;
+      unpaid.forEach(function(unit){receipt.paid[unit]=true;});
+      addCoins(unpaid.length,mode==="subtasks"?"subtareas completadas con evidencia":"tarea completada con evidencia");
+      await persist();
+      return unpaid.length;
+    } catch(err){console.warn("No se pudo acreditar el bono por completar",err);return 0;}
+  }
+
   /* Acredita el tiempo de una tarea SOLO si está finalizada Y tiene evidencia (nota o foto).
      Cada tarea acredita una sola vez cada segundo (mapa "credited"), así desmarcar y volver a marcar no repite. */
   function creditTaskCoins(ds, id){
+    creditCompletionCoins(ds,id);
     if (!ds || ds === "project") return;
     if (getStatus(ds, id) !== "done") return;
     if ((state.oneoff || []).some(function(o){ return o.id === id && o.purchased; })) return; /* tarea comprada en la tienda: no da monedas */
     var key = ds + "_" + id;
+    var creditSource=state;
     dbGet(key).then(function(raw){
       var ev = null;
       if (raw){ try { ev = JSON.parse(raw); } catch(e){} }
-      if (window.isImportingBackup || !ev || !(ev.note || ev.image)) return;
+      if (state!==creditSource || window.isImportingBackup || !ev || !(ev.note || ev.image)) return;
       if (getStatus(ds, id) !== "done") return;
       var secs = (state.timeLog[ds] && state.timeLog[ds].tasks && state.timeLog[ds].tasks[id]) || 0;
       var bonus = (state.timeLog[ds] && state.timeLog[ds].bonus && state.timeLog[ds].bonus[id]) || 0; /* segundos en ×2 (extra = tiempo real del tramo) */
@@ -3493,6 +3547,7 @@ function defaultState(){
         state.log[ds][subId] = true;
       }
     }
+    creditCompletionCoins(ds,taskId);
   }
 
   /* --- Ayudante para auto-completar tareas principales --- */
@@ -3841,7 +3896,10 @@ function defaultState(){
     if (ds !== "project" && !isProjTask) payHabitStreakReward(ds,id);
     persist();
     renderActiveTab();
-    if (ds !== "project" && !isProjTask) creditTaskCoins(ds, id);
+    if (ds !== "project"){
+      if(isProjTask)creditCompletionCoins(ds,id);
+      else creditTaskCoins(ds,id);
+    }
   }
 
   function unmarkDone(ds, id){
@@ -6753,6 +6811,14 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!isRecord(backup) || !isRecord(backup.state)) throw new Error("El archivo no contiene una bitácora válida.");
     if (backup._meta && backup._meta.version > 3) throw new Error("Este respaldo requiere una versión más reciente de Bitácora.");
     var st = backup.state;
+    if(st.coins&&st.coins.completionRewards!==undefined){
+      var records=st.coins.completionRewards;
+      if(!isRecord(records))throw new Error("Registro de bonos de finalización inválido.");
+      Object.keys(records).forEach(function(key){
+        var record=records[key];
+        if(!isRecord(record)||["task","subtasks"].indexOf(record.mode)<0||!isRecord(record.paid)||typeof record.evidenceDay!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(record.evidenceDay)||Object.values(record.paid).some(function(v){return v!==true;}))throw new Error("Recibo de bono de finalización inválido.");
+      });
+    }
     if(st.rpg!==undefined){
       var rp=st.rpg;
       if(!isRecord(rp)||!Number.isFinite(rp.xp)||rp.xp<0||rp.xp>1e12) throw new Error("XP inválida en el respaldo.");
@@ -7389,6 +7455,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
           tt.done = !tt.done;
           if (tt.done) tt.doneAt = todayStr(); else delete tt.doneAt;
           persist(); renderActiveTab();
+          if(tt.done)creditCompletionCoins(todayStr(),tt.id);
         }
       }
 
@@ -7564,7 +7631,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
          var tObj = pObj.tasks.find(function(x){ return x.id === mTid; });
          if (tObj && tObj.subtasks) {
             var sObj = tObj.subtasks.find(function(x){ return x.id === mSid; });
-            if (sObj) { sObj.done = el.checked; if (sObj.done) sObj.doneAt = todayStr(); else delete sObj.doneAt; persist(); renderProjectPlanModal(mPid); }
+            if (sObj) { sObj.done = el.checked; if (sObj.done) sObj.doneAt = todayStr(); else delete sObj.doneAt; persist(); renderProjectPlanModal(mPid); if(sObj.done)creditCompletionCoins(todayStr(),mTid); }
          }
       }
     } else if (action === "del-proj-subtask-modal"){
@@ -7676,6 +7743,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       }
       if (state.tracking.subtaskId === subId && isDone) pauseTask();
       persist(); renderActiveTab();
+      if(isDone)creditCompletionCoins(ds,taskId);
 
     /* La IA propone; el usuario revisa antes de incorporar tareas. */
     } else if (action === "ai-plan-start") {

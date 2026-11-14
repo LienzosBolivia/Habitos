@@ -20,6 +20,7 @@ function openApp(){
       uploadDriveBackup,autoRestoreFromDrive,keepLocalDriveVersion,periodSummary,openAIPlanPreview,validateAIPlan,
       generateAIPlan,todayStr,addDays,render,renderEstadisticas,resetAll,showRecoveryPoints,
       WELCOME_PACKS,welcomeAvailability,claimWelcomePack,renderWelcomeRewards,
+      creditCompletionCoins,creditTaskCoins,completionTask,autoMarkSubtaskDone,
       tickCoins,updateLiveTimers,flushTime,getThinkingLiveSeconds,getTaskLiveSeconds,renderMasterSwitch,buyShopItem,
       setNow(fn){nowMs=fn;},
       setWelcomeDay(fn){welcomeDay=fn;},setWelcomeCommit(fn){commitWelcomeGrant=fn;},
@@ -327,4 +328,74 @@ test('a scheduled task never backfills the paid break after restarting',()=>fixt
   await a.seed({coins:{balance:1},oneoff:[{id:'scheduled',text:'Tarea programada',date:ds}],reminders:{[ds+'|scheduled']:'00:00'},tracking:{status:'thinking',startTime:now,sessionEndsAt:now+3600000}});
   a.useCoin();const end=a.state.coins.breakUntil;now=end+1000;a.updateLiveTimers();
   assert.equal(a.state.tracking.status,'task');assert.ok(a.state.tracking.startTime>=end);assert.ok(a.getTaskLiveSeconds(ds,'scheduled')<=1.01);
+}));
+
+test('completion adds one coin independently of timed coins and never creates XP by itself',()=>fixture(async({a})=>{
+  const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Trabajo',date:ds}],log:{[ds]:{t:true}},timeLog:{[ds]:{thinking:0,tasks:{t:1800}}}});
+  await a.dbSet(ds+'_t',JSON.stringify({note:'Resultado terminado',image:null}));
+  assert.equal(await a.creditCompletionCoins(ds,'t'),1);assert.equal(a.state.coins.balance,1);assert.equal(a.rpgState().xp,0);
+  a.creditTaskCoins(ds,'t');await wait();await a.persist();assert.equal(a.state.coins.balance,2);assert.equal(a.rpgState().xp,30);
+  a.creditTaskCoins(ds,'t');await wait();assert.equal(a.state.coins.balance,2);assert.equal(a.rpgState().xp,30);
+}));
+
+test('subtasks share parent evidence and pay instead of the parent, including partial completion',()=>fixture(async({a})=>{
+  const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Trabajo por partes',date:ds,subtasks:[{id:'a',text:'Uno',done:true},{id:'b',text:'Dos',done:true},{id:'c',text:'Tres',done:false}]}]});
+  await a.dbSet(ds+'_t',JSON.stringify({note:'Avance documentado',image:null}));
+  assert.equal(await a.creditCompletionCoins(ds,'t'),2);assert.equal(a.state.log[ds],undefined);
+  a.state.oneoff[0].subtasks[2].done=true;assert.equal(await a.creditCompletionCoins(ds,'t'),1);
+  a.markDone(ds,'t');await wait();assert.equal(a.state.coins.balance,3);assert.equal(await a.creditCompletionCoins(ds,'t'),0);
+}));
+
+test('no evidence means no completion coin, then adding evidence settles completed subtasks once',()=>fixture(async({a})=>{
+  const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Trabajo',date:ds,subtasks:[{id:'a',text:'Uno',done:true}]}]});
+  assert.equal(await a.creditCompletionCoins(ds,'t'),0);
+  await a.dbSet(ds+'_t',JSON.stringify({note:'   ',image:null}));assert.equal(await a.creditCompletionCoins(ds,'t'),0);
+  await a.dbSet(ds+'_t',JSON.stringify({note:null,image:'data:image/png;base64,YQ=='}));assert.equal(await a.creditCompletionCoins(ds,'t'),1);
+  assert.equal(await a.creditCompletionCoins(ds,'t'),0);
+}));
+
+test('completion receipts survive reload and prevent repeat payout after rescheduling or remarking',()=>fixture(async({a})=>{
+  const ds=a.todayStr(),before=a.addDays(ds,-1);await a.seed({oneoff:[{id:'t',text:'Trabajo',date:before}],log:{[before]:{t:true}}});
+  await a.dbSet(before+'_t',JSON.stringify({note:'Terminado',image:null}));assert.equal(await a.creditCompletionCoins(before,'t'),1);
+  const saved=JSON.parse(await a.storageGet('bitacora-app-data'));await a.seed(saved);
+  a.state.oneoff[0].date=ds;a.state.log[ds]={t:true};assert.equal(await a.creditCompletionCoins(ds,'t'),0);
+  a.unmarkDone(ds,'t');a.markDone(ds,'t');await wait();assert.equal(a.state.coins.balance,1);
+  const backup=await a.buildMasterBackupJSON();assert.ok(a.validateBackup(backup));assert.ok(backup.state.coins.completionRewards['task:t'].paid.main);
+}));
+
+test('recurring subtasks pay separately by date and require that day’s parent evidence',()=>fixture(async({a})=>{
+  const ds=a.todayStr(),before=a.addDays(ds,-1);await a.seed({habits:[{id:'h',text:'Hábito',createdAt:before,subtasks:[{id:'s',text:'Paso'}]}],log:{[before]:{s:true},[ds]:{s:true}}});
+  await a.dbSet(before+'_h',JSON.stringify({note:'Ayer',image:null}));assert.equal(await a.creditCompletionCoins(before,'h'),1);assert.equal(await a.creditCompletionCoins(ds,'h'),0);
+  await a.dbSet(ds+'_h',JSON.stringify({note:'Hoy',image:null}));assert.equal(await a.creditCompletionCoins(ds,'h'),1);assert.equal(a.state.coins.balance,2);
+}));
+
+test('changing between task and subtask modes cannot double the parent reward',async()=>{
+  await fixture(async({a})=>{
+    const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Trabajo',date:ds}],log:{[ds]:{t:true}}});await a.dbSet(ds+'_t',JSON.stringify({note:'Prueba'}));assert.equal(await a.creditCompletionCoins(ds,'t'),1);
+    a.state.oneoff[0].subtasks=[{id:'s',text:'Nuevo paso',done:true}];assert.equal(await a.creditCompletionCoins(ds,'t'),0);assert.equal(a.state.coins.balance,1);
+  });
+  await fixture(async({a})=>{
+    const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Trabajo',date:ds,subtasks:[{id:'s',text:'Paso',done:true}]}],log:{[ds]:{t:true}}});await a.dbSet(ds+'_t',JSON.stringify({note:'Prueba'}));assert.equal(await a.creditCompletionCoins(ds,'t'),1);
+    a.state.oneoff[0].subtasks=[];assert.equal(await a.creditCompletionCoins(ds,'t'),0);assert.equal(a.state.coins.balance,1);
+  });
+});
+
+test('simultaneous credits pay once and purchased permissions never pay',()=>fixture(async({a})=>{
+  const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Trabajo',date:ds},{id:'bought',text:'Permiso comprado',date:ds,purchased:true}],log:{[ds]:{t:true,bought:true}}});
+  await a.dbSet(ds+'_t',JSON.stringify({note:'Prueba'}));await a.dbSet(ds+'_bought',JSON.stringify({note:'Prueba'}));
+  const paid=await Promise.all([a.creditCompletionCoins(ds,'t'),a.creditCompletionCoins(ds,'t')]);assert.equal(paid.reduce((a,b)=>a+b,0),1);assert.equal(await a.creditCompletionCoins(ds,'bought'),0);assert.equal(a.state.coins.balance,1);
+}));
+
+test('project subtasks pay from the planning modal and do not require parent completion',()=>fixture(async({w,a})=>{
+  const ds=a.todayStr();await a.seed({projects:[{id:'p',text:'Proyecto',createdAt:ds,deadline:a.addDays(ds,7),status:'active',tasks:[{id:'t',text:'Trabajo',done:false,subtasks:[{id:'s',text:'Paso',done:false}]}]}]});
+  await a.dbSet(ds+'_t',JSON.stringify({note:'Avance'}));w.document.querySelector('[data-tab="proyectos"]').click();w.document.querySelector('[data-action="plan-project"]').click();
+  w.document.querySelector('[data-action="toggle-proj-subtask-modal"]').click();await wait();assert.equal(a.state.coins.balance,1);assert.equal(a.state.projects[0].tasks[0].done,false);
+}));
+
+test('a project keeps its parent evidence reference when the first subtask is completed on another day',()=>fixture(async({a})=>{
+  const ds=a.todayStr(),before=a.addDays(ds,-1);
+  await a.seed({projects:[{id:'p',text:'Proyecto',createdAt:before,deadline:a.addDays(ds,7),status:'active',tasks:[{id:'t',text:'Trabajo',done:true,doneAt:before,subtasks:[{id:'s',text:'Paso',done:false}]}]}]});
+  await a.dbSet(before+'_t',JSON.stringify({note:'Evidencia de la principal'}));assert.equal(await a.creditCompletionCoins(before,'t'),0);
+  const parent=a.state.projects[0].tasks[0];parent.done=false;delete parent.doneAt;parent.subtasks[0].done=true;parent.subtasks[0].doneAt=ds;
+  assert.equal(await a.creditCompletionCoins(ds,'t'),1);assert.equal(a.state.coins.balance,1);
 }));
