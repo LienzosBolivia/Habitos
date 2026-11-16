@@ -372,12 +372,14 @@ test('Archive on mobile saves, searches, filters, previews, edits and reloads Dr
 }));
 
 test('Archive rejects unsupported links and removing a record never sends a Drive deletion',async()=>withPage(async page=>{
+  const driveDeletes=[];page.on('request',r=>{if(r.method()==='DELETE'&&r.url().includes('google'))driveDeletes.push(r.url());});
   await page.evaluate(async()=>{await appTest.seed({});});await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="archivo"]').click();
   const form=page.locator('[data-action="archive-save"]');await form.locator('[name="archiveName"]').fill('Archivo');await form.locator('[name="archiveUrl"]').fill('https://drive.google.com.evil.test/file/d/id/view');await form.locator('button[type="submit"]').click();
   assert.equal(await page.evaluate(()=>appTest.archiveEntries().length),0);assert.equal(await page.locator('.archive-card').count(),0);
   await form.locator('[name="archiveUrl"]').fill('https://drive.google.com/file/d/private_file/view');await form.locator('button[type="submit"]').click();await page.locator('.archive-card').waitFor();
   assert.equal(await page.locator('.archive-card a').getAttribute('href'),'https://drive.google.com/file/d/private_file/view');
   page.once('dialog',d=>d.accept());await page.locator('[data-action="archive-delete"]').click();await page.waitForFunction(()=>appTest.archiveEntries().length===0);
+  await page.locator('.archive-card').waitFor({state:'detached'});assert.deepEqual(driveDeletes,[]);
   assert.equal(await page.locator('.archive-card').count(),0);
 }));
 
