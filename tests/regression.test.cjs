@@ -15,7 +15,7 @@ const instrumented = source.replace('  /* ===================== Arranque =======
     saveRecoveryPoint, showRecoveryPoints, uploadDriveBackup, autoRestoreFromDrive,
     periodSummary, openAIPlanPreview, validateAIPlan, generateAIPlan, resetAll,
     rpgState,xpForLevel,nowMs,openShopModal,welcomeAvailability,claimWelcomePack,
-    useCoin,buyShopItem,updateLiveTimers,tickCoins,markDone,unmarkDone,creditCompletionCoins,
+    useRpgItem,useBooster,checkDeadlineAlarms,enableAlarm,taskCoinAmount,openEditEvidenceModal,openViewEvidenceModal,saveEvidence,addCoins,useCoin,buyShopItem,updateLiveTimers,tickCoins,markDone,unmarkDone,creditCompletionCoins,
     setNow(fn){nowMs=fn;},
     setWelcomeDay(fn){welcomeDay=fn;},
     todayStr, addDays, render, renderEstadisticas,
@@ -252,7 +252,7 @@ test('RPG inventory works on mobile and keeps the original permissions shop reac
   assert.equal(await page.locator('[data-rpg-buy]').count(),0);
   assert.match(await page.locator('[data-commerce-view="inventory"]').innerText(),/1 disponible/);
   await page.locator('[data-action="commerce-section"][data-section="shop"]').first().click();
-  await page.locator('#legacyShopBtn').click();assert.equal(await page.locator('#shopModal').evaluate(el=>el.classList.contains('open')),true);
+  assert.equal(await page.locator('[data-rpg-buy]').count(),6);
 }));
 
 test('roulette reroll spends one ticket and returns to roulette before starting a task',async()=>withPage(async page=>{
@@ -301,7 +301,7 @@ test('coin and purchased breaks stop wheels and smoke, survive reload and resume
   await page.locator('.train-track-container.status-thinking').waitFor();
   // A game pass goes through the same complete shutdown instead of animating "thinking".
   page.on('dialog',dialog=>dialog.accept('Juego de prueba'));
-  await page.evaluate(()=>{appTest.setNow(()=>Date.now());appTest.buyShopItem('game');});
+  await page.evaluate(()=>{appTest.setNow(()=>Date.now());appTest.buyShopItem('game');appTest.useRpgItem('game');});
   await page.locator('.train-track-container.status-paused').waitFor();
   assert.equal(await page.locator('.loco-wheelset').first().evaluate(el=>getComputedStyle(el).animationName),'none');
 }));
@@ -320,4 +320,26 @@ test('daily subtask checkboxes credit their parent evidence without paying the p
   await page.locator('[data-action="toggle-subtask"][data-subid="a"]').check();await page.waitForFunction(()=>appTest.state.coins.balance===1);
   await page.locator('[data-action="toggle-subtask"][data-subid="b"]').check();await page.waitForFunction(()=>appTest.state.coins.balance===2);
   await page.evaluate(()=>appTest.markDone(appTest.todayStr(),'t'));assert.equal(await page.evaluate(()=>appTest.state.coins.balance),2);
+}));
+
+test('unified store stocks passes and inventory activates them without another charge',async()=>withPage(async page=>{
+  page.on('dialog',d=>d.accept('Una aplicación'));
+  await page.evaluate(async()=>{await appTest.seed({coins:{balance:20}});});
+  await page.locator('[data-tab="tienda"]').click();await page.locator('[data-rpg-buy="scroll"]').click();
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),14);assert.equal(await page.evaluate(()=>!!appTest.state.coins.breakUntil),false);
+  await page.evaluate(()=>{appTest.state.tracking.status='thinking';appTest.state.tracking.sessionEndsAt=appTest.nowMs()+3600000;});
+  await page.locator('[data-section="inventory"]').first().click();await page.locator('[data-rpg-use="scroll"]').click();
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),14);assert.equal(await page.evaluate(()=>appTest.rpgState().inv.scroll),0);
+  await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="monedas"]').click();
+  await page.waitForFunction(()=>document.querySelector('#evGalleryContainer').textContent.includes('Control de monedas'));
+  assert.match(await page.locator('#evGalleryContainer').innerText(),/Pase de scroll/);
+  assert.match(await page.locator('#evGalleryContainer').innerText(),/sin nuevo cobro/);
+}));
+
+test('gallery evidence can be viewed and edited while retaining the original photo',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{const ds=appTest.todayStr();await appTest.seed({oneoff:[{id:'edit',text:'Informe',date:ds}],log:{[ds]:{edit:true}}});await appTest.dbSet(ds+'_edit',JSON.stringify({taskName:'Informe',note:'Primera nota',image:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}));});
+  await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-action="view-evidence-from-gallery"]').first().click();
+  await page.locator('[data-action="edit-viewed-evidence"]').click();await page.waitForFunction(()=>!document.querySelector('#evidenceSaveBtn').disabled);await page.locator('#evidenceNote').fill('Primera nota, con más detalles');await page.locator('#evidenceSaveBtn').click();
+  await page.waitForFunction(()=>document.querySelector('#viewEvidenceContent').textContent.includes('con más detalles'));
+  assert.equal(await page.locator('#viewEvidenceContent img').count(),1);
 }));

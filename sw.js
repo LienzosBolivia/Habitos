@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bitacora-cache-v9';
+const CACHE_NAME = 'bitacora-cache-v10';
 
 /* El MP3 NO se cachea aquí: la app lo guarda en IndexedDB y el Service Worker
    no debe interferir con su descarga. */
@@ -70,4 +70,12 @@ self.addEventListener('fetch', event => {
       });
     })
   );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(windows => {
+    for (const win of windows) if (win.url.startsWith(self.registration.scope)) return win.focus();
+    return clients.openWindow(self.registration.scope);
+  }));
 });

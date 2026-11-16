@@ -21,7 +21,7 @@ function openApp(){
       generateAIPlan,todayStr,addDays,render,renderEstadisticas,resetAll,showRecoveryPoints,
       WELCOME_PACKS,welcomeAvailability,claimWelcomePack,renderWelcomeRewards,
       creditCompletionCoins,creditTaskCoins,completionTask,autoMarkSubtaskDone,
-      tickCoins,updateLiveTimers,flushTime,getThinkingLiveSeconds,getTaskLiveSeconds,renderMasterSwitch,buyShopItem,
+      tickCoins,updateLiveTimers,flushTime,getThinkingLiveSeconds,getTaskLiveSeconds,renderMasterSwitch,useRpgItem,useBooster,checkDeadlineAlarms,enableAlarm,taskCoinAmount,openEditEvidenceModal,openViewEvidenceModal,saveEvidence,addCoins,buyShopItem,
       setNow(fn){nowMs=fn;},
       setWelcomeDay(fn){welcomeDay=fn;},setWelcomeCommit(fn){commitWelcomeGrant=fn;},
       rpgState,xpForLevel,getLevelFromXp,addXp,getHabitDailyReward,payHabitStreakReward,habitStreak,checkHabitShields,triggerTraversalAudit,buyRpgItem,useCondenser,consumeReroll,useCoin,openShopModal,toggleDifficulty,markDone,unmarkDone,earnFromTaskSeconds,playTask,nowMs,
@@ -224,11 +224,11 @@ test('fractional balances cannot buy a one-coin break; level 10 shortens cooldow
   a.useCoin();assert.equal(a.state.coins.balance,0);assert.equal(a.state.coins.cooldownUntil-a.state.coins.breakUntil,480000);
 }));
 
-test('shop respects unlock levels and costs and retains the old shop',()=>fixture(async({w,a})=>{
+test('unified shop respects unlock levels, costs and all six items',()=>fixture(async({w,a})=>{
   await a.seed({coins:{balance:50}});assert.equal(a.buyRpgItem('shield'),false);assert.equal(a.state.coins.balance,50);
   a.rpgState().xp=a.xpForLevel(5);assert.equal(a.buyRpgItem('shield'),true);assert.equal(a.state.coins.balance,30);assert.equal(a.rpgState().inv.shield,1);
   assert.equal(a.buyRpgItem('reroll'),true);assert.equal(a.consumeReroll(),true);assert.equal(a.consumeReroll(),false);
-  a.openShopModal();assert.ok(w.document.querySelector('[data-commerce-view="shop"]'));w.document.getElementById('legacyShopBtn').click();assert.ok(w.document.getElementById('shopModal').classList.contains('open'));
+  a.openShopModal();assert.ok(w.document.querySelector('[data-commerce-view="shop"]'));assert.equal(w.document.querySelectorAll('[data-rpg-buy]').length,6);
 }));
 
 test('shields preserve yesterday streak without completion, payout or repeated consumption',()=>fixture(async({a})=>{
@@ -239,11 +239,12 @@ test('shields preserve yesterday streak without completion, payout or repeated c
   a.checkHabitShields();assert.equal(a.rpgState().inv.shield,1);
 }));
 
-test('condenser persists matching parent and subtask limits and does not spend at minimum',()=>fixture(async({a})=>{
-  const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Tarea',date:ds}],timeLog:{[ds]:{thinking:0,tasks:{t:150},subtasks:{s:100}}},tracking:{status:'task',taskId:'t',taskDs:ds,startTime:null,targetLimit:600}});
-  a.rpgState().inv.condenser=3;assert.equal(a.useCondenser(),true);assert.equal(a.state.timeLog[ds].taskLimits.t,300);
-  a.state.tracking.subtaskId='s';a.state.tracking.targetLimit=600;assert.equal(a.useCondenser(),true);assert.equal(a.state.timeLog[ds].subtaskLimits.s,300);
-  a.state.tracking.targetLimit=60;assert.equal(a.useCondenser(),false);assert.equal(a.rpgState().inv.condenser,1);
+test('old condensers migrate once to boosters, preserve task time and double work coins only',()=>fixture(async({a})=>{
+  let now=a.nowMs();a.setNow(()=>now);await a.seed({coins:{balance:20},tracking:{status:'task',targetLimit:600,startTime:null},rpg:{xp:0,inv:{condenser:3}}});
+  assert.equal(a.rpgState().inv.booster,3);assert.equal(a.rpgState().inv.booster,3);
+  assert.equal(a.useBooster(),true);assert.equal(a.state.tracking.targetLimit,600);assert.equal(a.useBooster(),false);assert.equal(a.rpgState().inv.booster,2);
+  assert.equal(a.addCoins(1,'Tarea',true,{kind:'completion'}),2);assert.equal(a.addCoins(5,'Regalo',true,{kind:'welcome'}),5);
+  now+=1800001;assert.equal(a.addCoins(1,'Tarea',true,{kind:'completion'}),1);
 }));
 
 test('audit penalizes only confirmed pending discipline failures once',()=>fixture(async({w,a})=>{
@@ -266,7 +267,7 @@ test('welcome week grants exactly 45 coins and distributed items over seven days
     assert.equal(await a.claimWelcomePack(n),true);assert.equal(await a.claimWelcomePack(n),false);
     if(n<7)assert.equal(await a.claimWelcomePack(n+1),false);
   }
-  assert.equal(a.state.coins.balance,45);assert.deepEqual(plain(a.rpgState().inv),{reroll:2,condenser:1,shield:1});
+  assert.equal(a.state.coins.balance,45);assert.deepEqual(plain(a.rpgState().inv),{reroll:2,booster:1,shield:1,scroll:0,game:0,social:0});
   assert.equal(a.welcomeAvailability().complete,true);assert.equal(await a.claimWelcomePack(8),false);
   const backup=await a.buildMasterBackupJSON();assert.ok(a.validateBackup(backup));assert.equal(backup.state.rpg.starter.claims.length,7);
 }));
@@ -311,7 +312,7 @@ test('scroll and game passes stop execution for their full duration',async()=>{
   for(const kind of ['scroll','game'])await fixture(async({w,a})=>{
     let now=a.nowMs();a.setNow(()=>now);w.prompt=()=>'Permiso de prueba';const ds=a.todayStr();
     await a.seed({coins:{balance:20},tracking:{status:'task',taskId:'t',taskDs:ds,startTime:now-2000,sessionEndsAt:now+3600000},oneoff:[{id:'t',text:'Tarea',date:ds}]});
-    a.buyShopItem(kind);assert.equal(a.state.coins.balance,14);const seconds=a.getTaskLiveSeconds(ds,'t');
+    a.buyShopItem(kind);a.useRpgItem(kind);assert.equal(a.state.coins.balance,14);const seconds=a.getTaskLiveSeconds(ds,'t');
     now+=300000;a.updateLiveTimers();assert.match(a.renderMasterSwitch(),/status-paused/);assert.equal(a.getTaskLiveSeconds(ds,'t'),seconds);assert.equal(a.getThinkingLiveSeconds(ds),0);
     assert.equal(a.state.tracking.taskId,null);assert.equal(a.state.tracking.startTime,null);
   });
@@ -398,4 +399,32 @@ test('a project keeps its parent evidence reference when the first subtask is co
   await a.dbSet(before+'_t',JSON.stringify({note:'Evidencia de la principal'}));assert.equal(await a.creditCompletionCoins(before,'t'),0);
   const parent=a.state.projects[0].tasks[0];parent.done=false;delete parent.doneAt;parent.subtasks[0].done=true;parent.subtasks[0].doneAt=ds;
   assert.equal(await a.creditCompletionCoins(ds,'t'),1);assert.equal(a.state.coins.balance,1);
+}));
+
+test('stocked passes charge only on purchase and ledger reconciles to opening balance',()=>fixture(async({w,a})=>{
+  let now=a.nowMs();a.setNow(()=>now);await a.seed({coins:{balance:30}});
+  assert.equal(a.buyRpgItem('scroll'),true);assert.equal(a.state.coins.balance,24);assert.equal(a.state.coins.breakUntil,undefined);
+  assert.equal(a.useRpgItem('scroll'),false);assert.equal(a.rpgState().inv.scroll,1);
+  a.state.tracking.status='thinking';a.state.tracking.sessionEndsAt=now+3600000;w.prompt=()=>null;
+  assert.equal(a.useRpgItem('scroll'),false);assert.equal(a.rpgState().inv.scroll,1);
+  w.prompt=()=>'Lectura';assert.equal(a.useRpgItem('scroll'),true);assert.equal(a.state.coins.balance,24);assert.equal(a.rpgState().inv.scroll,0);
+  assert.equal(a.state.coins.ledgerOpeningBalance+a.state.coins.ledger.reduce((n,t)=>n+t.amount,0),24);
+  assert.equal(a.state.coins.ledger.filter(t=>t.kind==='purchase').length,1);assert.equal(a.state.coins.ledger.filter(t=>t.kind==='item-use').length,1);
+}));
+
+test('alarm recovers expired break once without train audio and sounds session expiry',()=>fixture(async({w,a})=>{
+  const tones=[];class Audio{constructor(){this.state='suspended';this.currentTime=0;this.destination={};}async resume(){this.state='running';}createOscillator(){return {frequency:{},connect(){},start(t){tones.push(t);},stop(){},disconnect(){}};}createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(){}},connect(){}};}}
+  w.AudioContext=Audio;let now=a.nowMs();a.setNow(()=>now);await a.seed({coins:{balance:1,breakUntil:now-1},tracking:{status:'thinking',startTime:null,sessionEndsAt:now+100000}});
+  await a.enableAlarm();assert.ok(tones.length>=8);a.updateLiveTimers();const n=tones.length;a.updateLiveTimers();assert.equal(tones.length,n);
+  assert.equal(Object.keys(a.state.alarm.fired).filter(k=>k.startsWith('break:')).length,1);
+  now+=100001;a.updateLiveTimers();assert.equal(a.state.tracking.status,'inactive');assert.ok(Object.keys(a.state.alarm.fired).some(k=>k.startsWith('session:')));
+}));
+
+test('editing viewed evidence preserves image and original metadata and does not duplicate reward',()=>fixture(async({w,a})=>{
+  const ds=a.todayStr();await a.seed({oneoff:[{id:'t',text:'Tarea',date:ds}],log:{[ds]:{t:true}}});
+  await a.dbSet(ds+'_t',JSON.stringify({taskName:'Tarea',note:'Antes',image:'data:image/png;base64,AA==',savedAt:'2026-01-01T00:00:00Z',custom:'preservar'}));
+  await a.creditCompletionCoins(ds,'t');const balance=a.state.coins.balance;
+  a.openViewEvidenceModal(ds,'t');await wait();assert.ok(w.document.querySelector('[data-action="edit-viewed-evidence"]'));
+  w.document.querySelector('[data-action="edit-viewed-evidence"]').click();await wait();w.document.getElementById('evidenceNote').value='Antes y después';a.saveEvidence();await wait();await wait();
+  const ev=JSON.parse(await a.dbGet(ds+'_t'));assert.equal(ev.note,'Antes y después');assert.equal(ev.image,'data:image/png;base64,AA==');assert.equal(ev.custom,'preservar');assert.equal(ev.savedAt,'2026-01-01T00:00:00Z');assert.equal(a.state.coins.balance,balance);
 }));
