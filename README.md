@@ -78,3 +78,11 @@ En Hoy, toca **Activar y probar alarma**, acepta las notificaciones y comprueba 
 Galería muestra monedas recibidas junto a las tareas y subtareas, y una vista **Monedas** con ingresos, compras, descuentos y usos. Cada compra descuenta una vez; activar un ítem registra uso sin cobrar otra vez. El saldo previo se conserva como saldo inicial; no se reconstruyen importes históricos sin recibos. Los pagos por cada bloque acumulado de 30 minutos se atribuyen a la tarea cuya acreditación completa ese bloque. Los movimientos se conservan en los respaldos y se validan al importar.
 
 Al tocar una evidencia, el visor permite **Editar / añadir información**. Conserva foto, fecha original y metadatos al modificar la nota; la edición no repite recompensas ya acreditadas.
+
+## Archivo de enlaces en Galería
+
+**Galería → Archivo** guarda enlaces de Google Drive con nombre obligatorio y fecha elegida por el usuario. La búsqueda por nombre ignora tildes y mayúsculas; el filtro de mes usa esa fecha. Las fichas se ordenan por fecha descendente y permiten editar nombre, fecha o enlace, quitar el registro local y abrir el original en Drive. Quitar un enlace no elimina el archivo de Google Drive.
+
+Las fichas muestran una vista previa embebida con carga diferida; al tocar **Ver** se abre el visor dentro de la página. Al cerrar se descarga el iframe del visor. Se muestran inicialmente 12 fichas y se pueden cargar más, mientras la búsqueda recorre todos los registros. Los formatos compatibles, los permisos de Drive, la sesión de Google y la conectividad determinan si Google puede mostrar una vista previa; siempre hay un enlace **Abrir en Drive** como alternativa. Se usan visores de Google, sin copiar archivos, hacerlos públicos ni intentar extraerlos a un canvas entre dominios.
+
+Acepta enlaces HTTPS de archivos y carpetas de `drive.google.com`, incluidos `file/d`, `open?id` y `uc?id`, y documentos de `docs.google.com`. Conserva `resourcekey` cuando es necesario para el acceso. Rechaza otros dominios, enlaces incompletos y protocolos de contenido activo. Los registros se guardan en `state.archiveLinks` y viajan en los respaldos y la sincronización existentes. Los respaldos anteriores sin Archivo siguen siendo válidos.
