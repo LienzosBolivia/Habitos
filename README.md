@@ -54,7 +54,9 @@ El saldo, el inventario y el recibo del reclamo se guardan juntos antes de mostr
 
 ## Tienda e inventario
 
-La pestaña inferior **Tienda** abre una pantalla con dos secciones independientes: **Tienda**, para comprar suministros o acceder a los permisos de tiempo libre, e **Inventario**, para ver cantidades y usar los ítems disponibles. Los packs de bienvenida se abren desde el botón de regalo de la barra superior. Esta reorganización visual conserva los precios, los desbloqueos de nivel, los saldos, los premios y las condiciones de uso anteriores.
+La pestaña inferior **Tienda** reúne seis objetos y una sección **Inventario**. Los pases de scroll y juego cuestan 6 monedas; el social, 10. Todos duran 10 minutos y se acumulan al comprarlos, incluso sin sesión activa. En Inventario, **Usar** consume una unidad e inicia el tiempo libre sin volver a cobrar; se necesita sesión activa y no tener otro permiso en curso. Los tres detienen el sistema.
+
+El **Duplicador ×2** reemplaza al condensador (5 monedas, nivel 3). Las unidades antiguas se convierten una por una. Al usarlo, duplica los pagos de trabajo acreditados durante 30 minutos (tiempo, finalización, hábitos y proyectos); no modifica tareas, XP ni packs. No consume otra unidad si hay uno activo.
 
 ## Locomotora durante el tiempo libre
 
@@ -67,3 +69,12 @@ Completar una tarea sin subtareas y con una nota o foto de evidencia otorga **1 
 El bono aplica a tareas puntuales, tareas de proyectos y hábitos/rutinas. En hábitos y rutinas se registra una vez por tarea o subtarea y por fecha; en tareas puntuales y de proyectos, una sola vez por identificador aunque se cambien de fecha. Los permisos comprados no generan este bono. Desmarcar, volver a marcar, editar la evidencia o recargar no repite los pagos. Una tarea ya premiada como principal no vuelve a pagar al añadir subtareas; una premiada por subtareas no paga después como principal al borrarlas.
 
 Los recibos se conservan en `coins.completionRewards`, junto con el saldo en los respaldos. No hay un barrido automático de registros antiguos: se comprueba el bono al completar trabajo, marcar subtareas o guardar/editar la evidencia. El XP y las reglas de monedas por tiempo conservan su cálculo anterior.
+
+
+## Alarmas y galería
+
+En Hoy, toca **Activar y probar alarma**, acepta las notificaciones y comprueba el volumen multimedia. El sonido usa tonos independientes del MP3 y del silencio del tren. Programa tonos con Web Audio, comprueba plazos de tiempo libre, sesión y tarea, y recupera avisos vencidos al regresar. Las notificaciones requieren permiso y Service Worker. Una web estática no puede garantizar alarmas puntuales si Android suspende su proceso o el usuario cierra la aplicación; no se usan temporizadores del Service Worker como falsa garantía.
+
+Galería muestra monedas recibidas junto a las tareas y subtareas, y una vista **Monedas** con ingresos, compras, descuentos y usos. Cada compra descuenta una vez; activar un ítem registra uso sin cobrar otra vez. El saldo previo se conserva como saldo inicial; no se reconstruyen importes históricos sin recibos. Los pagos por cada bloque acumulado de 30 minutos se atribuyen a la tarea cuya acreditación completa ese bloque. Los movimientos se conservan en los respaldos y se validan al importar.
+
+Al tocar una evidencia, el visor permite **Editar / añadir información**. Conserva foto, fecha original y metadatos al modificar la nota; la edición no repite recompensas ya acreditadas.
