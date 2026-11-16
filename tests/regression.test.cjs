@@ -248,7 +248,7 @@ test('RPG inventory works on mobile and keeps the original permissions shop reac
   });
   await page.locator('[data-rpg-buy="shield"]').click();
   assert.equal(await page.evaluate(()=>appTest.rpgState().inv.shield),1);
-  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),20);
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),35);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.locator('[data-action="commerce-section"][data-section="inventory"]').first().click();
   assert.equal(await page.locator('[data-commerce-view="inventory"]').count(),1);
@@ -421,4 +421,16 @@ test('repaying from benefits leaves a reserve, unlocks the next loan and records
   assert.equal(await page.evaluate(()=>appTest.loanState().history[0].interest),10);
   await page.locator('#loanAmount').fill('25');await page.locator('[data-action="loan-request"] button[type="submit"]').click();
   await page.waitForFunction(()=>appTest.loanState().active?.principal===25);assert.equal(await page.evaluate(()=>appTest.state.coins.balance),27);
+}));
+
+test('first welcome pack gives a duplicator immediately and shield costs five coins',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{await appTest.seed({coins:{balance:0}});});
+  await page.locator('#welcomeGiftBtn').click();
+  assert.match(await page.locator('.welcome-pack').first().innerText(),/Duplicador/);
+  await page.locator('[data-action="claim-welcome"][data-day="1"]').click();
+  await page.waitForFunction(()=>appTest.rpgState().inv.booster===1);
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),5);
+  await page.evaluate(()=>{const r=appTest.rpgState();r.xp=appTest.xpForLevel(5);r.xpUnits=r.xp*120;appTest.openShopModal();});
+  assert.match(await page.locator('[data-rpg-buy="shield"]').innerText(),/5 🪙/);
+  await page.locator('[data-rpg-buy="shield"]').click();assert.equal(await page.evaluate(()=>appTest.state.coins.balance),0);assert.equal(await page.evaluate(()=>appTest.rpgState().inv.shield),1);
 }));

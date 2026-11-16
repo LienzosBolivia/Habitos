@@ -229,7 +229,7 @@ test('fractional balances cannot buy a one-coin break; level 10 shortens cooldow
 
 test('unified shop respects unlock levels, costs and all six items',()=>fixture(async({w,a})=>{
   await a.seed({coins:{balance:50}});assert.equal(a.buyRpgItem('shield'),false);assert.equal(a.state.coins.balance,50);
-  a.rpgState().xp=a.xpForLevel(5);assert.equal(a.buyRpgItem('shield'),true);assert.equal(a.state.coins.balance,30);assert.equal(a.rpgState().inv.shield,1);
+  a.rpgState().xp=a.xpForLevel(5);assert.equal(a.buyRpgItem('shield'),true);assert.equal(a.state.coins.balance,45);assert.equal(a.rpgState().inv.shield,1);
   assert.equal(a.buyRpgItem('reroll'),true);assert.equal(a.consumeReroll(),true);assert.equal(a.consumeReroll(),false);
   a.openShopModal();assert.ok(w.document.querySelector('[data-commerce-view="shop"]'));assert.equal(w.document.querySelectorAll('[data-rpg-buy]').length,6);
 }));
@@ -269,6 +269,7 @@ test('welcome week grants exactly 45 coins and distributed items over seven days
     day=a.addDays('2026-11-13',n-1);assert.equal(a.welcomeAvailability().next,n);
     assert.equal(await a.claimWelcomePack(n),true);assert.equal(await a.claimWelcomePack(n),false);
     if(n<7)assert.equal(await a.claimWelcomePack(n+1),false);
+    assert.equal(a.rpgState().inv.booster,1,"Duplicador desde el día 1, sin repetirse el día 4");
   }
   assert.equal(a.state.coins.balance,45);assert.deepEqual(plain(a.rpgState().inv),{reroll:2,booster:1,shield:1,scroll:0,game:0,social:0});
   assert.equal(a.welcomeAvailability().complete,true);assert.equal(await a.claimWelcomePack(8),false);
@@ -565,4 +566,12 @@ test('atomic loan commit refuses a competing tab write between reading and commi
   });
   assert.equal(await a.requestLoan(100),false);assert.equal(a.state.coins.balance,5);assert.equal(a.loanState().active,null);
   const stored=JSON.parse(await a.storageGet('bitacora-app-data'));assert.equal(stored.coins.balance,19);assert.equal(stored.coins.loans,undefined);
+}));
+
+test('existing welcome weeks keep their pending duplicator without receiving it twice',()=>fixture(async({a})=>{
+  let day='2026-11-14';a.setWelcomeDay(()=>day);
+  await a.seed({rpg:{xp:0,inv:{},starter:{version:1,startedOn:'2026-11-13',claims:[{day:1,claimedOn:'2026-11-13'}]}}});
+  for(let n=2;n<=7;n++){day=a.addDays('2026-11-13',n-1);assert.equal(await a.claimWelcomePack(n),true);assert.equal(a.rpgState().inv.booster,n<4?0:1);}
+  assert.equal(a.rpgState().starter.rewardSchedule,1);
+  assert.doesNotThrow(()=>a.validateBackup({state:a.state}));
 }));

@@ -40,13 +40,13 @@ Los hábitos diarios pagan una bonificación por día cumplido, una sola vez por
 
 El XP se acredita con el tiempo validado por evidencia, conservando fracciones sin redondear cada minuto parcial. El nivel usa el umbral `round(300 × (nivel − 1)^1.5)`. El multiplicador ×2 se desbloquea en nivel 5 y el descanso con monedas reduce su espera de 10 a 8 minutos en nivel 10. Se requiere una moneda completa para comprar un descanso.
 
-El inventario añade tickets de re-giro (3 monedas, nivel 3), condensadores (5 monedas, nivel 3) y escudos de racha (20 monedas, nivel 5). Los escudos protegen una racha existente si ayer no se cumplió el hábito, sin inventar un cumplimiento ni generar un pago. Los condensadores actualizan también el límite guardado de la tarea o subtarea, para que el descuento sobreviva a una pausa o recarga. La tienda anterior de permisos sigue disponible desde el inventario.
+El inventario añade tickets de re-giro (3 monedas, nivel 3), condensadores (5 monedas, nivel 3) y escudos de racha (5 monedas, nivel 5). Los escudos protegen una racha existente si ayer no se cumplió el hábito, sin inventar un cumplimiento ni generar un pago. Los condensadores actualizan también el límite guardado de la tarea o subtarea, para que el descuento sobreviva a una pausa o recarga. La tienda anterior de permisos sigue disponible desde el inventario.
 
 Desactivar el arranque automático deja pendiente una auditoría para la siguiente reconexión. El usuario distingue un fallo de disciplina de mantenimiento: solo al confirmar disciplina se vacía el saldo, se baja un nivel (mínimo 1) y se recibe 50% XP durante 48 horas. Cerrar o recargar el navegador, por sí solo, no prueba un fallo de disciplina.
 
 ## Packs de bienvenida
 
-El botón **🎁** de la barra superior abre los bonos de bienvenida, con siete packs únicos: **5, 5, 6, 6, 7, 7 y 9 monedas** (45 en total). Los días 2 y 6 incluyen un ticket de re-giro; el día 4, un condensador; el día 7, un escudo. Los ítems se agregan al inventario y pueden usarse sin alcanzar todavía el nivel de compra.
+El botón **🎁** de la barra superior abre los bonos de bienvenida, con siete packs únicos: **5, 5, 6, 6, 7, 7 y 9 monedas** (45 en total). Los días 2 y 6 incluyen un ticket de re-giro; el día 1, un duplicador; el día 7, un escudo. Los ítems se agregan al inventario y pueden usarse sin alcanzar todavía el nivel de compra.
 
 El programa empieza cuando el usuario abre por primera vez esta versión, incluso para cuentas existentes. El primer pack está disponible de inmediato para reclamarlo; los siguientes se desbloquean por fecha, en orden, con un máximo de un reclamo por día. Se usa el reloj de la aplicación. Los packs pendientes no vencen si se falta un día, pero no se pueden cobrar juntos al volver.
 
@@ -95,3 +95,6 @@ En el regalo superior, **Bonificaciones → Préstamo** permite solicitar de 1 a
 La liquidación es manual y requiere conservar al menos **1 moneda de reserva** después del pago. Tras pagar se puede pedir otro préstamo. Los duplicadores no multiplican los préstamos y los préstamos no generan XP. Tanto la entrega como el pago se registran en Galería → Monedas. El estado activo y los recibos pagados se conservan en `coins.loans` y en los respaldos, que validan capital, tasa, interés, total e identificadores.
 
 Cada operación guarda saldo, deuda y movimiento juntos en una transacción local; se bloquean solicitudes simultáneas y se comprueba que otra pestaña no haya cambiado los datos. Si la escritura falla, el estado anterior permanece intacto. La sincronización conserva el manejo existente de conflictos entre dispositivos.
+
+
+El duplicador de bienvenida se entrega el día 1 para nuevas semanas. Las semanas ya iniciadas con el calendario anterior conservan su duplicador del día 4, sin duplicar ni perder el premio. El precio actual del escudo es 5 monedas; conserva el requisito de nivel 5.
