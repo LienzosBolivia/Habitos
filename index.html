@@ -1596,6 +1596,13 @@
   #archiveViewerContent iframe{width:100%;height:60vh;min-height:250px;border:1px solid var(--ink-700);border-radius:10px;background:white;}
   @media(max-width:360px){.archive-grid{grid-template-columns:minmax(0,1fr);}}
 
+
+  .loan-panel{margin-top:16px;overflow-wrap:anywhere;}
+  .loan-panel label{display:block;margin:12px 0 8px;}
+  .loan-panel input{max-width:220px;display:block;}
+  .loan-quote{padding:12px 0;line-height:1.7;color:var(--brass-300);}
+  .loan-breakdown{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin:14px 0;}
+  .loan-breakdown dd{margin:0;font-family:var(--font-mono);color:var(--brass-300);}
 </style>
 </head>
 <body>
@@ -1604,7 +1611,7 @@
   <span class="cb-count">🪙 <b id="coinCount">0</b></span>
   <span id="xpBadge">Nv. 1 · 0 XP</span>
   <span class="cb-status" id="coinStatus"></span>
-  <button type="button" class="cb-btn gift-btn" id="welcomeGiftBtn" data-action="open-bonos" aria-label="Bonos de bienvenida" title="Bonos de bienvenida">🎁<span id="welcomeGiftDot" aria-hidden="true"></span></button>
+  <button type="button" class="cb-btn gift-btn" id="welcomeGiftBtn" data-action="open-bonos" aria-label="Bonificaciones y préstamos" title="Bonificaciones y préstamos">🎁<span id="welcomeGiftDot" aria-hidden="true"></span></button>
   <button type="button" class="cb-btn" id="coinBtn" data-action="use-coin" disabled>Usar (3 min)</button>
 </div>
 
@@ -2972,7 +2979,7 @@ function defaultState(){
     var dot=document.getElementById("welcomeGiftDot"), available=welcomeAvailability().available;
     if(dot){dot.textContent=available?"●":"";dot.style.color="var(--brass-300)";}
     var gift=document.getElementById("welcomeGiftBtn");
-    if(gift){gift.classList.toggle("has-gift",available);gift.classList.toggle("is-active",activeTab==="bonos");gift.setAttribute("aria-pressed",String(activeTab==="bonos"));gift.title=available?"Tu pack de bienvenida está disponible":"Bonos de bienvenida";}
+    if(gift){gift.classList.toggle("has-gift",available);gift.classList.toggle("is-active",activeTab==="bonos");gift.setAttribute("aria-pressed",String(activeTab==="bonos"));gift.title=available?"Tu pack de bienvenida está disponible":"Bonificaciones y préstamos";}
   }
   function commitWelcomeGrant(expectedClaims, expectedRaw, next){
     return new Promise(function(resolve,reject){
@@ -3023,7 +3030,115 @@ function defaultState(){
     } catch(err){showToast(err.message||"No se pudo guardar el pack. No se entregaron recompensas.");return false;}
     finally{welcomeClaimBusy=false;window.isImportingBackup=false;updateCoinBar();safeRerenderActiveTab();}
   }
+
+  /* Préstamos del juego: interés único, una deuda activa y reserva al liquidar. */
+  var LOAN_INTEREST_PERCENT=10, LOAN_RESERVE=1, loanBusy=false, benefitsSection="welcome",loanAmountDraft=10;
+  function loanQuote(amount){
+    if(!Number.isInteger(amount)||amount<1||amount>100)return null;
+    var interestCents=amount*LOAN_INTEREST_PERCENT;
+    return {principal:amount,rate:LOAN_INTEREST_PERCENT,interest:interestCents/100,total:(amount*100+interestCents)/100};
+  }
+  function loanState(c){
+    c=c||coinState();
+    if(c.loans===undefined)c.loans={active:null,history:[]};
+    return c.loans;
+  }
+  function validateLoans(loans){
+    if(!isRecord(loans)||!Array.isArray(loans.history)||!(loans.active===null||isRecord(loans.active)))throw new Error("Registro de préstamos inválido.");
+    var ids=new Set();
+    function check(item,paid){
+      if(!isRecord(item)||typeof item.id!=="string"||!/^[a-zA-Z0-9_-]+$/.test(item.id)||ids.has(item.id)||
+         !Number.isInteger(item.principal)||item.principal<1||item.principal>100||
+         !Number.isInteger(item.rate)||item.rate<0||item.rate>100||
+         item.interest!==Math.round(item.principal*item.rate)/100||item.total!==(item.principal*100+Math.round(item.principal*item.rate))/100||
+         !Number.isFinite(item.borrowedAt)||item.borrowedAt<0||
+         (paid?(!Number.isFinite(item.paidAt)||item.paidAt<item.borrowedAt):item.paidAt!==undefined))throw new Error("Deuda o recibo de préstamo inválido.");
+      ids.add(item.id);
+    }
+    loans.history.forEach(function(item){check(item,true);});if(loans.active)check(loans.active,false);
+  }
+  function canRepayLoan(c){
+    c=c||coinState();var active=loanState(c).active;
+    return !!active&&Math.round((c.balance||0)*100)>=Math.round(active.total*100)+LOAN_RESERVE*100;
+  }
+  function commitLoanSnapshot(expectedRaw,next){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction("appData","readwrite"),store=tx.objectStore("appData"),req=store.get(STORAGE_KEY),reason=null;
+      req.onsuccess=function(){
+        if(req.result!==expectedRaw){reason=new Error("La bitácora cambió en otra pestaña. Recarga para revisar tu saldo y deuda.");tx.abort();return;}
+        store.put(JSON.stringify(next),STORAGE_KEY);
+      };
+      tx.oncomplete=function(){resolve(true);};
+      tx.onabort=tx.onerror=function(){reject(reason||tx.error||new Error("No se pudo guardar el préstamo. No se modificó tu saldo ni tu deuda."));};
+    });
+  }
+  async function changeLoan(kind,amount,id){
+    if(!dataReady||window.isImportingBackup||loanBusy)return false;
+    if(driveBusy||restorePreparing){showToast("Espera a que termine la sincronización o restauración.");return false;}
+    var c=coinState(),loans=loanState(c),quote=kind==="borrow"?loanQuote(amount):null,active=loans.active;
+    if(!Number.isFinite(c.balance||0)||(c.balance||0)<0){showToast("Revisa tu saldo antes de solicitar o pagar un préstamo.");return false;}
+    if(kind==="borrow"){
+      if(active){showToast("Primero liquida tu deuda actual para pedir otro préstamo.");return false;}
+      if(!quote){showToast("Elige un monto entero entre 1 y 100 monedas.");return false;}
+      if(!window.confirm("Recibirás "+quote.principal+" monedas.\nInterés único ("+quote.rate+"%): "+quote.interest+" monedas.\nTotal a devolver: "+quote.total+" monedas.\n\nEl pago será manual y conservarás al menos 1 moneda al liquidar. ¿Solicitar préstamo?"))return false;
+    }else{
+      if(!active||active.id!==id)return false;
+      if(!canRepayLoan(c)){showToast("Necesitas "+coinAmountLabel(active.total+LOAN_RESERVE)+" monedas: "+active.total+" para pagar y 1 de reserva.");return false;}
+      if(!window.confirm("¿Liquidar "+active.total+" monedas?\nCapital: "+active.principal+" · Interés único: "+active.interest+" ("+active.rate+"%).\nTe quedarán "+coinAmountLabel(c.balance-active.total)+" monedas."))return false;
+    }
+    loanBusy=true;window.isImportingBackup=true;
+    try{
+      await pendingLocalWrites;await pendingEvidenceWrites;await initDB();
+      if(localSaveFailed)throw new Error("Resuelve el error de guardado antes de modificar tu préstamo.");
+      var expected=await storageGet(STORAGE_KEY),saved=expected?JSON.parse(expected):null;
+      var currentCoins=state.coins||{},storedCoins=saved&&saved.coins||{};
+      if((storedCoins.balance||0)!==(currentCoins.balance||0)||
+         JSON.stringify(storedCoins.loans||{active:null,history:[]})!==JSON.stringify(loanState(currentCoins))||
+         JSON.stringify(storedCoins.ledger||[])!==JSON.stringify(currentCoins.ledger||[]))
+        throw new Error("El saldo o la deuda cambió en otra pestaña. Recarga antes de continuar.");
+      var next=JSON.parse(JSON.stringify(state)),wallet=ensureCoinLedger(next.coins),book=loanState(wallet);
+      validateLoans(book);
+      if(kind==="borrow"){
+        if(book.active)throw new Error("Ya tienes una deuda pendiente.");
+        var debt=Object.assign({id:uid(),borrowedAt:nowMs()},quote);
+        book.active=debt;wallet.balance=Math.round(((wallet.balance||0)+quote.principal)*100)/100;
+        recordCoinTransaction(wallet,quote.principal,"loan-credit",{label:"Préstamo recibido · "+quote.principal+" + "+quote.interest+" de interés al pagar",loanId:debt.id});
+      }else{
+        if(!book.active||book.active.id!==id||!canRepayLoan(wallet))throw new Error("Tu saldo o préstamo cambió. Revisa los datos antes de pagar.");
+        var paid=Object.assign({},book.active,{paidAt:Math.max(nowMs(),book.active.borrowedAt)});
+        wallet.balance=(Math.round(wallet.balance*100)-Math.round(paid.total*100))/100;
+        book.history.push(paid);book.active=null;
+        recordCoinTransaction(wallet,-paid.total,"loan-repayment",{label:"Préstamo liquidado · capital "+paid.principal+" + interés "+paid.interest,loanId:paid.id});
+      }
+      await commitLoanSnapshot(expected,next);
+      state=next;localRevision++;markSyncPending();localSaveFailed=false;
+      if(autoSyncDebounceTimer)clearTimeout(autoSyncDebounceTimer);
+      autoSyncDebounceTimer=setTimeout(function(){autoSyncToDrive();},AUTO_SYNC_IDLE_MS);
+      showToast(kind==="borrow"?"🏦 Préstamo recibido. Puedes pagarlo cuando tengas el total y 1 moneda de reserva.":"✅ Deuda liquidada. Ya puedes pedir otro préstamo.");
+      return true;
+    }catch(err){showToast(err.message||"No se pudo guardar la operación. No se modificó tu préstamo.");return false;}
+    finally{loanBusy=false;window.isImportingBackup=false;updateCoinBar();safeRerenderActiveTab();}
+  }
+  function requestLoan(amount){return changeLoan("borrow",amount);}
+  function repayLoan(id){return changeLoan("repay",null,id);}
+  function renderLoanPanel(){
+    var c=coinState(),book=loanState(c),active=book.active,q=loanQuote(loanAmountDraft),ready=canRepayLoan(c);
+    var panel='<section class="welcome-hero"><span class="welcome-kicker">BONIFICACIONES · APOYO PARA TU TRAVESÍA</span><h2>🏦 Préstamo de monedas</h2><p>Combustible para continuar cuando lo necesites.</p><div class="welcome-progress"><strong>Saldo: '+coinAmountLabel(c.balance||0)+' 🪙</strong><span>'+(active?'Deuda: '+active.total+' 🪙':'Sin deuda pendiente')+'</span></div></section>';
+    if(active){
+      panel+='<section class="review-panel loan-panel" aria-label="Deuda actual"><h3>Tu deuda actual</h3><dl class="loan-breakdown"><dt>Monedas recibidas</dt><dd>'+active.principal+' 🪙</dd><dt>Interés único ('+active.rate+'%)</dt><dd>'+active.interest+' 🪙</dd><dt>Total a devolver</dt><dd><strong>'+active.total+' 🪙</strong></dd></dl><p>El interés ya está incluido en el total. No crece con los días y no se descuenta automáticamente.</p><p>Al pagar conservarás al menos '+LOAN_RESERVE+' moneda. '+(ready?'Después de pagar tendrás <b>'+coinAmountLabel(c.balance-active.total)+' 🪙</b>.':'Necesitas <b>'+coinAmountLabel(Math.max(0,active.total+LOAN_RESERVE-(c.balance||0)))+' 🪙 más</b> para liquidar sin quedarte en cero.')+'</p><button type="button" class="primary" data-action="loan-repay" data-loan-id="'+escapeHtml(active.id)+'" '+(ready?'':'disabled')+'>Pagar '+active.total+' 🪙 y liquidar</button><p class="archive-help">Podrás solicitar otro préstamo cuando esta deuda esté pagada.</p></section>';
+    }else{
+      panel+='<form class="review-panel loan-panel" data-action="loan-request"><h3>Solicitar préstamo</h3><label for="loanAmount">¿Cuántas monedas necesitas? (1 a 100)</label><input class="archive-search" id="loanAmount" name="amount" type="number" min="1" max="100" step="1" required value="'+loanAmountDraft+'" inputmode="numeric" /><div id="loanQuote" class="loan-quote" role="status">'+loanQuoteText(q)+'</div><button type="submit" class="primary" '+(q?'':'disabled')+'>Solicitar préstamo</button><p class="archive-help">Solo una deuda a la vez. Interés único del '+LOAN_INTEREST_PERCENT+'% sobre el monto solicitado; se cobra al liquidar. Pago manual, sin vencimiento ni interés diario. El pago conserva 1 moneda de reserva.</p></form>';
+    }
+    if(book.history.length)panel+='<section class="review-panel loan-panel"><h3>Préstamos pagados</h3>'+book.history.slice().reverse().map(function(item){return '<p><strong>'+item.total+' 🪙 pagadas</strong> · '+item.principal+' de capital + '+item.interest+' de interés<br><small>'+new Date(item.paidAt).toLocaleDateString("es-BO")+'</small></p>';}).join('')+'</section>';
+    return panel+'<p class="archive-help">El préstamo y su pago aparecen en Galería → Monedas. Tu deuda y su historial se conservan en los respaldos.</p>';
+  }
+  function loanQuoteText(q){return q?'Recibes '+q.principal+' 🪙 · Interés único ('+q.rate+'%): '+q.interest+' 🪙 · Total a devolver: '+q.total+' 🪙':'Introduce un monto entero entre 1 y 100.';}
   function renderWelcomeRewards(){
+    return '<div class="commerce-tabs" role="group" aria-label="Bonificaciones"><button type="button" data-action="benefits-section" data-section="welcome" aria-pressed="'+(benefitsSection==="welcome")+'">🎁 Bonificaciones</button><button type="button" data-action="benefits-section" data-section="loan" aria-pressed="'+(benefitsSection==="loan")+'">🏦 Préstamo</button></div>'+(benefitsSection==="loan"?renderLoanPanel():renderWelcomePacks());
+  }
+
+
+  function renderWelcomePacks(){
     var starter=rpgState().starter, info=welcomeAvailability();
     var collected=starter.claims.reduce(function(total,claim){return total+WELCOME_PACKS[claim.day-1].coins;},0);
     var cards=WELCOME_PACKS.map(function(pack,index){
@@ -4007,7 +4122,7 @@ function defaultState(){
 
   async function resetAll(){
     if (!dataReady || window.isImportingBackup || driveBusy) return;
-    if (!window.confirm("Esto reiniciará tareas, hábitos, proyectos, rutinas, historial y enlaces del Archivo. Antes se guardará una copia recuperable. ¿Continuar?")) return;
+    if (!window.confirm("Esto reiniciará tareas, hábitos, proyectos, rutinas, historial, préstamos y enlaces del Archivo. Antes se guardará una copia recuperable. ¿Continuar?")) return;
     window.isImportingBackup = true;
     document.body.classList.add("data-operation");
     document.getElementById("dataOperationNotice").hidden = false;
@@ -6983,6 +7098,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!isRecord(backup) || !isRecord(backup.state)) throw new Error("El archivo no contiene una bitácora válida.");
     if (backup._meta && backup._meta.version > 3) throw new Error("Este respaldo requiere una versión más reciente de Bitácora.");
     var st = backup.state;
+    if(st.coins&&st.coins.loans!==undefined)validateLoans(st.coins.loans);
     if(st.archiveLinks!==undefined){
       if(!Array.isArray(st.archiveLinks))throw new Error("Archivo de enlaces inválido.");
       var archiveIds=new Set();
@@ -7527,6 +7643,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if(action==="archive-cancel-edit"){if(!archiveSaving)resetArchiveForm();return;}
     if(action==="archive-more"){archiveLimit+=12;renderArchiveGallery();return;}
     if(action==="archive-clear-filters"){archiveQuery="";archiveMonth="";archiveLimit=12;document.getElementById("archiveSearch").value="";document.getElementById("evFilterMonth").value="";renderArchiveGallery();return;}
+    if(action==="benefits-section"){benefitsSection=el.getAttribute("data-section")==="loan"?"loan":"welcome";activeTab="bonos";render();return;}
+    if(action==="loan-repay"){repayLoan(el.getAttribute("data-loan-id"));return;}
     if (action === "commerce-buy") { if(buyRpgItem(el.getAttribute("data-rpg-buy")))renderActiveTab();return; }
     if (action === "commerce-use") { useRpgItem(el.getAttribute("data-rpg-use"));return; }
     if (action === "open-legacy-shop") { openShop();return; }
@@ -8022,6 +8140,13 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
   });
 
+  document.addEventListener("input",function(e){
+    if(e.target.id==="loanAmount"){
+      loanAmountDraft=Number(e.target.value);var q=loanQuote(loanAmountDraft);
+      document.getElementById("loanQuote").textContent=loanQuoteText(q);
+      e.target.form.querySelector('button[type="submit"]').disabled=!q||loanBusy;
+    }
+  });
   document.addEventListener("input",function(e){if(e.target.id==="archiveSearch"){archiveQuery=e.target.value;archiveLimit=12;renderArchiveGallery();}});
   document.addEventListener("keydown",function(e){if(e.key==="Escape"&&archiveViewerKey)closeArchivePreview();});
   document.getElementById("archiveViewerModal").addEventListener("click",function(e){if(e.target===this)closeArchivePreview();});
@@ -8054,6 +8179,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   /* ===================== Eventos: submits ===================== */
   document.addEventListener("submit", function(e){
     if (!dataReady || window.isImportingBackup) { e.preventDefault(); return; }
+    var loanForm=e.target.closest('[data-action="loan-request"]');
+    if(loanForm){e.preventDefault();requestLoan(Number(loanForm.elements.amount.value));return;}
     var archiveForm=e.target.closest('[data-action="archive-save"]');
     if(archiveForm){e.preventDefault();saveArchiveEntry(archiveForm);return;}
     /* Tarea / hábito */

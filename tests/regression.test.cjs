@@ -11,6 +11,8 @@ const source = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const instrumented = source.replace('  /* ===================== Arranque ===================== */\n  init();', `
   window.appTest = {
     init, initDB, defaultState, persist, storageGet, storageSet, dbSet, dbGet, dbReadAllWithCursor,
+    loanQuote,loanState,requestLoan,repayLoan,canRepayLoan,validateLoans,
+    setLoanCommit(fn){commitLoanSnapshot=fn;},
     parseDriveArchiveLink,validArchiveDate,archiveEntries,filteredArchiveEntries,saveArchiveEntry,editArchiveEntry,deleteArchiveEntry,openArchivePreview,closeArchivePreview,computeBackupRichness,
     validateBackup, buildMasterBackupJSON, importMasterBackup, commitRestoredBackup,
     saveRecoveryPoint, showRecoveryPoints, uploadDriveBackup, autoRestoreFromDrive,
@@ -388,4 +390,35 @@ test('Archive limits embedded previews and loads more without hiding search matc
   await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="archivo"]').click();await page.locator('.archive-card').first().waitFor();
   assert.equal(await page.locator('.archive-card').count(),12);await page.locator('[data-action="archive-more"]').click();assert.equal(await page.locator('.archive-card').count(),24);
   await page.locator('#archiveSearch').fill('Archivo 24');assert.equal(await page.locator('.archive-card').count(),1);assert.match(await page.locator('.archive-card h3').innerText(),/Archivo 24/);
+}));
+
+
+test('benefits loan on mobile shows the quote, creates one debt, persists and records its credit',async()=>withPage(async page=>{
+  page.on('dialog',dialog=>dialog.accept());await page.evaluate(async()=>{await appTest.seed({coins:{balance:0}});});
+  await page.locator('#welcomeGiftBtn').click();await page.locator('[data-action="benefits-section"][data-section="loan"]').click();
+  await page.locator('#loanAmount').fill('100');assert.match(await page.locator('#loanQuote').innerText(),/Total a devolver: 110/);
+  await page.locator('[data-action="loan-request"] button[type="submit"]').click();
+  await page.waitForFunction(()=>appTest.loanState().active?.principal===100);
+  await page.locator('[data-action="loan-repay"]').waitFor();assert.equal(await page.locator('[data-action="loan-request"]').count(),0);
+  assert.equal(await page.locator('[data-action="loan-repay"]').isDisabled(),true);
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),100);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.setViewportSize({width:320,height:780});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.reload();await page.evaluate(()=>appTest.init());await page.waitForFunction(()=>appTest.ready);
+  await page.locator('#welcomeGiftBtn').click();await page.locator('[data-action="benefits-section"][data-section="loan"]').click();
+  await page.locator('[data-action="loan-repay"]').waitFor();assert.equal(await page.evaluate(()=>appTest.loanState().active.total),110);
+  await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="monedas"]').click();
+  await page.waitForFunction(()=>document.querySelector('#evGalleryContainer').textContent.includes('Préstamo recibido'));
+}));
+
+test('repaying from benefits leaves a reserve, unlocks the next loan and records the interest',async()=>withPage(async page=>{
+  page.on('dialog',dialog=>dialog.accept());await page.evaluate(async()=>{await appTest.seed({coins:{balance:12}});});
+  await page.locator('#welcomeGiftBtn').click();await page.locator('[data-action="benefits-section"][data-section="loan"]').click();
+  await page.locator('#loanAmount').fill('100');await page.locator('[data-action="loan-request"] button[type="submit"]').click();
+  await page.waitForFunction(()=>appTest.loanState().active?.principal===100);await page.locator('[data-action="loan-repay"]:not([disabled])').click();
+  await page.waitForFunction(()=>!appTest.loanState().active);await page.locator('[data-action="loan-request"]').waitFor();
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),2);
+  assert.equal(await page.evaluate(()=>appTest.loanState().history[0].interest),10);
+  await page.locator('#loanAmount').fill('25');await page.locator('[data-action="loan-request"] button[type="submit"]').click();
+  await page.waitForFunction(()=>appTest.loanState().active?.principal===25);assert.equal(await page.evaluate(()=>appTest.state.coins.balance),27);
 }));
