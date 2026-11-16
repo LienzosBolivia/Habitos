@@ -16,6 +16,8 @@ function openApp(){
   w.eval(script.replace('  /* ===================== Arranque ===================== */\n  init();',`
     window.api={
       init,initDB,defaultState,persist,storageGet,storageSet,dbSet,dbGet,dbReadAllWithCursor,
+      loanQuote,loanState,requestLoan,repayLoan,canRepayLoan,validateLoans,commitLoanSnapshot,
+      setLoanCommit(fn){commitLoanSnapshot=fn;},
       parseDriveArchiveLink,validArchiveDate,archiveEntries,filteredArchiveEntries,saveArchiveEntry,editArchiveEntry,deleteArchiveEntry,openArchivePreview,closeArchivePreview,computeBackupRichness,
     validateBackup,buildMasterBackupJSON,importMasterBackup,commitRestoredBackup,saveRecoveryPoint,
       uploadDriveBackup,autoRestoreFromDrive,keepLocalDriveVersion,periodSummary,openAIPlanPreview,validateAIPlan,
@@ -481,4 +483,86 @@ test('Archive saving failure keeps form values and retry updates the same record
   const form=w.document.querySelector('[data-action="archive-save"]');form.elements.archiveName.value='No perder';form.elements.archiveUrl.value='https://drive.google.com/file/d/no_perder/view';
   a.setStorage(async()=>false);assert.equal(await a.saveArchiveEntry(form),false);assert.equal(form.elements.archiveName.value,'No perder');assert.equal(a.state.archiveLinks.length,1);
   assert.equal(await a.saveArchiveEntry(form),false);assert.equal(a.state.archiveLinks.length,1);
+}));
+
+
+test('loans quote 1 to 100 whole coins with proportional one-time interest and reject invalid amounts',()=>fixture(async({a})=>{
+  await a.seed();
+  for(const [amount,interest,total] of [[1,.1,1.1],[10,1,11],[25,2.5,27.5],[100,10,110]]){
+    assert.deepEqual(plain(a.loanQuote(amount)),{principal:amount,rate:10,interest,total});
+  }
+  for(const amount of [0,-1,101,1.5,NaN,Infinity,'100',null]){assert.equal(a.loanQuote(amount),null);assert.equal(await a.requestLoan(amount),false);}
+  assert.equal(a.state.coins.balance,0);assert.equal(a.loanState().active,null);
+}));
+
+test('a loan credits the full principal only once, ignores booster and XP, and blocks a second debt',()=>fixture(async({a})=>{
+  await a.seed({coins:{balance:2}});a.rpgState().inv.booster=1;a.useBooster();await a.persist();
+  const xp=a.rpgState().xp;
+  const results=await Promise.all([a.requestLoan(100),a.requestLoan(100)]);
+  assert.equal(results.filter(Boolean).length,1);assert.equal(a.state.coins.balance,102);assert.equal(a.rpgState().xp,xp);
+  assert.equal(a.loanState().active.total,110);assert.equal(await a.requestLoan(1),false);
+  const loans=a.state.coins.ledger.filter(t=>t.kind==='loan-credit');assert.equal(loans.length,1);assert.equal(loans[0].amount,100);
+  assert.equal(a.state.coins.ledgerOpeningBalance+a.state.coins.ledger.reduce((n,t)=>n+t.amount,0),102);
+}));
+
+test('manual repayment preserves a coin, charges principal and interest once, then unlocks borrowing',()=>fixture(async({a})=>{
+  await a.seed({coins:{balance:0}});assert.equal(await a.requestLoan(100),true);const id=a.loanState().active.id;
+  assert.equal(await a.repayLoan(id),false);assert.equal(a.state.coins.balance,100);
+  a.addCoins(10,'Trabajo',true);await a.persist();assert.equal(a.canRepayLoan(),false);assert.equal(await a.repayLoan(id),false);
+  a.addCoins(1,'Trabajo',true);await a.persist();assert.equal(a.canRepayLoan(),true);
+  const result=await Promise.all([a.repayLoan(id),a.repayLoan(id)]);assert.equal(result.filter(Boolean).length,1);
+  assert.equal(a.state.coins.balance,1);assert.equal(a.loanState().active,null);assert.equal(a.loanState().history.length,1);
+  assert.equal(a.loanState().history[0].interest,10);assert.equal(a.state.coins.ledger.filter(t=>t.kind==='loan-repayment')[0].amount,-110);
+  assert.equal(await a.repayLoan(id),false);assert.equal(await a.requestLoan(25),true);assert.equal(a.state.coins.balance,26);
+  assert.equal(a.loanState().active.total,27.5);
+}));
+
+test('loan interest stays fixed over time and survives persisted state and backup restore',()=>fixture(async({w,a})=>{
+  let now=a.nowMs();a.setNow(()=>now);await a.seed({coins:{balance:7}});assert.equal(await a.requestLoan(25),true);
+  const id=a.loanState().active.id;now+=365*86400000;assert.equal(a.loanState().active.total,27.5);
+  const saved=JSON.parse(await a.storageGet('bitacora-app-data'));assert.equal(saved.coins.loans.active.id,id);
+  const backup=await a.buildMasterBackupJSON();assert.doesNotThrow(()=>a.validateBackup(backup));
+  assert.equal(await a.importMasterBackup(new w.File([JSON.stringify(backup)],'loan.json')),true);assert.equal(a.loanState().active.id,id);assert.equal(await a.requestLoan(1),false);
+}));
+
+test('cancelled or failed loan transactions leave wallet, debt and ledger untouched',()=>fixture(async({w,a})=>{
+  await a.seed({coins:{balance:20}});w.confirm=()=>false;assert.equal(await a.requestLoan(10),false);assert.equal(a.state.coins.balance,20);
+  w.confirm=()=>true;const before=plain(a.state.coins);a.setLoanCommit(async()=>{throw new Error('No se pudo guardar');});
+  assert.equal(await a.requestLoan(10),false);assert.deepEqual(plain(a.state.coins),before);
+}));
+
+test('repayment failure and stale tabs cannot clear debt or duplicate its credit',()=>fixture(async({a})=>{
+  await a.seed({coins:{balance:20}});assert.equal(await a.requestLoan(10),true);const id=a.loanState().active.id;
+  const before=plain(a.state.coins);a.setLoanCommit(async()=>{throw new Error('Error de guardado');});
+  assert.equal(await a.repayLoan(id),false);assert.deepEqual(plain(a.state.coins),before);
+  const other=JSON.parse(await a.storageGet('bitacora-app-data'));other.coins.balance=42;await a.storageSet('bitacora-app-data',JSON.stringify(other));
+  assert.equal(await a.repayLoan(id),false);assert.deepEqual(plain(a.state.coins),before);assert.equal(JSON.parse(await a.storageGet('bitacora-app-data')).coins.balance,42);
+}));
+
+test('backup loan validation rejects multiple active-like receipts, altered totals and duplicate IDs',()=>fixture(async({a})=>{
+  await a.seed();assert.equal(await a.requestLoan(10),true);const backup=await a.buildMasterBackupJSON();
+  for(const change of [{principal:101},{principal:0},{principal:1.2},{rate:-10},{interest:999},{total:1},{borrowedAt:-1},{paidAt:123}]){
+    const bad=plain(backup);Object.assign(bad.state.coins.loans.active,change);assert.throws(()=>a.validateBackup(bad),/préstamo|Deuda/);
+  }
+  const duplicate=plain(backup);duplicate.state.coins.loans.history.push(Object.assign({},duplicate.state.coins.loans.active,{paidAt:duplicate.state.coins.loans.active.borrowedAt}));assert.throws(()=>a.validateBackup(duplicate),/préstamo|Deuda/);
+  const old=plain(backup);delete old.state.coins.loans;assert.doesNotThrow(()=>a.validateBackup(old));
+}));
+
+test('loan is available from benefits after welcome packs and does not require a player level',()=>fixture(async({w,a})=>{
+  await a.seed();w.document.querySelector('[data-action="open-bonos"]').click();w.document.querySelector('[data-action="benefits-section"][data-section="loan"]').click();
+  const form=w.document.querySelector('[data-action="loan-request"]');assert.ok(form);form.elements.amount.value='50';form.elements.amount.dispatchEvent(new w.Event('input',{bubbles:true}));
+  assert.match(w.document.getElementById('loanQuote').textContent,/55/);assert.match(w.document.getElementById('app').textContent,/reserva/);
+  form.dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await wait();await wait();assert.equal(a.state.coins.balance,50);assert.equal(a.loanState().active.total,55);
+}));
+
+
+test('atomic loan commit refuses a competing tab write between reading and committing',()=>fixture(async({a})=>{
+  await a.seed({coins:{balance:5}});
+  const commit=a.commitLoanSnapshot;
+  a.setLoanCommit(async(expected,next)=>{
+    const other=JSON.parse(expected);other.coins.balance=19;await a.storageSet('bitacora-app-data',JSON.stringify(other));
+    return commit(expected,next);
+  });
+  assert.equal(await a.requestLoan(100),false);assert.equal(a.state.coins.balance,5);assert.equal(a.loanState().active,null);
+  const stored=JSON.parse(await a.storageGet('bitacora-app-data'));assert.equal(stored.coins.balance,19);assert.equal(stored.coins.loans,undefined);
 }));

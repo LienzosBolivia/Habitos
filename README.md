@@ -86,3 +86,12 @@ Al tocar una evidencia, el visor permite **Editar / añadir información**. Cons
 Las fichas muestran una vista previa embebida con carga diferida; al tocar **Ver** se abre el visor dentro de la página. Al cerrar se descarga el iframe del visor. Se muestran inicialmente 12 fichas y se pueden cargar más, mientras la búsqueda recorre todos los registros. Los formatos compatibles, los permisos de Drive, la sesión de Google y la conectividad determinan si Google puede mostrar una vista previa; siempre hay un enlace **Abrir en Drive** como alternativa. Se usan visores de Google, sin copiar archivos, hacerlos públicos ni intentar extraerlos a un canvas entre dominios.
 
 Acepta enlaces HTTPS de archivos y carpetas de `drive.google.com`, incluidos `file/d`, `open?id` y `uc?id`, y documentos de `docs.google.com`. Conserva `resourcekey` cuando es necesario para el acceso. Rechaza otros dominios, enlaces incompletos y protocolos de contenido activo. Los registros se guardan en `state.archiveLinks` y viajan en los respaldos y la sincronización existentes. Los respaldos anteriores sin Archivo siguen siendo válidos.
+
+
+## Préstamos de monedas
+
+En el regalo superior, **Bonificaciones → Préstamo** permite solicitar de 1 a 100 monedas enteras, sin requisitos de nivel ni relación con los packs de bienvenida. Solo se admite una deuda activa. Se recibe el capital completo y se devuelve el capital más un **interés único del 10%** (25 → 27,5; 100 → 110). La cotización muestra las cifras antes de aceptar. No hay vencimiento, cobro automático ni interés diario.
+
+La liquidación es manual y requiere conservar al menos **1 moneda de reserva** después del pago. Tras pagar se puede pedir otro préstamo. Los duplicadores no multiplican los préstamos y los préstamos no generan XP. Tanto la entrega como el pago se registran en Galería → Monedas. El estado activo y los recibos pagados se conservan en `coins.loans` y en los respaldos, que validan capital, tasa, interés, total e identificadores.
+
+Cada operación guarda saldo, deuda y movimiento juntos en una transacción local; se bloquean solicitudes simultáneas y se comprueba que otra pestaña no haya cambiado los datos. Si la escritura falla, el estado anterior permanece intacto. La sincronización conserva el manejo existente de conflictos entre dispositivos.
