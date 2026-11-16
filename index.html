@@ -2946,7 +2946,7 @@ function defaultState(){
     scroll: { name:"📱 Pase de scroll", cost:6, minLvl:1, desc:"Guárdalo y úsalo cuando quieras 10 minutos de tiempo libre en una aplicación." },
     game: { name:"🎮 Pase de juego", cost:6, minLvl:1, desc:"Guárdalo y úsalo cuando quieras 10 minutos libres para jugar." },
     social: { name:"🗣 Pase social", cost:10, minLvl:1, desc:"Guárdalo y úsalo para activar 10 minutos libres de interacción social." },
-    shield: { name:"🛡️ Escudo de Racha", cost:20, minLvl:5, desc:"Protege automáticamente una racha de un hábito que falló ayer. No marca cumplimiento ni paga monedas." }
+    shield: { name:"🛡️ Escudo de Racha", cost:5, minLvl:5, desc:"Protege automáticamente una racha de un hábito que falló ayer. No marca cumplimiento ni paga monedas." }
   };
   function rpgState(){
     if (!state.rpg) state.rpg = { xp:0, damagedUntil:0, inv:{}, habitPaid:{}, shieldUsed:{}, forged:{} };
@@ -2963,10 +2963,18 @@ function defaultState(){
     return r;
   }
   var WELCOME_PACKS = [
-    {coins:5,items:{}}, {coins:5,items:{reroll:1}}, {coins:6,items:{}},
-    {coins:6,items:{booster:1}}, {coins:7,items:{}}, {coins:7,items:{reroll:1}},
+    {coins:5,items:{booster:1}}, {coins:5,items:{reroll:1}}, {coins:6,items:{}},
+    {coins:6,items:{}}, {coins:7,items:{}}, {coins:7,items:{reroll:1}},
     {coins:9,items:{shield:1}}
   ]; /* Total: 45 monedas, 2 tickets, 1 duplicador y 1 escudo. */
+  /* Las semanas ya iniciadas conservan el premio pendiente del día 4. */
+  function welcomePackForDay(day,starter){
+    var pack=WELCOME_PACKS[day-1];if(!pack)return null;
+    var schedule=starter.rewardSchedule||(starter.claims.length?1:2);
+    if(schedule===1&&day===1)return {coins:pack.coins,items:{}};
+    if(schedule===1&&day===4)return {coins:pack.coins,items:{booster:1}};
+    return pack;
+  }
   var welcomeClaimBusy=false;
   function welcomeDay(){ return dateToStr(nowDate()); }
   function welcomeAvailability(){
@@ -3007,7 +3015,8 @@ function defaultState(){
     try {
       await pendingLocalWrites;await pendingEvidenceWrites;await initDB();
       if(localSaveFailed)throw new Error("Resuelve el error de guardado antes de reclamar el pack.");
-      var expected=await storageGet(STORAGE_KEY), snapshot=JSON.parse(JSON.stringify(state)), pack=WELCOME_PACKS[day-1];
+      var expected=await storageGet(STORAGE_KEY), snapshot=JSON.parse(JSON.stringify(state)), pack=welcomePackForDay(day,snapshot.rpg.starter);
+      if(!snapshot.rpg.starter.rewardSchedule)snapshot.rpg.starter.rewardSchedule=snapshot.rpg.starter.claims.length?1:2;
       var saved=expected?JSON.parse(expected):null;
       if(saved){
         /* No reemplazar un saldo o inventario que cambió en otra pestaña. */
@@ -3142,6 +3151,7 @@ function defaultState(){
     var starter=rpgState().starter, info=welcomeAvailability();
     var collected=starter.claims.reduce(function(total,claim){return total+WELCOME_PACKS[claim.day-1].coins;},0);
     var cards=WELCOME_PACKS.map(function(pack,index){
+      pack=welcomePackForDay(index+1,starter);
       var day=index+1, claimed=day<info.next, ready=day===info.next&&info.available;
       var items=Object.keys(pack.items).map(function(k){return '<span class="welcome-item">'+SHOP_ITEMS[k].name+' ×'+pack.items[k]+'</span>';}).join('');
       return '<article class="welcome-pack '+(claimed?'is-claimed':ready?'is-ready':'is-locked')+'" aria-label="Pack del día '+day+'">'+
@@ -7128,6 +7138,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       ["inv","habitPaid","shieldUsed","forged"].forEach(function(k){if(rp[k]!==undefined&&!isRecord(rp[k]))throw new Error("Inventario o registro RPG inválido.");});
       if(rp.starter!==undefined){
         var start=rp.starter;
+        if(start.rewardSchedule!==undefined&&[1,2].indexOf(start.rewardSchedule)<0)throw new Error("Calendario de bienvenida inválido.");
         function validWelcomeDate(ds){if(typeof ds!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(ds))return false;var d=strToDate(ds);return Number.isFinite(d.getTime())&&dateToStr(d)===ds;}
         if(!isRecord(start)||start.version!==1||!validWelcomeDate(start.startedOn)||!Array.isArray(start.claims)||start.claims.length>7)throw new Error("Progreso de packs de bienvenida inválido.");
         start.claims.forEach(function(claim,index){
