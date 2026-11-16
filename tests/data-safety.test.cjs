@@ -16,7 +16,8 @@ function openApp(){
   w.eval(script.replace('  /* ===================== Arranque ===================== */\n  init();',`
     window.api={
       init,initDB,defaultState,persist,storageGet,storageSet,dbSet,dbGet,dbReadAllWithCursor,
-      validateBackup,buildMasterBackupJSON,importMasterBackup,commitRestoredBackup,saveRecoveryPoint,
+      parseDriveArchiveLink,validArchiveDate,archiveEntries,filteredArchiveEntries,saveArchiveEntry,editArchiveEntry,deleteArchiveEntry,openArchivePreview,closeArchivePreview,computeBackupRichness,
+    validateBackup,buildMasterBackupJSON,importMasterBackup,commitRestoredBackup,saveRecoveryPoint,
       uploadDriveBackup,autoRestoreFromDrive,keepLocalDriveVersion,periodSummary,openAIPlanPreview,validateAIPlan,
       generateAIPlan,todayStr,addDays,render,renderEstadisticas,resetAll,showRecoveryPoints,
       WELCOME_PACKS,welcomeAvailability,claimWelcomePack,renderWelcomeRewards,
@@ -427,4 +428,57 @@ test('editing viewed evidence preserves image and original metadata and does not
   a.openViewEvidenceModal(ds,'t');await wait();assert.ok(w.document.querySelector('[data-action="edit-viewed-evidence"]'));
   w.document.querySelector('[data-action="edit-viewed-evidence"]').click();await wait();w.document.getElementById('evidenceNote').value='Antes y después';a.saveEvidence();await wait();await wait();
   const ev=JSON.parse(await a.dbGet(ds+'_t'));assert.equal(ev.note,'Antes y después');assert.equal(ev.image,'data:image/png;base64,AA==');assert.equal(ev.custom,'preservar');assert.equal(ev.savedAt,'2026-01-01T00:00:00Z');assert.equal(a.state.coins.balance,balance);
+}));
+
+test('Drive archive parses file, editor, published and folder links and preserves resource keys',()=>fixture(async({a})=>{
+  await a.seed();
+  for(const url of ['https://drive.google.com/file/d/photo_123/view?usp=sharing&resourcekey=0-secret','https://drive.google.com/open?id=photo_123&resourcekey=0-secret','https://drive.google.com/uc?export=download&id=photo_123&resourcekey=0-secret']){
+    const link=a.parseDriveArchiveLink(url);assert.equal(link.id,'photo_123');assert.equal(link.url,'https://drive.google.com/file/d/photo_123/view?resourcekey=0-secret');assert.equal(link.previewUrl,'https://drive.google.com/file/d/photo_123/preview?resourcekey=0-secret');
+  }
+  assert.equal(a.parseDriveArchiveLink('https://docs.google.com/document/d/document_123/edit').previewUrl,'https://docs.google.com/document/d/document_123/preview');
+  assert.equal(a.parseDriveArchiveLink('https://docs.google.com/spreadsheets/d/e/published_id/pubhtml').previewUrl,'https://docs.google.com/spreadsheets/d/e/published_id/pubhtml');
+  assert.equal(a.parseDriveArchiveLink('https://drive.google.com/drive/u/0/folders/folder_123').kind,'folder');
+  for(const url of ['javascript:alert(1)','http://drive.google.com/file/d/id/view','https://drive.google.com.evil.test/file/d/id/view','https://drive.google.com@evil.test/file/d/id/view','https://user@drive.google.com/file/d/id/view','https://drive.google.com/','https://docs.google.com/unknown/d/id/edit','https://drive.google.com/open?id=%22%3E%3Cscript%3E'])assert.equal(a.parseDriveArchiveLink(url),null,url);
+}));
+
+test('Archive saves, searches without accents, filters by date, edits and survives backup restoration',()=>fixture(async({w,a})=>{
+  await a.seed();w.document.querySelector('[data-tab="evidencias"]').click();w.document.querySelector('[data-view="archivo"]').click();await wait();
+  const form=w.document.querySelector('[data-action="archive-save"]');
+  form.elements.archiveName.value='Álbum familiar';form.elements.archiveUrl.value='https://drive.google.com/file/d/family_photo/view?resourcekey=0-keep';form.elements.archiveDate.value='2026-10-20';assert.equal(await a.saveArchiveEntry(form),true);
+  form.elements.archiveName.value='Factura';form.elements.archiveUrl.value='https://drive.google.com/file/d/invoice_file/view';form.elements.archiveDate.value='2026-11-01';assert.equal(await a.saveArchiveEntry(form),true);
+  const search=w.document.getElementById('archiveSearch');search.value='album';search.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(w.document.querySelectorAll('.archive-card').length,1);
+  const month=w.document.getElementById('evFilterMonth');month.value='2026-11';month.dispatchEvent(new w.Event('change',{bubbles:true}));assert.equal(w.document.querySelectorAll('.archive-card').length,0);
+  w.document.querySelector('[data-action="archive-clear-filters"]').click();assert.equal(w.document.querySelectorAll('.archive-card').length,2);
+  const id=a.state.archiveLinks.find(x=>x.name==='Álbum familiar').id;a.editArchiveEntry(id);form.elements.archiveName.value='Foto familiar ampliada';assert.equal(await a.saveArchiveEntry(form),true);assert.equal(a.state.archiveLinks.length,2);
+  const saved=JSON.parse(await a.storageGet('bitacora-app-data'));assert.equal(saved.archiveLinks.length,2);
+  const backup=await a.buildMasterBackupJSON();assert.doesNotThrow(()=>a.validateBackup(backup));assert.equal(a.computeBackupRichness(backup).archive,2);
+  const copy=plain(backup.state);a.state.archiveLinks=[];assert.equal(await a.importMasterBackup(new w.File([JSON.stringify(backup)],'archivo.json')),true);assert.equal(a.state.archiveLinks.find(x=>x.id===id).name,'Foto familiar ampliada');
+  const old=plain(backup);delete old.state.archiveLinks;assert.doesNotThrow(()=>a.validateBackup(old));
+}));
+
+test('Archive validates backups and prevents malformed or active-content links',()=>fixture(async({a})=>{
+  await a.seed();const backup=await a.buildMasterBackupJSON(),stamp='2026-11-16T12:00:00Z';
+  const item={id:'file1',name:'Documento',url:'https://drive.google.com/file/d/file123/view',date:'2026-11-16',createdAt:stamp,updatedAt:stamp};
+  backup.state.archiveLinks=[item];assert.doesNotThrow(()=>a.validateBackup(backup));
+  for(const change of [{url:'javascript:alert(1)'},{date:'2026-02-30'},{name:' '},{createdAt:'invalid'}]){
+    const invalid=plain(backup);invalid.state.archiveLinks[0]=Object.assign({},item,change);assert.throws(()=>a.validateBackup(invalid),/Archivo/);
+  }
+  backup.state.archiveLinks.push(item);assert.throws(()=>a.validateBackup(backup),/Archivo/);
+}));
+
+test('Archive preview escapes names, clears the embedded frame on close and removes only local link',()=>fixture(async({w,a})=>{
+  const stamp=new Date().toISOString();await a.seed({archiveLinks:[{id:'xss',name:'<img src=x onerror=alert(1)>',url:'https://drive.google.com/file/d/private_file/view?resourcekey=0-safe',date:'2026-11-16',createdAt:stamp,updatedAt:stamp}]});
+  w.document.querySelector('[data-tab="evidencias"]').click();w.document.querySelector('[data-view="archivo"]').click();await wait();
+  assert.equal(w.document.querySelectorAll('.archive-card img').length,0);a.openArchivePreview('xss');
+  assert.equal(w.document.querySelector('#archiveViewerTitle').textContent,'<img src=x onerror=alert(1)>');assert.match(w.document.querySelector('#archiveViewerContent iframe').src,/resourcekey=0-safe/);
+  a.closeArchivePreview();assert.equal(w.document.querySelector('#archiveViewerContent iframe'),null);
+  w.confirm=()=>false;assert.equal(await a.deleteArchiveEntry('xss'),false);assert.equal(a.state.archiveLinks.length,1);
+  w.confirm=()=>true;assert.equal(await a.deleteArchiveEntry('xss'),true);assert.equal(a.state.archiveLinks.length,0);
+}));
+
+test('Archive saving failure keeps form values and retry updates the same record',()=>fixture(async({w,a})=>{
+  await a.seed();w.document.querySelector('[data-tab="evidencias"]').click();w.document.querySelector('[data-view="archivo"]').click();
+  const form=w.document.querySelector('[data-action="archive-save"]');form.elements.archiveName.value='No perder';form.elements.archiveUrl.value='https://drive.google.com/file/d/no_perder/view';
+  a.setStorage(async()=>false);assert.equal(await a.saveArchiveEntry(form),false);assert.equal(form.elements.archiveName.value,'No perder');assert.equal(a.state.archiveLinks.length,1);
+  assert.equal(await a.saveArchiveEntry(form),false);assert.equal(a.state.archiveLinks.length,1);
 }));

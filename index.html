@@ -1574,6 +1574,28 @@
   .status-paused .loco-lamp-glow{opacity:0;}
   .status-paused .loco-headlamp-core{opacity:.25;}
   .status-paused .train-loco,.status-paused .loco-wheelset,.status-paused .loco-coupling-rod,.status-paused .loco-rod-pin{animation:none;}
+
+  /* Archivo de enlaces: misma galería, vistas embebidas bajo demanda. */
+  .gallery-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+  .gallery-tabs button{min-width:120px;}
+  .archive-form{display:grid;gap:12px;padding:16px;border:1px solid var(--ink-700);border-radius:12px;background:var(--ink-850);margin-bottom:16px;}
+  .archive-form label{display:grid;gap:6px;font-size:12px;color:var(--text-muted);min-width:0;}
+  .archive-form input,.archive-search{box-sizing:border-box;width:100%;min-width:0;padding:10px 12px;background:var(--ink-800-solid);border:1px solid var(--ink-700);border-radius:8px;color:var(--text-light);font:inherit;color-scheme:dark;}
+  .archive-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .archive-help{font-size:12px;color:var(--text-muted);line-height:1.6;}
+  .archive-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;}
+  .archive-card{min-width:0;overflow:hidden;border:1px solid var(--ink-700);border-radius:12px;background:var(--ink-850);}
+  .archive-card h3{font-size:14px;line-height:1.5;margin:0 0 5px;overflow-wrap:anywhere;color:var(--brass-300);}
+  .archive-card-body{padding:12px;}
+  .archive-preview{position:relative;height:180px;background:var(--ink-800-solid);overflow:hidden;}
+  .archive-preview iframe{width:200%;height:360px;transform:scale(.5);transform-origin:top left;border:0;pointer-events:none;}
+  .archive-preview button{position:absolute;inset:0;width:100%;border:0;background:transparent;cursor:zoom-in;}
+  .archive-preview button:focus-visible{outline:3px solid var(--brass-300);outline-offset:-4px;}
+  .archive-open{display:inline-block;padding:7px 10px;border:1px solid var(--ink-700);border-radius:8px;color:var(--brass-300);font-size:12px;text-decoration:none;}
+  #archiveViewerModal .modal-box{width:100%;max-width:980px;}
+  #archiveViewerContent iframe{width:100%;height:60vh;min-height:250px;border:1px solid var(--ink-700);border-radius:10px;background:white;}
+  @media(max-width:360px){.archive-grid{grid-template-columns:minmax(0,1fr);}}
+
 </style>
 </head>
 <body>
@@ -1689,6 +1711,14 @@
     <div class="modal-actions">
       <button class="primary" id="viewEvidenceCloseBtn">Cerrar</button>
     </div>
+  </div>
+</div>
+
+<div id="archiveViewerModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="archiveViewerTitle">
+  <div class="modal-box">
+    <h3 id="archiveViewerTitle">Vista previa del archivo</h3>
+    <div id="archiveViewerContent"></div>
+    <div class="modal-actions"><button type="button" class="btn-secondary" data-action="archive-close">Cerrar</button></div>
   </div>
 </div>
 
@@ -2402,6 +2432,7 @@ function defaultState(){
     return {
       firstUseDate: todayStr(),
       habits: [],
+      archiveLinks: [],
       oneoff: [],
       log: {},
       reminders: {},
@@ -3976,7 +4007,7 @@ function defaultState(){
 
   async function resetAll(){
     if (!dataReady || window.isImportingBackup || driveBusy) return;
-    if (!window.confirm("Esto reiniciará tareas, hábitos, proyectos, rutinas e historial. Antes se guardará una copia recuperable. ¿Continuar?")) return;
+    if (!window.confirm("Esto reiniciará tareas, hábitos, proyectos, rutinas, historial y enlaces del Archivo. Antes se guardará una copia recuperable. ¿Continuar?")) return;
     window.isImportingBackup = true;
     document.body.classList.add("data-operation");
     document.getElementById("dataOperationNotice").hidden = false;
@@ -6029,33 +6060,126 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
   /* ===================== Render: pestaña Gestor de Evidencias ===================== */
   var currentEvList = [];
-  var galleryView = "evidencias"; /* "evidencias" | "completadas" */
+  var galleryView = "evidencias";
+  var archiveQuery="",archiveMonth="",archiveLimit=12,archiveSaving=false,archiveViewerKey=null,archiveReturnFocus=null;
 
   function renderEvidencias(){
-    setTimeout(loadEvidenciasGallery, 50);
-    var segOn  = "background:var(--brass-500); color:#1a1a1a; border:1px solid var(--brass-500);";
-    var segOff = "background:var(--ink-800-solid); color:var(--text-muted); border:1px solid var(--ink-700);";
-    var segBase = "flex:1; padding:9px 10px; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font-body);";
-    return (
-      '<section class="block">' +
-        '<div class="block-title">' + (galleryView === "completadas" ? 'Tareas completadas' : 'Galería de Evidencias') + '</div>' +
-        '<div style="display:flex; gap:8px; margin-bottom:12px;">' +
-          '<button data-action="gallery-view" data-view="evidencias" style="' + segBase + (galleryView === "evidencias" ? segOn : segOff) + '">📷 Evidencias</button>' +
-          '<button data-action="gallery-view" data-view="completadas" style="' + segBase + (galleryView === "completadas" ? segOn : segOff) + '">✅ Completadas</button>' +
-          '<button data-action="gallery-view" data-view="monedas" style="'+segBase+(galleryView==="monedas"?segOn:segOff)+'">🪙 Monedas</button>' +
-        '</div>' +
-        '<div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">' +
-          '<select id="evFilterType" style="background:var(--ink-800-solid); border:1px solid var(--ink-700); color:var(--text-light); padding:8px 12px; border-radius:var(--radius-sm); font-family:var(--font-body); font-size:13px; color-scheme:dark; flex:1; min-width:140px;">' +
-            '<option value="all">Todas las tareas</option>' +
-            '<option value="habit">Hábitos y Rutinas</option>' +
-            '<option value="oneoff">Tareas Únicas</option>' +
-            '<option value="project">Proyectos</option>' +
-          '</select>' +
-          '<input type="month" id="evFilterMonth" style="background:var(--ink-800-solid); border:1px solid var(--ink-700); color:var(--text-light); padding:8px 12px; border-radius:var(--radius-sm); font-family:var(--font-body); font-size:13px; color-scheme:dark; flex:1; min-width:140px;" />' +
-        '</div>' +
-        '<div id="evGalleryContainer"><div class="empty-state">Cargando galería...</div></div>' +
-      '</section>'
-    );
+    setTimeout(galleryView==="archivo"?renderArchiveGallery:loadEvidenciasGallery,50);
+    var segOn="background:var(--brass-500);color:#1a1a1a;border:1px solid var(--brass-500);";
+    var segOff="background:var(--ink-800-solid);color:var(--text-muted);border:1px solid var(--ink-700);";
+    var segBase="flex:1;padding:9px 10px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-body);";
+    var tabs=[{id:"evidencias",label:"📷 Evidencias"},{id:"completadas",label:"✅ Completadas"},{id:"monedas",label:"🪙 Monedas"},{id:"archivo",label:"🗂 Archivo"}];
+    var archive=galleryView==="archivo";
+    return '<section class="block"><div class="block-title">'+(archive?'Archivo':galleryView==="completadas"?'Tareas completadas':galleryView==="monedas"?'Control de monedas':'Galería de Evidencias')+'</div>'+
+      '<div class="gallery-tabs" role="group" aria-label="Secciones de la galería">'+tabs.map(function(t){return '<button type="button" data-action="gallery-view" data-view="'+t.id+'" aria-pressed="'+(galleryView===t.id)+'" style="'+segBase+(galleryView===t.id?segOn:segOff)+'">'+t.label+'</button>';}).join('')+'</div>'+
+      (archive?renderArchiveForm():'')+
+      '<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">'+
+      (archive?'<label style="flex:1;min-width:140px;font-size:12px;">Buscar por nombre<input type="search" class="archive-search" id="archiveSearch" placeholder="Ej.: factura, foto familiar…" value="'+escapeHtml(archiveQuery)+'" /></label>':
+        '<select id="evFilterType" aria-label="Filtrar por tipo de tarea" style="background:var(--ink-800-solid);border:1px solid var(--ink-700);color:var(--text-light);padding:8px 12px;border-radius:var(--radius-sm);font:inherit;flex:1;min-width:140px;"><option value="all">Todas las tareas</option><option value="habit">Hábitos y Rutinas</option><option value="oneoff">Tareas Únicas</option><option value="project">Proyectos</option></select>')+
+      '<label style="flex:1;min-width:140px;font-size:12px;">Filtrar por mes<input type="month" id="evFilterMonth" class="archive-search" value="'+(archive?escapeHtml(archiveMonth):'')+'" /></label>'+
+      (archive?'<button type="button" class="btn-secondary" data-action="archive-clear-filters">Limpiar filtros</button>':'')+'</div>'+
+      '<div id="evGalleryContainer" aria-live="polite"><div class="empty-state">Cargando galería…</div></div></section>';
+  }
+
+  function parseDriveArchiveLink(value){
+    try{
+      if(typeof value!=="string"||value.length>2048)return null;
+      var u=new URL(value.trim());
+      if(u.protocol!=="https:"||u.username||u.password||u.port||["drive.google.com","docs.google.com"].indexOf(u.hostname)<0)return null;
+      var id,kind="file",path=u.pathname,m;
+      if(u.hostname==="drive.google.com"){
+        m=path.match(/^\/file\/d\/([a-zA-Z0-9_-]+)(?:\/(?:view|preview|edit))?\/?$/);
+        var folder=path.match(/^\/drive(?:\/u\/\d+)?\/folders\/([a-zA-Z0-9_-]+)\/?$/);
+        if(m)id=m[1];else if(folder){id=folder[1];kind="folder";}else if(/^\/(?:open|uc)\/?$/.test(path))id=u.searchParams.get("id");
+      }else{
+        m=path.match(/^\/(document|spreadsheets|presentation|drawings|forms)\/(?:u\/\d+\/)?d\/(e\/)?([a-zA-Z0-9_-]+)(?:\/(?:edit|view|preview|pub|pubhtml|viewform))?\/?$/);
+        if(m){kind=m[1];id=(m[2]||"")+m[3];}
+      }
+      if(!id||!/^(?:e\/)?[a-zA-Z0-9_-]{1,200}$/.test(id))return null;
+      var rk=u.searchParams.get("resourcekey"),suffix="";
+      if(rk){if(!/^[a-zA-Z0-9_-]{1,200}$/.test(rk))return null;suffix="?resourcekey="+encodeURIComponent(rk);}
+      var base=kind==="folder"?"https://drive.google.com/drive/folders/"+id:kind==="file"?"https://drive.google.com/file/d/"+id:"https://docs.google.com/"+kind+"/d/"+id;
+      var published=id.indexOf("e/")===0;
+      var view=kind==="folder"?base:base+(kind==="file"?"/view":kind==="forms"?"/viewform":published?(kind==="spreadsheets"?"/pubhtml":"/pub"):"/edit");
+      var preview=kind==="folder"?"https://drive.google.com/embeddedfolderview?id="+id+(rk?"&resourcekey="+encodeURIComponent(rk):"")+"#grid":base+(kind==="forms"?"/viewform":published?(kind==="spreadsheets"?"/pubhtml":"/pub"):"/preview")+suffix;
+      return {id:id,kind:kind,url:view+suffix,previewUrl:preview};
+    }catch(e){return null;}
+  }
+  function validArchiveDate(value){
+    if(typeof value!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
+    var date=strToDate(value);return Number.isFinite(date.getTime())&&dateToStr(date)===value;
+  }
+  function archiveEntries(){return Array.isArray(state.archiveLinks)?state.archiveLinks:[];}
+  function renderArchiveForm(){
+    return '<form class="archive-form" data-action="archive-save"><strong id="archiveFormTitle">Guardar un enlace de Drive</strong><input type="hidden" name="archiveId" value="" />'+
+      '<label>Nombre del archivo<input required maxlength="160" name="archiveName" placeholder="Un nombre para encontrarlo después" /></label>'+
+      '<label>Enlace de Google Drive<input required type="url" maxlength="2048" name="archiveUrl" placeholder="https://drive.google.com/file/d/…/view" /></label>'+
+      '<label>Fecha del archivo<input required type="date" name="archiveDate" value="'+todayStr()+'" /></label>'+
+      '<div class="archive-actions"><button class="primary" type="submit">Guardar archivo</button><button type="button" class="btn-secondary" data-action="archive-cancel-edit" hidden>Cancelar edición</button></div>'+
+      '<p class="archive-help" style="margin:0">Guarda imágenes, PDF, vídeos, documentos u otros archivos de Drive. La fecha se usa para ordenar y filtrar. La vista previa necesita conexión y permiso de acceso; si Drive no permite mostrarla, usa «Abrir en Drive».</p></form>';
+  }
+  function archiveSearchKey(value){return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLocaleLowerCase("es");}
+  function filteredArchiveEntries(){
+    var query=archiveSearchKey(archiveQuery.trim());
+    return archiveEntries().filter(function(item){return (!archiveMonth||item.date.slice(0,7)===archiveMonth)&&(!query||archiveSearchKey(item.name).indexOf(query)>=0);}).sort(function(a,b){return b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt)||a.id.localeCompare(b.id);});
+  }
+  function renderArchiveGallery(){
+    var container=document.getElementById("evGalleryContainer");if(!container||galleryView!=="archivo")return;
+    var entries=filteredArchiveEntries(),labels={file:"Archivo de Drive",folder:"Carpeta",document:"Documento",spreadsheets:"Hoja de cálculo",presentation:"Presentación",drawings:"Dibujo",forms:"Formulario"};
+    if(!entries.length){container.innerHTML='<div class="empty-state">'+(archiveEntries().length?'No hay archivos que coincidan. Prueba otro nombre o mes.':'Tu archivo está vacío. Guarda arriba tu primer enlace de Google Drive.')+'</div>';return;}
+    container.innerHTML='<p class="archive-help">'+entries.length+' archivo'+(entries.length===1?'':'s')+' · Más recientes primero</p><div class="archive-grid">'+entries.slice(0,archiveLimit).map(function(item){
+      var link=parseDriveArchiveLink(item.url);if(!link)return '';
+      return '<article class="archive-card" data-archive-id="'+escapeHtml(item.id)+'"><div class="archive-preview">'+
+        '<iframe src="'+escapeHtml(link.previewUrl)+'" title="Miniatura: '+escapeHtml(item.name)+'" loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"></iframe>'+
+        '<button type="button" data-action="archive-preview" data-id="'+escapeHtml(item.id)+'" aria-label="Ver '+escapeHtml(item.name)+'"></button></div>'+
+        '<div class="archive-card-body"><h3>'+escapeHtml(item.name)+'</h3><p class="archive-help" style="margin:0 0 10px"><time datetime="'+item.date+'">'+escapeHtml(formatDateShort(item.date))+'</time> · '+labels[link.kind]+'</p>'+
+        '<div class="archive-actions"><button type="button" class="btn-secondary" data-action="archive-preview" data-id="'+escapeHtml(item.id)+'">Ver</button><a class="archive-open" href="'+escapeHtml(link.url)+'" target="_blank" rel="noopener noreferrer">Abrir en Drive ↗</a></div>'+
+        '<div class="archive-actions" style="margin-top:10px"><button type="button" class="btn-secondary" data-action="archive-edit" data-id="'+escapeHtml(item.id)+'">Editar</button><button type="button" class="btn-secondary" data-action="archive-delete" data-id="'+escapeHtml(item.id)+'">Quitar enlace</button></div></div></article>';
+    }).join('')+'</div>'+(entries.length>archiveLimit?'<button type="button" class="btn-secondary" data-action="archive-more" style="margin-top:14px">Mostrar más archivos</button>':'');
+  }
+  async function saveArchiveEntry(form){
+    if(!dataReady||window.isImportingBackup||archiveSaving)return false;
+    var name=form.elements.archiveName.value.trim(),link=parseDriveArchiveLink(form.elements.archiveUrl.value),date=form.elements.archiveDate.value,id=form.elements.archiveId.value;
+    if(!name||name.length>160||!link||!validArchiveDate(date)){showToast("Escribe un nombre, una fecha válida y un enlace de archivo de Google Drive.");return false;}
+    var entries=archiveEntries(),existing=entries.find(function(item){return item.id===id;}),stamp=new Date().toISOString();
+    if(!existing){existing={id:uid(),createdAt:stamp};entries.push(existing);}
+    Object.assign(existing,{name:name,url:link.url,date:date,updatedAt:stamp});state.archiveLinks=entries;form.elements.archiveId.value=existing.id;
+    archiveSaving=true;var button=form.querySelector('button[type="submit"]');button.disabled=true;
+    try{
+      var ok=await persist();
+      if(!ok){showToast("No se pudo guardar el enlace en este dispositivo. Conservamos los datos aquí para que reintentes.");return false;}
+      if(form.isConnected)resetArchiveForm();renderArchiveGallery();showToast("🗂 Archivo guardado.");return true;
+    }finally{archiveSaving=false;button.disabled=false;}
+  }
+  function resetArchiveForm(){
+    var form=document.querySelector('[data-action="archive-save"]');if(!form)return;
+    form.reset();form.elements.archiveId.value="";form.elements.archiveDate.value=todayStr();
+    document.getElementById("archiveFormTitle").textContent="Guardar un enlace de Drive";
+    form.querySelector('button[type="submit"]').textContent="Guardar archivo";form.querySelector('[data-action="archive-cancel-edit"]').hidden=true;
+  }
+  function editArchiveEntry(id){
+    var item=archiveEntries().find(function(x){return x.id===id;}),form=document.querySelector('[data-action="archive-save"]');if(!item||!form||archiveSaving)return;
+    form.elements.archiveId.value=id;form.elements.archiveName.value=item.name;form.elements.archiveUrl.value=item.url;form.elements.archiveDate.value=item.date;
+    document.getElementById("archiveFormTitle").textContent="Editar archivo";form.querySelector('button[type="submit"]').textContent="Guardar cambios";
+    form.querySelector('[data-action="archive-cancel-edit"]').hidden=false;form.elements.archiveName.focus();form.scrollIntoView&&form.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+  async function deleteArchiveEntry(id){
+    if(archiveSaving||!dataReady||window.isImportingBackup||!archiveEntries().some(function(item){return item.id===id;}))return false;
+    if(!window.confirm("¿Quitar este enlace del Archivo? El archivo original de Google Drive no se borrará."))return false;
+    state.archiveLinks=archiveEntries().filter(function(item){return item.id!==id;});
+    var ok=await persist();resetArchiveForm();renderArchiveGallery();showToast(ok?"Enlace quitado del Archivo.":"Cambio pendiente de guardado. Reintenta guardar antes de cerrar.");return ok;
+  }
+  function openArchivePreview(id){
+    var item=archiveEntries().find(function(x){return x.id===id;}),link=item&&parseDriveArchiveLink(item.url);if(!link)return;
+    archiveViewerKey=id;archiveReturnFocus=document.activeElement;
+    document.getElementById("archiveViewerTitle").textContent=item.name;
+    document.getElementById("archiveViewerContent").innerHTML='<iframe src="'+escapeHtml(link.previewUrl)+'" title="Vista previa: '+escapeHtml(item.name)+'" allowfullscreen referrerpolicy="no-referrer"></iframe>'+
+      '<p class="archive-help">'+escapeHtml(formatDateLong(item.date))+' · Si la vista previa no está disponible, abre el original con tu cuenta de Google.</p><a class="archive-open" target="_blank" rel="noopener noreferrer" href="'+escapeHtml(link.url)+'">Abrir en Drive ↗</a>';
+    document.getElementById("archiveViewerModal").classList.add("open");document.querySelector('[data-action="archive-close"]').focus();
+  }
+  function closeArchivePreview(){
+    document.getElementById("archiveViewerModal").classList.remove("open");document.getElementById("archiveViewerContent").replaceChildren();archiveViewerKey=null;
+    if(archiveReturnFocus&&archiveReturnFocus.isConnected)archiveReturnFocus.focus();archiveReturnFocus=null;
   }
 
   async function loadEvidenciasGallery() {
@@ -6084,7 +6208,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   }
 
   function renderGalleryBody(){
-    if (galleryView === "completadas") renderCompletedTasks();
+    if(galleryView==="archivo")renderArchiveGallery();
+    else if (galleryView === "completadas") renderCompletedTasks();
     else if(galleryView==="monedas")renderCoinLedger();
     else renderEvGalleryItems();
   }
@@ -6858,6 +6983,14 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!isRecord(backup) || !isRecord(backup.state)) throw new Error("El archivo no contiene una bitácora válida.");
     if (backup._meta && backup._meta.version > 3) throw new Error("Este respaldo requiere una versión más reciente de Bitácora.");
     var st = backup.state;
+    if(st.archiveLinks!==undefined){
+      if(!Array.isArray(st.archiveLinks))throw new Error("Archivo de enlaces inválido.");
+      var archiveIds=new Set();
+      st.archiveLinks.forEach(function(item){
+        if(!isRecord(item)||typeof item.id!=="string"||!/^[a-zA-Z0-9_-]+$/.test(item.id)||archiveIds.has(item.id)||typeof item.name!=="string"||!item.name.trim()||item.name.length>160||!parseDriveArchiveLink(item.url)||!validArchiveDate(item.date)||typeof item.createdAt!=="string"||!Number.isFinite(Date.parse(item.createdAt))||typeof item.updatedAt!=="string"||!Number.isFinite(Date.parse(item.updatedAt)))throw new Error("Hay nombres, fechas o enlaces de Archivo inválidos.");
+        archiveIds.add(item.id);
+      });
+    }
     if(st.coins&&st.coins.ledger!==undefined){
       var ledger=st.coins.ledger,ids=new Set();
       if(!Array.isArray(ledger)||!Number.isFinite(st.coins.ledgerOpeningBalance)||!Number.isFinite(st.coins.ledgerStartedAt))throw new Error("Registro de monedas inválido.");
@@ -7019,8 +7152,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var evN       = (bkup && bkup._meta && bkup._meta.totalEvidenceKeys) || 0;
     return {
       habits: habitsN, oneoff: oneoffN, projects: projectsN, routines: routinesN,
-      logDays: logDaysN, evidence: evN,
-      total: habitsN + oneoffN + projectsN + routinesN + logDaysN + evN
+      logDays: logDaysN, evidence: evN, archive: (st.archiveLinks||[]).length,
+      total: habitsN + oneoffN + projectsN + routinesN + logDaysN + evN + (st.archiveLinks||[]).length
     };
   }
 
@@ -7387,6 +7520,13 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!dataReady || window.isImportingBackup) return;
     if (action === "open-bonos") { activeTab="bonos";render();window.scrollTo(0,0);return; }
     if (action === "commerce-section") { commerceSection=el.getAttribute("data-section")==="inventory"?"inventory":"shop";activeTab="tienda";render();return; }
+    if(action==="archive-preview"){openArchivePreview(el.getAttribute("data-id"));return;}
+    if(action==="archive-close"){closeArchivePreview();return;}
+    if(action==="archive-edit"){editArchiveEntry(el.getAttribute("data-id"));return;}
+    if(action==="archive-delete"){deleteArchiveEntry(el.getAttribute("data-id"));return;}
+    if(action==="archive-cancel-edit"){if(!archiveSaving)resetArchiveForm();return;}
+    if(action==="archive-more"){archiveLimit+=12;renderArchiveGallery();return;}
+    if(action==="archive-clear-filters"){archiveQuery="";archiveMonth="";archiveLimit=12;document.getElementById("archiveSearch").value="";document.getElementById("evFilterMonth").value="";renderArchiveGallery();return;}
     if (action === "commerce-buy") { if(buyRpgItem(el.getAttribute("data-rpg-buy")))renderActiveTab();return; }
     if (action === "commerce-use") { useRpgItem(el.getAttribute("data-rpg-use"));return; }
     if (action === "open-legacy-shop") { openShop();return; }
@@ -7420,7 +7560,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       openViewEvidenceModal(el.getAttribute("data-date"), el.getAttribute("data-id"));
 
     } else if (action === "gallery-view"){
-      galleryView = ["completadas","monedas"].indexOf(el.getAttribute("data-view"))>=0?el.getAttribute("data-view"):"evidencias";
+      galleryView = ["completadas","monedas","archivo"].indexOf(el.getAttribute("data-view"))>=0?el.getAttribute("data-view"):"evidencias";
       renderActiveTab();
 
     } else if (action === "view-evidence-from-gallery"){
@@ -7882,10 +8022,15 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
   });
 
+  document.addEventListener("input",function(e){if(e.target.id==="archiveSearch"){archiveQuery=e.target.value;archiveLimit=12;renderArchiveGallery();}});
+  document.addEventListener("keydown",function(e){if(e.key==="Escape"&&archiveViewerKey)closeArchivePreview();});
+  document.getElementById("archiveViewerModal").addEventListener("click",function(e){if(e.target===this)closeArchivePreview();});
+
   /* ===================== Eventos: changes (Inputs y Selects) ===================== */
   document.addEventListener("change", function(e){
     /* Filtros de la galería de evidencia */
     if (e.target.id === "evFilterType" || e.target.id === "evFilterMonth") {
+      if(galleryView==="archivo"){archiveMonth=document.getElementById("evFilterMonth").value;archiveLimit=12;}
       renderGalleryBody();
       return;
     }
@@ -7909,6 +8054,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   /* ===================== Eventos: submits ===================== */
   document.addEventListener("submit", function(e){
     if (!dataReady || window.isImportingBackup) { e.preventDefault(); return; }
+    var archiveForm=e.target.closest('[data-action="archive-save"]');
+    if(archiveForm){e.preventDefault();saveArchiveEntry(archiveForm);return;}
     /* Tarea / hábito */
     var taskForm = e.target.closest('[data-action="add-task"]');
     if (taskForm){

@@ -11,6 +11,7 @@ const source = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const instrumented = source.replace('  /* ===================== Arranque ===================== */\n  init();', `
   window.appTest = {
     init, initDB, defaultState, persist, storageGet, storageSet, dbSet, dbGet, dbReadAllWithCursor,
+    parseDriveArchiveLink,validArchiveDate,archiveEntries,filteredArchiveEntries,saveArchiveEntry,editArchiveEntry,deleteArchiveEntry,openArchivePreview,closeArchivePreview,computeBackupRichness,
     validateBackup, buildMasterBackupJSON, importMasterBackup, commitRestoredBackup,
     saveRecoveryPoint, showRecoveryPoints, uploadDriveBackup, autoRestoreFromDrive,
     periodSummary, openAIPlanPreview, validateAIPlan, generateAIPlan, resetAll,
@@ -342,4 +343,49 @@ test('gallery evidence can be viewed and edited while retaining the original pho
   await page.locator('[data-action="edit-viewed-evidence"]').click();await page.waitForFunction(()=>!document.querySelector('#evidenceSaveBtn').disabled);await page.locator('#evidenceNote').fill('Primera nota, con más detalles');await page.locator('#evidenceSaveBtn').click();
   await page.waitForFunction(()=>document.querySelector('#viewEvidenceContent').textContent.includes('con más detalles'));
   assert.equal(await page.locator('#viewEvidenceContent img').count(),1);
+}));
+
+test('Archive on mobile saves, searches, filters, previews, edits and reloads Drive links',async()=>withPage(async(page,context)=>{
+  await context.route('https://drive.google.com/file/d/**/preview*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body style="background:#eed8ad"><p>Vista de archivo de prueba</p></body></html>'}));
+  await page.evaluate(async()=>{await appTest.seed({});});
+  await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="archivo"]').click();
+  const form=page.locator('[data-action="archive-save"]');
+  await form.locator('[name="archiveName"]').fill('Álbum familiar');await form.locator('[name="archiveUrl"]').fill('https://drive.google.com/file/d/family_photo/view?resourcekey=0-safe');await form.locator('[name="archiveDate"]').fill('2026-10-20');await form.locator('button[type="submit"]').click();
+  await page.locator('.archive-card').waitFor();
+  await form.locator('[name="archiveName"]').fill('Factura de noviembre');await form.locator('[name="archiveUrl"]').fill('https://drive.google.com/file/d/invoice_pdf/view');await form.locator('[name="archiveDate"]').fill('2026-11-02');await form.locator('button[type="submit"]').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.archive-card').length===2);
+  await page.locator('#archiveSearch').fill('album');assert.equal(await page.locator('.archive-card').count(),1);
+  await page.locator('#evFilterMonth').fill('2026-11');assert.equal(await page.locator('.archive-card').count(),0);
+  await page.locator('[data-action="archive-clear-filters"]').click();assert.equal(await page.locator('.archive-card').count(),2);
+  const album=page.locator('.archive-card').filter({hasText:'Álbum familiar'});
+  await album.locator('[data-action="archive-preview"]').first().click();
+  assert.equal(await page.locator('#archiveViewerModal.open').count(),1);
+  assert.match(await page.locator('#archiveViewerContent iframe').getAttribute('src'),/family_photo\/preview\?resourcekey=0-safe/);
+  assert.match(await page.frameLocator('#archiveViewerContent iframe').locator('body').innerText(),/Vista de archivo de prueba/);
+  await page.locator('[data-action="archive-close"]').click();assert.equal(await page.locator('#archiveViewerContent iframe').count(),0);
+  await album.locator('[data-action="archive-edit"]').click();await form.locator('[name="archiveName"]').fill('Recuerdo familiar');await form.locator('button[type="submit"]').click();
+  await page.waitForFunction(()=>document.querySelector('.archive-grid').textContent.includes('Recuerdo familiar'));
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.setViewportSize({width:320,height:780});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.reload();await page.evaluate(()=>appTest.init());await page.waitForFunction(()=>appTest.ready);await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="archivo"]').click();
+  await page.locator('.archive-card').first().waitFor();assert.equal(await page.locator('.archive-card').count(),2);assert.match(await page.locator('.archive-grid').innerText(),/Recuerdo familiar/);
+}));
+
+test('Archive rejects unsupported links and removing a record never sends a Drive deletion',async()=>withPage(async page=>{
+  const driveDeletes=[];page.on('request',r=>{if(r.method()==='DELETE'&&r.url().includes('google'))driveDeletes.push(r.url());});
+  await page.evaluate(async()=>{await appTest.seed({});});await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="archivo"]').click();
+  const form=page.locator('[data-action="archive-save"]');await form.locator('[name="archiveName"]').fill('Archivo');await form.locator('[name="archiveUrl"]').fill('https://drive.google.com.evil.test/file/d/id/view');await form.locator('button[type="submit"]').click();
+  assert.equal(await page.evaluate(()=>appTest.archiveEntries().length),0);assert.equal(await page.locator('.archive-card').count(),0);
+  await form.locator('[name="archiveUrl"]').fill('https://drive.google.com/file/d/private_file/view');await form.locator('button[type="submit"]').click();await page.locator('.archive-card').waitFor();
+  assert.equal(await page.locator('.archive-card a').getAttribute('href'),'https://drive.google.com/file/d/private_file/view');
+  page.once('dialog',d=>d.accept());await page.locator('[data-action="archive-delete"]').click();await page.waitForFunction(()=>appTest.archiveEntries().length===0);
+  await page.locator('.archive-card').waitFor({state:'detached'});assert.deepEqual(driveDeletes,[]);
+  assert.equal(await page.locator('.archive-card').count(),0);
+}));
+
+test('Archive limits embedded previews and loads more without hiding search matches',async()=>withPage(async page=>{
+  await page.evaluate(async()=>{const stamp=new Date().toISOString();await appTest.seed({archiveLinks:Array.from({length:25},(_,i)=>({id:'file_'+i,name:'Archivo '+i,url:'https://drive.google.com/file/d/file_'+i+'/view',date:'2026-11-16',createdAt:stamp,updatedAt:stamp}))});});
+  await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="archivo"]').click();await page.locator('.archive-card').first().waitFor();
+  assert.equal(await page.locator('.archive-card').count(),12);await page.locator('[data-action="archive-more"]').click();assert.equal(await page.locator('.archive-card').count(),24);
+  await page.locator('#archiveSearch').fill('Archivo 24');assert.equal(await page.locator('.archive-card').count(),1);assert.match(await page.locator('.archive-card h3').innerText(),/Archivo 24/);
 }));
