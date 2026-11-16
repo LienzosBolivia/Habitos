@@ -573,5 +573,5 @@ test('existing welcome weeks keep their pending duplicator without receiving it 
   await a.seed({rpg:{xp:0,inv:{},starter:{version:1,startedOn:'2026-11-13',claims:[{day:1,claimedOn:'2026-11-13'}]}}});
   for(let n=2;n<=7;n++){day=a.addDays('2026-11-13',n-1);assert.equal(await a.claimWelcomePack(n),true);assert.equal(a.rpgState().inv.booster,n<4?0:1);}
   assert.equal(a.rpgState().starter.rewardSchedule,1);
-  assert.doesNotThrow(()=>a.validateBackup({state:a.state}));
+  const backup=await a.buildMasterBackupJSON();assert.doesNotThrow(()=>a.validateBackup(backup));
 }));
