@@ -11,6 +11,8 @@ const source = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const instrumented = source.replace('  /* ===================== Arranque ===================== */\n  init();', `
   window.appTest = {
     init, initDB, defaultState, persist, storageGet, storageSet, dbSet, dbGet, dbReadAllWithCursor,
+    setFollowAlarm(fn){fireDeadlineAlarm=fn;},
+    followToday,followState,followKey,syncFollowDay,setFollowEnabled,selectFollowEntry,saveFollowPlan,followTick,settleFollowDays,followEntryDone,followTimeAt,startFollowEntry,collectFollowPenalties,validateFollowState,openFollowPrompt,closeFollowPrompt,confirmFollowTime,pauseTask,
     loanQuote,loanState,requestLoan,repayLoan,canRepayLoan,validateLoans,
     setLoanCommit(fn){commitLoanSnapshot=fn;},
     parseDriveArchiveLink,validArchiveDate,archiveEntries,filteredArchiveEntries,saveArchiveEntry,editArchiveEntry,deleteArchiveEntry,openArchivePreview,closeArchivePreview,computeBackupRichness,
@@ -433,4 +435,48 @@ test('first welcome pack gives a duplicator immediately and shield costs five co
   await page.evaluate(()=>{const r=appTest.rpgState();r.xp=appTest.xpForLevel(5);r.xpUnits=r.xp*120;appTest.openShopModal();});
   assert.match(await page.locator('[data-rpg-buy="shield"]').innerText(),/5 🪙/);
   await page.locator('[data-rpg-buy="shield"]').click();assert.equal(await page.evaluate(()=>appTest.state.coins.balance),0);assert.equal(await page.evaluate(()=>appTest.rpgState().inv.shield),1);
+}));
+
+async function seedFollowPage(page){
+  await page.evaluate(async()=>{
+    const ds=appTest.todayStr();window.followClock=appTest.followTimeAt(ds,'10:00');appTest.setNow(()=>window.followClock);
+    await appTest.seed({coins:{balance:20},oneoff:[{id:'ft',text:'Informe de prueba',date:ds,subtasks:[{id:'fsub',text:'Revisión final',done:false}]}],tracking:{status:'thinking',taskDs:ds,startTime:window.followClock,sessionEndsAt:appTest.followTimeAt(ds,'23:59')}});
+  });
+  await page.locator('[data-action="follow-toggle"]').click();await page.locator('#followPlanModal.open').waitFor();await page.locator('[data-action="follow-later"]').click();
+}
+
+test('follow mobile checklist opts into subtasks, schedules an indefinite run and persists',async()=>withPage(async page=>{
+  await seedFollowPage(page);await page.locator('.follow-picker summary').click();
+  assert.equal(await page.locator('[data-action="follow-select"][data-key="task:ft"]').isChecked(),true);assert.equal(await page.locator('[data-action="follow-select"][data-key="sub:ft:fsub"]').isChecked(),false);
+  await page.locator('[data-action="follow-select"][data-key="task:ft"]').uncheck();
+  await page.locator('.follow-picker summary').click();await page.locator('[data-action="follow-select"][data-key="sub:ft:fsub"]').check();
+  const form=page.locator('[data-action="follow-save"][data-key="sub:ft:fsub"]');await form.locator('[name="time"]').fill('10:01');await form.locator('button[type="submit"]').click();
+  assert.match(await page.locator('.follow-entry').innerText(),/sin límite/);
+  await page.evaluate(()=>{window.followClock=appTest.followTimeAt(appTest.todayStr(),'10:01');appTest.followTick();});
+  assert.equal(await page.evaluate(()=>appTest.state.tracking.subtaskId),'fsub');assert.equal(await page.evaluate(()=>appTest.state.tracking.targetLimit),null);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.setViewportSize({width:320,height:780});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.evaluate(()=>appTest.persist());await page.reload();await page.evaluate(()=>{window.followClock=appTest.followTimeAt(appTest.todayStr(),'10:02');appTest.setNow(()=>window.followClock);appTest.init();});await page.waitForFunction(()=>appTest.ready);
+  assert.equal(await page.evaluate(()=>appTest.followState().days[appTest.followToday()].entries['sub:ft:fsub'].selected),true);
+  assert.equal(await page.evaluate(()=>appTest.followState().days[appTest.followToday()].entries['task:ft'].selected),false);
+}));
+
+test('follow asks for confirmation at 30 minutes and accepts an edited time before the 15 minute notice',async()=>withPage(async page=>{
+  await seedFollowPage(page);
+  const form=page.locator('[data-action="follow-save"][data-key="task:ft"]');await form.locator('[name="time"]').fill('11:00');await form.locator('[name="duration"]').fill('20');await form.locator('button[type="submit"]').click();
+  await page.evaluate(()=>{window.followNotifications=[];appTest.setFollowAlarm((id,message)=>window.followNotifications.push({id,message}));window.followClock=appTest.followTimeAt(appTest.todayStr(),'10:30');appTest.followTick();});
+  await page.locator('#followPlanModal.open').waitFor();assert.match(await page.locator('#followPlanTitle').innerText(),/ejecutará/);
+  await page.locator('#followPlanTime').fill('11:15');await page.locator('[data-action="follow-modal-save"] button[type="submit"]').click();
+  assert.equal(await page.evaluate(()=>appTest.followState().days[appTest.followToday()].entries['task:ft'].time),'11:15');
+  await page.evaluate(()=>{window.followClock=appTest.followTimeAt(appTest.todayStr(),'11:00');appTest.followTick();appTest.followTick();});
+  assert.equal(await page.evaluate(()=>window.followNotifications.filter(n=>n.message.includes('Faltan 15')).length),1);
+}));
+
+test('follow closes a paused commitment once and displays its five coin penalty in the ledger',async()=>withPage(async page=>{
+  await seedFollowPage(page);
+  await page.evaluate(()=>{
+    const ds=appTest.followToday();appTest.saveFollowPlan('task:ft','10:01','');window.followClock=appTest.followTimeAt(ds,'10:01');appTest.followTick();appTest.pauseTask();appTest.setFollowEnabled(false);window.followClock=appTest.followTimeAt(appTest.addDays(ds,1),'00:01');appTest.settleFollowDays();appTest.settleFollowDays();
+  });
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),15);
+  await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="monedas"]').click();await page.waitForFunction(()=>document.querySelector('#evGalleryContainer').textContent.includes('penalización 5'));
+  assert.equal(await page.evaluate(()=>appTest.state.coins.ledger.filter(t=>t.kind==='follow-penalty').length),1);
 }));
