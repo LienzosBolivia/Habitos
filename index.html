@@ -2588,7 +2588,7 @@ function defaultState(){
       var meta = await getRemoteFileMeta(true);
       var remote = null;
       if (meta){
-        var response = await fetch(DRIVE_API + "/" + meta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
+        var response = await fetchDrive(DRIVE_API + "/" + meta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
         if (!response.ok) throw new Error("No se pudo conservar la copia de Drive. No se reemplazó nada.");
         remote = await response.json(); validateBackup(remote);
       }
@@ -2636,7 +2636,7 @@ function defaultState(){
       var metadata = JSON.stringify(meta ? { name: DRIVE_FILENAME } : { name: DRIVE_FILENAME, parents: [DRIVE_SPACES] });
       var body = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + metadata +
         "\r\n--" + boundary + "\r\nContent-Type: application/json\r\n\r\n" + JSON.stringify(backup) + "\r\n--" + boundary + "--";
-      var resp = await fetch(DRIVE_UPLOAD_API + (meta ? "/" + meta.id : "") + "?uploadType=multipart&fields=id,modifiedTime", {
+      var resp = await fetchDrive(DRIVE_UPLOAD_API + (meta ? "/" + meta.id : "") + "?uploadType=multipart&fields=id,modifiedTime", {
         method: meta ? "PATCH" : "POST",
         headers: { Authorization: "Bearer " + driveAccessToken, "Content-Type": "multipart/related; boundary=" + boundary }, body: body
       });
@@ -2677,7 +2677,7 @@ function defaultState(){
   async function getRemoteFileMeta(strict){
     if (!driveAccessToken) return null;
     try {
-      var resp = await fetch(DRIVE_API + "?spaces=" + DRIVE_SPACES +
+      var resp = await fetchDrive(DRIVE_API + "?spaces=" + DRIVE_SPACES +
         "&fields=files(id,modifiedTime)&q=" + encodeURIComponent("name='" + DRIVE_FILENAME + "' and trashed=false"),
         { headers: { Authorization: "Bearer " + driveAccessToken } });
       if (!resp.ok) throw new Error("No se pudo comprobar Drive (" + resp.status + ").");
@@ -2696,7 +2696,7 @@ function defaultState(){
     driveBusy = true;
     var revision = localRevision;
     try {
-      var resp = await fetch(DRIVE_API + "/" + meta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
+      var resp = await fetchDrive(DRIVE_API + "/" + meta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
       if (!resp.ok) throw new Error("No se pudo descargar el respaldo.");
       var text = await resp.text();
       validateBackup(JSON.parse(text));
@@ -3713,13 +3713,8 @@ function defaultState(){
       flushTime();
       persist();
     } else if (document.visibilityState === "visible") {
-      /* 2. Cuando prendes la pantalla: Verifica la sesión de Google silenciosamente */
-      if (driveUserEmail) {
-        /* Si la llave caducó mientras dormía o le quedan menos de 5 min, pide una nueva */
-        if (!driveAccessToken || Date.now() > (driveTokenExpiry - 300000)) {
-          silentTokenRenew();
-        }
-      }
+      /* Reanudar nunca abre una autorización ni cierra otra ventana de Google. */
+      silentTokenRenew();
     }
   });
 
@@ -6941,7 +6936,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     try {
       var currentMeta = await getRemoteFileMeta(true);
       if (!currentMeta) throw new Error("No hay ningún respaldo en Drive.");
-      var currentResp = await fetch(DRIVE_API + "/" + currentMeta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
+      var currentResp = await fetchDrive(DRIVE_API + "/" + currentMeta.id + "?alt=media", { headers: { Authorization: "Bearer " + driveAccessToken } });
       if (!currentResp.ok) throw new Error("No se pudo descargar el respaldo de Drive.");
       var currentText = await currentResp.text();
       var validCurrent = false;
@@ -6951,7 +6946,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
         return;
       }
       setBackupStatus("working", "⏳ Buscando una versión anterior válida en Google Drive…");
-      var searchResp = await fetch(
+      var searchResp = await fetchDrive(
         DRIVE_API + "?spaces=" + DRIVE_SPACES +
         "&fields=files(id)" +
         "&q=name%3D%27" + encodeURIComponent(DRIVE_FILENAME) + "%27",
@@ -6971,7 +6966,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       do {
         var revUrl = DRIVE_API + "/" + fileId + "/revisions?fields=revisions(id,modifiedTime),nextPageToken&pageSize=1000" +
           (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : "");
-        var revResp = await fetch(revUrl, { headers: { "Authorization": "Bearer " + driveAccessToken } });
+        var revResp = await fetchDrive(revUrl, { headers: { "Authorization": "Bearer " + driveAccessToken } });
         var revPage = await revResp.json();
         if (revPage.revisions) allRevisions = allRevisions.concat(revPage.revisions);
         pageToken = revPage.nextPageToken || null;
@@ -6992,7 +6987,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
          var rev = revData.revisions[i];
          setBackupStatus("working", "⏳ Escaneando versión de las " + new Date(rev.modifiedTime).toLocaleTimeString() + "...");
          
-         var dlResp = await fetch(
+         var dlResp = await fetchDrive(
             DRIVE_API + "/" + fileId + "/revisions/" + rev.id + "?alt=media",
             { headers: { "Authorization": "Bearer " + driveAccessToken } }
          );
@@ -7057,231 +7052,163 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   var DRIVE_UPLOAD_API  = "https://www.googleapis.com/upload/drive/v3/files";
   var DRIVE_SESSION_KEY = "bitacora_drive_session"; /* clave para persistir sesión en localStorage */
 
-  /* Estado de autenticación */
-  var driveAccessToken  = null;
-  var driveTokenClient  = null;
-  var driveTokenExpiry  = 0;
-  var driveUserEmail    = null;
-  var driveRefreshTimer = null;  /* handle del setInterval de renovación silenciosa */
-  var driveIsSilentRenew = false; /* flag: true cuando la renovación es silenciosa (sin popup) */
-  var driveIsReconnecting = false; /* flag: true mientras esperamos respuesta de renovación silenciosa */
-  var driveReconnectTimeout = null; /* handle del timeout de fallback */
-
-  /* ---- Persistencia de sesión en localStorage ---- */
+  /* GIS solo se inicia por una acción explícita; no es una sesión perpetua de Google. */
+  var driveAccessToken=null,driveTokenClient=null,driveTokenExpiry=0,driveUserEmail=null;
+  var driveRefreshTimer=null,driveIsReconnecting=false,driveReconnectTimeout=null;
+  var driveAuthAttempt=null,driveAuthSequence=0,driveSessionLoaded=false,driveHadSession=false;
+  var driveIdentityPending=null,driveAccountVerified=false;
+  function driveTokenValid(){return typeof driveAccessToken==='string'&&!!driveAccessToken&&Date.now()<driveTokenExpiry;}
   function saveDriveSession(){
-    try {
-      localStorage.setItem(DRIVE_SESSION_KEY, JSON.stringify({
-        email:       driveUserEmail  || null,
-        accessToken: driveAccessToken || null,
-        tokenExpiry: driveTokenExpiry || 0,
-        connectedAt: Date.now()
-      }));
-    } catch(e){}
+    try{localStorage.setItem(DRIVE_SESSION_KEY,JSON.stringify({email:driveUserEmail||null,accessToken:driveAccessToken||null,tokenExpiry:driveTokenExpiry||0,accountVerified:driveAccountVerified,connectedAt:Date.now()}));}catch(e){}
   }
-
   function loadDriveSession(){
-    try {
-      var raw = localStorage.getItem(DRIVE_SESSION_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch(e){ return null; }
+    try{var value=JSON.parse(localStorage.getItem(DRIVE_SESSION_KEY)||'null');return value&&typeof value==='object'&&!Array.isArray(value)?value:null;}catch(e){return null;}
   }
-
-  function clearDriveSession(){
-    try { localStorage.removeItem(DRIVE_SESSION_KEY); } catch(e){}
+  function clearDriveSession(){try{localStorage.removeItem(DRIVE_SESSION_KEY);}catch(e){}}
+  function clearKnownDriveAccountVersion(){
+    try{localStorage.removeItem(DRIVE_KNOWN_MODTIME_KEY);}catch(e){}
+    syncConflict=null;conflictRecoveryToken='';refreshSaveStatus();
   }
-
-  /* ---- Renovación silenciosa del token ---- */
-  /* Intenta obtener un nuevo access_token sin abrir ventana de login.
-     Si el usuario aún tiene sesión activa en Chrome/Google, funciona de forma invisible.
-     Si la sesión de Google expiró, simplemente marca como desconectado. */
-  function silentTokenRenew(){
-    if (!driveTokenClient) return;
-    /* Si el token aún tiene más de 5 min de vida, no hace falta renovar */
-    if (driveAccessToken && Date.now() < driveTokenExpiry - 5 * 60 * 1000) return;
-    driveIsSilentRenew = true;
-    try {
-      /* ¡Aquí está la magia! Le pasamos el correo a Google para que renueve sin preguntar */
-      driveTokenClient.requestAccessToken({ prompt: "none", login_hint: driveUserEmail });
-    } catch(e){
-      driveIsSilentRenew = false;
-    }
+  function stopTokenRefreshTimer(){if(driveRefreshTimer){clearTimeout(driveRefreshTimer);driveRefreshTimer=null;}}
+  function expireDriveAuthorization(){
+    if(driveTokenValid())return false;
+    driveAccessToken=null;driveTokenExpiry=0;driveIdentityPending=null;
+    stopTokenRefreshTimer();stopRemoteCheckTimer();
+    if(driveHadSession||driveUserEmail)saveDriveSession();
+    updateDriveAuthUI();setAutoSyncBadge('', 'Guardado local · renueva el acceso a Drive');return true;
   }
-
-  /* ---- Timer de renovación automática cada 50 minutos ---- */
   function startTokenRefreshTimer(){
-    stopTokenRefreshTimer();
-    driveRefreshTimer = setInterval(function(){
-      silentTokenRenew();
-    }, 50 * 60 * 1000); /* 50 minutos → el token dura 60, renovamos con margen */
+    stopTokenRefreshTimer();if(!driveAccessToken)return;
+    driveRefreshTimer=setTimeout(function(){driveRefreshTimer=null;expireDriveAuthorization();},Math.max(1,driveTokenExpiry-Date.now()+10));
   }
-
-  function stopTokenRefreshTimer(){
-    if (driveRefreshTimer){
-      clearInterval(driveRefreshTimer);
-      driveRefreshTimer = null;
-    }
+  /* Compatibilidad: revisar caducidad nunca abre una ventana de Google. */
+  function silentTokenRenew(){if(driveAccessToken&&!driveTokenValid())expireDriveAuthorization();}
+  function driveAuthErrorText(error){
+    var type=error&&(error.type||error.error)||'unknown';
+    if(type==='popup_closed')return 'Google cerró la ventana antes de confirmar el acceso. Pulsa Conectar de nuevo; si se repite, abre Bitácora en Chrome y permite las ventanas emergentes. Tus datos locales siguen guardados.';
+    if(type==='popup_failed_to_open')return 'El navegador bloqueó la ventana de Google. Permite las ventanas emergentes para esta página y vuelve a pulsar Conectar.';
+    if(type==='access_denied')return 'No se autorizó el acceso a Drive. Puedes intentarlo de nuevo; tu bitácora local se conserva.';
+    if(type==='timeout')return 'No llegó la confirmación de Google. Vuelve a pulsar Conectar cuando hayas cerrado la ventana anterior.';
+    return 'No se pudo confirmar el acceso a Google Drive. Vuelve a intentarlo desde Conectar; tus datos locales se conservan.';
   }
-
-  /* Actualizar la barra de estado de autenticación en el DOM */
+  function finishDriveAuthAttempt(attempt){
+    if(driveAuthAttempt!==attempt)return false;
+    if(attempt.popupErrorTimer)clearTimeout(attempt.popupErrorTimer);
+    if(driveReconnectTimeout){clearTimeout(driveReconnectTimeout);driveReconnectTimeout=null;}
+    driveAuthAttempt=null;driveIsReconnecting=false;return true;
+  }
+  function failDriveAuthAttempt(attempt,error){
+    if(!finishDriveAuthAttempt(attempt))return;
+    attempt.pending=null;updateDriveAuthUI();setBackupStatus('error',driveAuthErrorText(error));
+  }
   function updateDriveAuthUI(){
-    var bar   = document.getElementById("driveAuthBar");
-    var label = document.getElementById("driveAuthLabel");
-    var btn   = document.getElementById("btnDriveAuth");
-    if (!bar || !label || !btn) return;
-
-    if (driveIsReconnecting){
-      bar.classList.remove("disconnected");
-      bar.classList.add("reconnecting");
-      label.textContent = "Reconectando" + (driveUserEmail ? " como " + driveUserEmail : "") + "…";
-      btn.textContent = "Cancelar";
-      btn.disabled = false;
-    } else if (driveAccessToken && Date.now() < driveTokenExpiry){
-      bar.classList.remove("disconnected");
-      bar.classList.remove("reconnecting");
-      label.innerHTML = "Conectado" + (driveUserEmail ? " como <strong>" + escapeHtml(driveUserEmail) + "</strong>" : "");
-      btn.textContent = "Desconectar";
-      btn.disabled = false;
-    } else {
-      bar.classList.add("disconnected");
-      bar.classList.remove("reconnecting");
-      label.textContent = "No conectado a Google Drive";
-      btn.disabled = false;
-      btn.innerHTML =
-        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
-        '<path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057.1 18.08.114 18.1.132 18.11a20.03 20.03 0 0 0 5.993 3.04.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.201 13.201 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.04.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>' +
-        '</svg> Conectar con Google';
-    }
+    var bar=document.getElementById('driveAuthBar'),label=document.getElementById('driveAuthLabel'),btn=document.getElementById('btnDriveAuth');
+    if(!bar||!label||!btn)return;
+    var waiting=!!driveAuthAttempt||!!driveIdentityPending;
+    bar.classList.toggle('reconnecting',waiting);bar.classList.toggle('disconnected',!waiting&&!driveTokenValid());
+    btn.disabled=waiting;
+    if(waiting){label.textContent=driveAuthAttempt?'Esperando tu confirmación en Google…':'Acceso confirmado · comprobando cuenta…';btn.textContent='Conectando…';}
+    else if(driveTokenValid()){label.textContent='Conectado'+(driveUserEmail?' como '+driveUserEmail:' a Google Drive');btn.textContent='Desconectar';}
+    else{label.textContent=driveHadSession?'Acceso a Drive caducado · tu bitácora sigue guardada en este dispositivo':'No conectado a Google Drive';btn.textContent=driveHadSession?'Reconectar con Google':'Conectar con Google';}
   }
-
-  /* Inicializar el cliente de token GIS */
   function initDriveTokenClient(){
-    if (typeof google === "undefined" || !google.accounts) return;
-    driveTokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: DRIVE_CLIENT_ID,
-      scope: DRIVE_SCOPE,
-      callback: function(tokenResponse){
-        var wasSilent = driveIsSilentRenew;
-        driveIsSilentRenew = false;
-        driveIsReconnecting = false;
-        /* Limpiar timeout de fallback si había uno */
-        if (driveReconnectTimeout){ clearTimeout(driveReconnectTimeout); driveReconnectTimeout = null; }
-
-        if (tokenResponse && tokenResponse.access_token){
-          driveAccessToken = tokenResponse.access_token;
-          driveTokenExpiry = Date.now() + (tokenResponse.expires_in || 3600) * 1000 - 60000;
-
-          /* Obtener email del usuario via tokeninfo */
-          fetch("https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=" + driveAccessToken)
-            .then(function(r){ return r.json(); })
-            .then(function(info){
-              driveUserEmail = info.email || driveUserEmail || null;
-              saveDriveSession(); /* persistir token + email para auto-reconexión */
-              updateDriveAuthUI();
-            })
-            .catch(function(){
-              saveDriveSession();
-              updateDriveAuthUI();
-            });
-
-          updateDriveAuthUI();
-
-          /* Solo mostrar toast si el usuario lo hizo manualmente, no en renovación silenciosa */
-          if (!wasSilent){
-            showToast("✅ Conectado a Google Drive.");
-          }
-
-          /* Arrancar el timer de renovación automática */
-          startTokenRefreshTimer();
-          startRemoteCheckTimer();
-          /* Revisar de inmediato si hay una versión más nueva subida desde otro dispositivo */
-          checkForRemoteUpdates();
-
-          /* Si había una operación pendiente, ejecutarla */
-          if (typeof driveTokenClient._pendingCallback === "function"){
-            var cb = driveTokenClient._pendingCallback;
-            driveTokenClient._pendingCallback = null;
-            cb();
-          }
-
-        } else if (tokenResponse && tokenResponse.error){
-          driveIsSilentRenew = false;
-          if (wasSilent){
-            /* En renovación silenciosa: si Google rechaza (sesión expirada o cookies bloqueadas),
-               simplemente marcamos como desconectado sin molestar al usuario */
-            console.warn("[Drive] Renovación silenciosa fallida:", tokenResponse.error);
-            driveAccessToken = null;
-            driveTokenExpiry = 0;
-            clearDriveSession();
-            updateDriveAuthUI();
-          } else {
-            setBackupStatus("error", "✖ Auth cancelada o denegada: " + tokenResponse.error);
-          }
-        }
-      },
-      error_callback: function(err){
-        var wasSilent = driveIsSilentRenew;
-        driveIsSilentRenew = false;
-        driveIsReconnecting = false;
-        if (driveReconnectTimeout){ clearTimeout(driveReconnectTimeout); driveReconnectTimeout = null; }
-        if (!wasSilent){
-          /* Solo mostrar error si fue intento manual */
-          setBackupStatus("error", "✖ Error de autenticación: " + (err.message || err.type || JSON.stringify(err)));
-        } else {
-          console.warn("[Drive] error_callback silencioso:", err);
-          driveAccessToken = null;
-          driveTokenExpiry = 0;
-          clearDriveSession();
-          updateDriveAuthUI();
-        }
-      }
-    });
+    return typeof google!=='undefined'&&google.accounts&&google.accounts.oauth2&&typeof google.accounts.oauth2.initTokenClient==='function';
   }
-
-  /* Intentar conectar / desconectar */
+  async function resolveDriveIdentity(token,generation,previousEmail){
+    var info=null,controller=typeof AbortController!=='undefined'?new AbortController():null;
+    var timer=null;
+    try{
+      var request=fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+token},signal:controller?controller.signal:undefined}).then(function(r){if(!r.ok)throw new Error('Perfil no disponible');return r.json();});
+      var timeout=new Promise(function(resolve){timer=setTimeout(function(){if(controller)controller.abort();resolve(null);},8000);});
+      info=await Promise.race([request,timeout]);
+    }catch(e){}finally{if(timer)clearTimeout(timer);}
+    if(driveAccessToken!==token||driveAuthSequence!==generation||!driveTokenValid())return;
+    var email=info&&typeof info.email==='string'?info.email:null;
+    if(!email||!previousEmail||email!==previousEmail)clearKnownDriveAccountVersion();
+    driveUserEmail=email;driveAccountVerified=!!email;saveDriveSession();
+    var pending=driveIdentityPending&&driveIdentityPending.token===token?driveIdentityPending.pending:null;
+    driveIdentityPending=null;updateDriveAuthUI();
+    if(typeof pending==='function'){
+      try{await pending();}catch(e){setBackupStatus('error','El acceso está confirmado, pero no se completó la operación. Tus datos locales se conservan.');}
+    }else checkForRemoteUpdates();
+  }
+  function acceptDriveToken(attempt,response){
+    if(driveAuthAttempt!==attempt)return;
+    if(!response||response.error||typeof response.access_token!=='string'||!response.access_token){failDriveAuthAttempt(attempt,response||{});return;}
+    if(typeof google.accounts.oauth2.hasGrantedAllScopes==='function'&&!google.accounts.oauth2.hasGrantedAllScopes(response,'https://www.googleapis.com/auth/drive.appdata')){failDriveAuthAttempt(attempt,{error:'access_denied'});return;}
+    var lifetime=Number(response.expires_in===undefined?3600:response.expires_in);
+    if(!Number.isFinite(lifetime)||lifetime<=0||lifetime>86400){failDriveAuthAttempt(attempt,{});return;}
+    var pending=attempt.pending,previousEmail=driveUserEmail;
+    finishDriveAuthAttempt(attempt);attempt.pending=null;
+    driveAccessToken=response.access_token;driveTokenExpiry=Date.now()+lifetime*1000;
+    driveHadSession=true;driveAccountVerified=false;driveUserEmail=null;
+    driveIdentityPending={token:driveAccessToken,pending:pending};
+    saveDriveSession();startTokenRefreshTimer();startRemoteCheckTimer();updateDriveAuthUI();
+    setBackupStatus('success','Acceso a Drive confirmado. Tu bitácora local se conserva.');showToast('✅ Conectado a Google Drive.');
+    resolveDriveIdentity(driveAccessToken,attempt.generation,previousEmail);
+  }
+  function requestDriveAuthorization(pendingCallback){
+    if(driveAuthAttempt||driveIdentityPending)return false;
+    if(driveBusy||restorePreparing||window.isImportingBackup){setBackupStatus('working','Espera a que termine la operación en curso.');return false;}
+    if(!initDriveTokenClient()){setBackupStatus('error','Google todavía no está disponible. Comprueba la conexión y vuelve a pulsar Conectar.');return false;}
+    var attempt={generation:++driveAuthSequence,pending:typeof pendingCallback==='function'?pendingCallback:null,popupErrorTimer:null};
+    driveAuthAttempt=attempt;driveIsReconnecting=true;updateDriveAuthUI();setBackupStatus('working','Completa la autorización en la ventana de Google.');
+    try{
+      driveTokenClient=google.accounts.oauth2.initTokenClient({client_id:DRIVE_CLIENT_ID,scope:DRIVE_SCOPE,
+        callback:function(response){acceptDriveToken(attempt,response);},
+        error_callback:function(error){
+          if(driveAuthAttempt!==attempt)return;
+          /* Algunos móviles cierran la ventana justo antes de entregar el resultado. */
+          if(error&&error.type==='popup_closed'){
+            if(!attempt.popupErrorTimer)attempt.popupErrorTimer=setTimeout(function(){failDriveAuthAttempt(attempt,error);},600);
+          }else failDriveAuthAttempt(attempt,error);
+        }
+      });
+      driveReconnectTimeout=setTimeout(function(){failDriveAuthAttempt(attempt,{type:'timeout'});},5*60000);
+      /* Sin awaits: esta llamada conserva el gesto del botón que abrió el flujo. */
+      driveTokenClient.requestAccessToken(driveUserEmail?{prompt:'',login_hint:driveUserEmail}:{prompt:'select_account'});
+      return true;
+    }catch(e){failDriveAuthAttempt(attempt,e);return false;}
+  }
+  function disconnectDrive(){
+    driveAuthSequence++;
+    if(driveAuthAttempt)finishDriveAuthAttempt(driveAuthAttempt);
+    driveIdentityPending=null;driveAccessToken=null;driveTokenExpiry=0;driveUserEmail=null;driveHadSession=false;driveAccountVerified=false;
+    stopTokenRefreshTimer();stopRemoteCheckTimer();clearDriveSession();clearKnownDriveAccountVersion();updateDriveAuthUI();
+    showToast('Drive desconectado de esta aplicación. Tus datos locales se conservan.');
+  }
   function handleAuthClick(pendingCallback){
-    /* Si estamos reconectando y el usuario pulsa Cancelar */
-    if (driveIsReconnecting){
-      driveIsReconnecting = false;
-      driveIsSilentRenew  = false;
-      if (driveReconnectTimeout){ clearTimeout(driveReconnectTimeout); driveReconnectTimeout = null; }
-      clearDriveSession();
-      updateDriveAuthUI();
-      return;
-    }
-    if (driveAccessToken && Date.now() < driveTokenExpiry){
-      /* Desconectar */
-      google.accounts.oauth2.revoke(driveAccessToken, function(){});
-      driveAccessToken = null;
-      driveTokenExpiry = 0;
-      driveUserEmail   = null;
-      clearDriveSession();   /* eliminar sesión persistida */
-      stopTokenRefreshTimer(); /* detener timer de renovación */
-      stopRemoteCheckTimer();  /* detener revisión periódica de versiones */
-      updateDriveAuthUI();
-      showToast("Desconectado de Google Drive.");
-      return;
-    }
-    /* Inicializar cliente si todavía no existe (los scripts async pueden tardar) */
-    if (!driveTokenClient){
-      if (typeof google === "undefined" || !google.accounts){
-        setBackupStatus("error", "✖ Los scripts de Google aún no han cargado. Espera unos segundos e intenta de nuevo.");
-        return;
-      }
-      initDriveTokenClient();
-    }
-    if (pendingCallback) driveTokenClient._pendingCallback = pendingCallback;
-    setBackupStatus("working", "⏳ Autenticando con Google…");
-    driveIsSilentRenew = false;
-    driveTokenClient.requestAccessToken({ prompt: "consent" });
+    if(driveAuthAttempt||driveIdentityPending)return false;
+    if(driveBusy){setBackupStatus('working','Espera a que termine la sincronización antes de cambiar la conexión.');return false;}
+    if(driveTokenValid()&&typeof pendingCallback!=='function'){disconnectDrive();return true;}
+    if(driveTokenValid()){pendingCallback();return true;}
+    return requestDriveAuthorization(pendingCallback);
   }
-
-  /* Asegurarse de tener token válido antes de una operación */
   function ensureToken(callback){
-    if (driveAccessToken && Date.now() < driveTokenExpiry){
-      callback();
-    } else {
-      handleAuthClick(callback);
+    if(driveIdentityPending){if(!driveIdentityPending.pending)driveIdentityPending.pending=callback;return false;}
+    if(driveAuthAttempt)return false;
+    if(driveTokenValid()){callback();return true;}
+    return requestDriveAuthorization(callback);
+  }
+  function restoreDriveAuthorization(){
+    if(driveSessionLoaded)return;driveSessionLoaded=true;
+    var saved=loadDriveSession();if(!saved){updateDriveAuthUI();return;}
+    driveUserEmail=typeof saved.email==='string'?saved.email:null;driveHadSession=true;
+    driveAccountVerified=saved.accountVerified===true||(saved.accountVerified===undefined&&!!driveUserEmail);
+    if(!driveAccountVerified)clearKnownDriveAccountVersion();
+    if(typeof saved.accessToken==='string'&&saved.accessToken&&Number.isFinite(saved.tokenExpiry)&&saved.tokenExpiry>Date.now()&&saved.tokenExpiry<=Date.now()+86400000){
+      driveAccessToken=saved.accessToken;driveTokenExpiry=saved.tokenExpiry;startTokenRefreshTimer();startRemoteCheckTimer();checkForRemoteUpdates();
+    }else expireDriveAuthorization();
+    updateDriveAuthUI();
+  }
+  async function fetchDrive(url,options){
+    var used=options&&options.headers&&options.headers.Authorization;
+    var response=await fetch(url,options);
+    if(response.status===401){
+      if(used==='Bearer '+driveAccessToken){driveTokenExpiry=0;expireDriveAuthorization();}
+      throw new Error('El acceso a Drive caducó. Pulsa Reconectar con Google; los cambios locales siguen guardados.');
     }
+    return response;
   }
 
   /* Helper: mostrar mensaje en backupStatus */
@@ -7290,7 +7217,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!el) return;
     el.className = "backup-status" + (type ? " " + type : "");
     el.textContent = text;
-    if (!type) el.style.display = "none";
+    el.style.display = type ? "block" : "none";
   }
 
   /* ============= buildMasterBackupJSON: construye el objeto maestro ============= */
@@ -7569,67 +7496,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     return uploadDriveBackup(true);
   }
 
-  /* Inicializar GIS cuando el script esté disponible */
-  function tryInitDriveClient(){
-    if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2){
-      initDriveTokenClient();
-
-      /* ── Auto-reconexión con persistencia de token ─────────────────────────
-         Estrategia en 3 capas:
-         1. Si el token guardado sigue siendo válido (< 1h), restaurarlo directamente
-            sin ninguna llamada OAuth. El usuario ve "Conectado" de inmediato.
-         2. Si el token expiró pero tenemos sesión guardada, intentar renovación
-            silenciosa (prompt:'none'). Mostramos "Reconectando…" con un timeout
-            de 6 segundos: si Google no responde (cookies bloqueadas en Chrome),
-            pasamos a "Desconectado" sin error visible.
-         3. Si no hay sesión guardada, arrancar desconectado normalmente. */
-      var savedSession = loadDriveSession();
-      if (savedSession){
-        driveUserEmail = savedSession.email || null;
-
-        /* Capa 1: ¿Tenemos un token guardado que todavía sirve? */
-        var hasValidToken = savedSession.accessToken &&
-                            savedSession.tokenExpiry &&
-                            Date.now() < savedSession.tokenExpiry - 60000; /* margen 1 min */
-
-        if (hasValidToken){
-          /* Restaurar token directamente — sin pop-up, sin iframe */
-          driveAccessToken = savedSession.accessToken;
-          driveTokenExpiry = savedSession.tokenExpiry;
-          console.log("[Drive] Token restaurado desde localStorage, válido hasta",
-            new Date(driveTokenExpiry).toLocaleTimeString());
-          updateDriveAuthUI();
-          startTokenRefreshTimer();
-          startRemoteCheckTimer();
-          /* Revisar de inmediato si hay una versión más nueva subida desde otro dispositivo */
-          checkForRemoteUpdates();
-        } else {
-          /* Capa 2: token expirado → intentar renovación silenciosa */
-          console.log("[Drive] Token expirado o ausente, intentando renovación silenciosa…");
-          driveIsReconnecting = true;
-          updateDriveAuthUI();
-
-          /* MAGIA NINJA: Esperamos al primer toque de pantalla para eludir el bloqueador de popups */
-          var triggerRenew = function() {
-            if (driveIsReconnecting) {
-              silentTokenRenew();
-            }
-            document.removeEventListener("click", triggerRenew);
-            document.removeEventListener("touchstart", triggerRenew);
-          };
-          document.addEventListener("click", triggerRenew);
-          document.addEventListener("touchstart", triggerRenew);
-        }
-
-      }
-      /* Si no hay sesión guardada, la UI ya muestra "desconectado" por defecto */
-
-    } else {
-      setTimeout(tryInitDriveClient, 500);
-    }
-  }
-  /* Disparar intento de init después de un pequeño delay para que los scripts async carguen */
-  setTimeout(tryInitDriveClient, 800);
+  /* Recuperar el permiso válido no requiere abrir Google ni esperar su biblioteca. */
+  function tryInitDriveClient(){restoreDriveAuthorization();}
+  tryInitDriveClient();
 
   /* ===================== Render principal ===================== */
   function render(){
@@ -7846,11 +7715,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
   /* ===================== Eventos: clicks ===================== */
   document.addEventListener("click", function(e){
-    /* Magia Ninja: Si el token está a menos de 5 min de caducar, lo renovamos aprovechando este toque */
-    if (driveUserEmail && driveAccessToken && Date.now() > driveTokenExpiry - 300000) {
-      silentTokenRenew();
-    }
-
     /* Nav tabs */
     var navBtn = e.target.closest(".nav-btn");
     if (navBtn && navBtn.hasAttribute("data-tab")){
