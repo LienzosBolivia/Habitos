@@ -675,3 +675,14 @@ test('a failed follow write retains one penalty receipt and saving again does no
   const storage=a.storageSet;a.setStorage(async()=>false);clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();await a.persist();assert.equal(a.state.coins.balance,15);assert.equal(a.saveFailed,true);
   a.setStorage(storage);a.settleFollowDays();await a.persist();const saved=JSON.parse(await a.storageGet('bitacora-app-data'));assert.equal(saved.coins.balance,15);assert.equal(saved.coins.ledger.filter(t=>t.kind==='follow-penalty').length,1);
 }));
+
+test('saving a follow plan does not consume the original reminder before any execution',()=>fixture(async({a})=>{
+  const {ds,key,clock}=await followFixture(a);a.saveFollowPlan(key,'10:01','');assert.equal(a.state.timeLog[ds]?.autoStarts?.f1,undefined);
+  a.setFollowEnabled(false);assert.equal(a.state.timeLog[ds]?.autoStarts?.f1,undefined);
+  a.setFollowEnabled(true);clock.now=a.followTimeAt(ds,'10:01');a.followTick();assert.equal(a.state.timeLog[ds].autoStarts.f1,true);
+}));
+
+test('finite follow subtasks get their own limit and pause without completing parent or child',()=>fixture(async({a})=>{
+  const {ds,clock,key,subKey}=await followFixture(a);a.selectFollowEntry(key,false);a.selectFollowEntry(subKey,true);a.saveFollowPlan(subKey,'10:01','1');clock.now=a.followTimeAt(ds,'10:01');a.followTick();
+  assert.equal(a.state.timeLog[ds].subtaskLimits.fs,60);clock.now+=60000;a.followTick();assert.equal(a.state.tracking.status,'thinking');assert.equal(a.state.oneoff[0].subtasks[0].done,false);assert.equal(a.state.log[ds]?.f1,undefined);
+}));

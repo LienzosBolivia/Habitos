@@ -5537,9 +5537,6 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     entry.time=time;entry.durationMin=mins;entry.notices={};entry.confirmationPending=false;
     /* Reprogramar una tarea ya iniciada permite retomarla, sin borrar el compromiso. */
     entry.autoStartedAt=null;
-    if(!state.timeLog[followToday()])state.timeLog[followToday()]={thinking:0,tasks:{},subtasks:{}};
-    if(!state.timeLog[followToday()].autoStarts)state.timeLog[followToday()].autoStarts={};
-    state.timeLog[followToday()].autoStarts[entry.taskId]=true;
     closeFollowPrompt();persist();renderActiveTab();return true;
   }
   function closeFollowPrompt(){
