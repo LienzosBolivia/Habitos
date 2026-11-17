@@ -16,7 +16,9 @@ function openApp(){
   w.eval(script.replace('  /* ===================== Arranque ===================== */\n  init();',`
     window.api={
       init,initDB,defaultState,persist,storageGet,storageSet,dbSet,dbGet,dbReadAllWithCursor,
-      loanQuote,loanState,requestLoan,repayLoan,canRepayLoan,validateLoans,commitLoanSnapshot,
+      setFollowAlarm(fn){fireDeadlineAlarm=fn;},
+    followToday,followState,followKey,syncFollowDay,setFollowEnabled,selectFollowEntry,saveFollowPlan,followTick,settleFollowDays,followEntryDone,followTimeAt,startFollowEntry,collectFollowPenalties,validateFollowState,openFollowPrompt,closeFollowPrompt,confirmFollowTime,pauseTask,
+    loanQuote,loanState,requestLoan,repayLoan,canRepayLoan,validateLoans,commitLoanSnapshot,
       setLoanCommit(fn){commitLoanSnapshot=fn;},
       parseDriveArchiveLink,validArchiveDate,archiveEntries,filteredArchiveEntries,saveArchiveEntry,editArchiveEntry,deleteArchiveEntry,openArchivePreview,closeArchivePreview,computeBackupRichness,
     validateBackup,buildMasterBackupJSON,importMasterBackup,commitRestoredBackup,saveRecoveryPoint,
@@ -574,4 +576,102 @@ test('existing welcome weeks keep their pending duplicator without receiving it 
   for(let n=2;n<=7;n++){day=a.addDays('2026-11-13',n-1);assert.equal(await a.claimWelcomePack(n),true);assert.equal(a.rpgState().inv.booster,n<4?0:1);}
   assert.equal(a.rpgState().starter.rewardSchedule,1);
   const backup=await a.buildMasterBackupJSON();assert.doesNotThrow(()=>a.validateBackup(backup));
+}));
+
+async function followFixture(a,patch={}){
+  const ds=a.todayStr(),clock={now:a.followTimeAt(ds,'10:00')};a.setNow(()=>clock.now);
+  await a.seed(Object.assign({coins:{balance:20},oneoff:[{id:'f1',text:'Informe',date:ds,subtasks:[{id:'fs',text:'Revisar',done:false}]}],tracking:{status:'thinking',taskDs:ds,startTime:clock.now,sessionEndsAt:a.followTimeAt(ds,'23:59')}},patch));
+  a.setFollowEnabled(true);return {ds,clock,key:'task:f1',subKey:'sub:f1:fs',day:a.followState().days[ds]};
+}
+
+test('follow defaults to principal tasks today, opts into subtasks and preserves explicit exclusions',()=>fixture(async({a})=>{
+  const {ds,day,key,subKey}=await followFixture(a);
+  assert.equal(day.entries[key].selected,true);assert.equal(day.entries[subKey].selected,false);
+  a.selectFollowEntry(key,false);a.selectFollowEntry(subKey,true);a.syncFollowDay();assert.equal(day.entries[key].selected,false);assert.equal(day.entries[subKey].selected,true);
+  a.state.oneoff.push({id:'f2',text:'Otra',date:ds},{id:'future',text:'Mañana',date:a.addDays(ds,1)});a.syncFollowDay();assert.equal(day.entries['task:f2'].selected,true);assert.equal(day.entries['task:future'],undefined);
+}));
+
+test('follow blank duration removes previous limit and starts now without backfilling time',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);
+  a.state.timeLog[ds]={tasks:{f1:120},subtasks:{},taskLimits:{f1:600}};
+  assert.equal(a.saveFollowPlan(key,'10:01',''),true);clock.now=a.followTimeAt(ds,'10:05');a.followTick();
+  assert.equal(a.state.tracking.status,'task');assert.equal(a.state.tracking.targetLimit,null);assert.equal(a.state.tracking.startTime,clock.now);assert.equal(a.state.timeLog[ds].taskLimits.f1,undefined);
+  clock.now+=2*3600000;a.followTick();assert.equal(a.state.tracking.status,'task');assert.equal(day.entries[key].startedAt!==null,true);assert.equal(a.getStatus? a.getStatus(ds,'f1'):'pending','pending');
+}));
+
+test('follow finite duration pauses at its limit but never invents a completion or evidence',()=>fixture(async({a})=>{
+  const {ds,clock,key}=await followFixture(a);a.saveFollowPlan(key,'10:01','2');clock.now=a.followTimeAt(ds,'10:01');a.followTick();assert.equal(a.state.tracking.targetLimit,120);
+  clock.now+=120000;a.followTick();assert.equal(a.state.tracking.status,'thinking');assert.equal(a.state.log[ds]?.f1,undefined);assert.equal(await a.dbGet(ds+'_f1'),null);
+}));
+
+test('follow queues collisions and never interrupts another task or a paid break',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);a.state.oneoff.push({id:'f2',text:'Segunda',date:ds});a.syncFollowDay();a.saveFollowPlan(key,'10:01','');a.saveFollowPlan('task:f2','10:01','');
+  a.state.coins.breakUntil=a.followTimeAt(ds,'10:03');a.state.tracking.startTime=null;clock.now=a.followTimeAt(ds,'10:02');a.followTick();assert.equal(a.state.tracking.status,'thinking');
+  clock.now=a.followTimeAt(ds,'10:03');a.tickCoins();a.followTick();assert.equal(a.state.tracking.taskId,'f1');assert.equal(a.state.tracking.startTime,clock.now);
+  a.followTick();assert.equal(a.state.tracking.taskId,'f1');assert.equal(day.entries['task:f2'].startedAt,null);
+  a.pauseTask();a.followTick();assert.equal(a.state.tracking.taskId,'f2');
+}));
+
+test('follow emits one notification per threshold, supports confirmation and resets notices on reschedule',()=>fixture(async({a})=>{
+  const notices=[];a.setFollowAlarm((key,text)=>notices.push({key,text}));const {ds,clock,key,day}=await followFixture(a);a.saveFollowPlan(key,'11:00','');
+  for(const [time,stage] of [['10:30','30'],['10:45','15'],['10:50','10'],['10:55','5'],['10:57','3'],['10:58','2'],['10:59','1']]){
+    clock.now=a.followTimeAt(ds,time);a.followTick();a.followTick();assert.ok(day.entries[key].notices[stage]);if(stage==='30')a.confirmFollowTime();
+  }
+  assert.equal(notices.length,7);a.closeFollowPrompt();a.saveFollowPlan(key,'11:30','5');assert.deepEqual(plain(day.entries[key].notices),{});
+}));
+
+test('missing follow time is requested again on return and dismissing does not reopen every second',()=>fixture(async({w,a})=>{
+  const {clock}=await followFixture(a);a.followTick();assert.ok(w.document.getElementById('followPlanModal').classList.contains('open'));
+  a.closeFollowPrompt();clock.now+=1000;a.followTick();assert.equal(w.document.getElementById('followPlanModal').classList.contains('open'),false);
+  w.document.dispatchEvent(new w.Event('visibilitychange'));assert.equal(w.document.getElementById('followPlanModal').classList.contains('open'),true);
+}));
+
+test('five coin follow penalty is once per started principal at midnight, including disabled and removed commitments',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);a.saveFollowPlan(key,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();a.selectFollowEntry(key,false);a.setFollowEnabled(false);
+  clock.now=a.followTimeAt(ds,'23:59');a.settleFollowDays();assert.equal(a.state.coins.balance,20);
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();a.settleFollowDays();assert.equal(a.state.coins.balance,15);assert.equal(day.penalties.f1.amount,5);assert.equal(a.state.coins.ledger.filter(t=>t.kind==='follow-penalty').length,1);
+  await a.persist();const backup=await a.buildMasterBackupJSON();assert.doesNotThrow(()=>a.validateBackup(backup));await a.seed(plain(backup.state));a.settleFollowDays();assert.equal(a.state.coins.balance,15);
+}));
+
+test('follow does not fine unstarted or fulfilled commitments and unmarking before midnight restores pending status',()=>fixture(async({a})=>{
+  const {ds,clock,key}=await followFixture(a);a.state.oneoff.push({id:'unstarted',text:'Sin iniciar',date:ds});a.syncFollowDay();a.saveFollowPlan(key,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();a.markDone(ds,'f1');a.followTick();
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,20);assert.equal(Object.keys(a.followState().days[ds].penalties).length,0);
+}));
+
+test('multiple selected subtasks and parent cost only five coins for one principal',()=>fixture(async({a})=>{
+  const {ds,clock,key,subKey,day}=await followFixture(a);a.selectFollowEntry(subKey,true);a.saveFollowPlan(subKey,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();
+  assert.ok(day.entries[key].startedAt);assert.ok(day.entries[subKey].startedAt);
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,15);assert.equal(Object.keys(day.penalties).length,1);
+}));
+
+test('a completed explicitly selected subtask fulfills its commitment without requiring the unselected parent',()=>fixture(async({a})=>{
+  const {ds,clock,key,subKey}=await followFixture(a);a.selectFollowEntry(key,false);a.selectFollowEntry(subKey,true);a.saveFollowPlan(subKey,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();
+  a.state.oneoff[0].subtasks[0].done=true;a.state.oneoff[0].subtasks[0].doneAt=ds;
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,20);
+}));
+
+test('insufficient follow penalty balance carries forward and is collected from later earnings exactly once',()=>fixture(async({a})=>{
+  const {ds,clock,key}=await followFixture(a,{coins:{balance:2}});a.saveFollowPlan(key,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();
+  assert.equal(a.state.coins.balance,0);assert.equal(a.state.coins.followPenaltyDue,3);a.addCoins(2,'Trabajo',true);assert.equal(a.state.coins.balance,0);assert.equal(a.state.coins.followPenaltyDue,1);
+  a.addCoins(4,'Trabajo',true);assert.equal(a.state.coins.balance,3);assert.equal(a.state.coins.followPenaltyDue,0);
+  const c=a.state.coins;assert.equal(c.ledgerOpeningBalance+c.ledger.reduce((n,t)=>n+t.amount,0),c.balance);
+}));
+
+test('follow validates backups, including schedules, penalty receipts and pending amounts',()=>fixture(async({a})=>{
+  const {key}=await followFixture(a);a.saveFollowPlan(key,'10:10','10');const backup=await a.buildMasterBackupJSON();assert.doesNotThrow(()=>a.validateBackup(backup));
+  for(const patch of [{durationMin:-1},{time:'25:00'},{selected:'yes'},{startedAt:-1}]){const bad=plain(backup);Object.assign(bad.state.follow.days[a.followToday()].entries[key],patch);assert.throws(()=>a.validateBackup(bad),/seguimiento/);}
+  const bad=plain(backup);bad.state.coins.followPenaltyDue=-5;assert.throws(()=>a.validateBackup(bad),/Penalizaciones/);
+  const old=plain(backup);delete old.state.follow;assert.doesNotThrow(()=>a.validateBackup(old));
+}));
+
+test('unmarking a followed completion before day end makes it pending again',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);a.saveFollowPlan(key,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();a.markDone(ds,'f1');a.followTick();assert.ok(day.entries[key].completedAt);
+  a.unmarkDone(ds,'f1');a.followTick();assert.equal(day.entries[key].completedAt,null);
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,15);
+}));
+
+test('a failed follow write retains one penalty receipt and saving again does not charge twice',()=>fixture(async({a})=>{
+  const {ds,clock,key}=await followFixture(a);a.saveFollowPlan(key,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();await a.persist();
+  const storage=a.storageSet;a.setStorage(async()=>false);clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();await a.persist();assert.equal(a.state.coins.balance,15);assert.equal(a.saveFailed,true);
+  a.setStorage(storage);a.settleFollowDays();await a.persist();const saved=JSON.parse(await a.storageGet('bitacora-app-data'));assert.equal(saved.coins.balance,15);assert.equal(saved.coins.ledger.filter(t=>t.kind==='follow-penalty').length,1);
 }));

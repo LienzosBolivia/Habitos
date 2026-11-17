@@ -1603,6 +1603,12 @@
   .loan-quote{padding:12px 0;line-height:1.7;color:var(--brass-300);}
   .loan-breakdown{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin:14px 0;}
   .loan-breakdown dd{margin:0;font-family:var(--font-mono);color:var(--brass-300);}
+  .follow-entry{padding:14px;margin-top:12px;border:1px solid var(--ink-700);border-radius:10px;background:var(--ink-850);overflow-wrap:anywhere;}
+  .follow-entry small{display:block;color:var(--text-muted);}
+  .follow-entry form{display:flex;flex-wrap:wrap;align-items:end;gap:8px;}
+  .follow-entry label{flex:1;min-width:115px;font-size:12px;}
+  .follow-picker{margin:14px 0;}.follow-picker label{display:block;margin:10px 0;font-size:13px;overflow-wrap:anywhere;}
+  #followPlanModal label{display:block;margin:14px 0;font-size:13px;}
 </style>
 </head>
 <body>
@@ -1729,6 +1735,7 @@
   </div>
 </div>
 
+<div id="followPlanModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="followPlanTitle"><div class="modal-box"><h3 id="followPlanTitle">¿A qué hora vas a hacer esta tarea?</h3><p id="followPlanName"></p><form data-action="follow-modal-save"><label>Hora propuesta (puedes cambiarla)<input class="archive-search" id="followPlanTime" name="time" type="time" required /></label><label>Duración en minutos (vacía = sin límite)<input class="archive-search" id="followPlanDuration" name="duration" type="number" min="1" max="1440" step="1" placeholder="Sin límite" /></label><div class="archive-actions" style="margin-top:16px"><button type="button" class="primary" id="followPlanConfirm" data-action="follow-confirm" hidden>Sí, mantengo esa hora</button><button class="btn-secondary" type="submit">Aceptar / cambiar hora</button><button class="btn-secondary" type="button" data-action="follow-later">Decidir después</button></div></form><p class="archive-help">Si no fijas hora, te lo volveremos a pedir al regresar o en unos minutos.</p></div></div>
 <nav class="bottom-nav">
   <div class="bottom-nav-inner">
     <button class="nav-btn active" data-tab="hoy" aria-label="Hoy">
@@ -3028,6 +3035,7 @@ function defaultState(){
       ensureCoinLedger(snapshot.coins);
       snapshot.coins.balance=Math.round(((snapshot.coins.balance||0)+pack.coins)*100)/100;
       recordCoinTransaction(snapshot.coins,pack.coins,"welcome",{label:"Pack de bienvenida · día "+day});
+      collectFollowPenalties(snapshot.coins);
       Object.keys(pack.items).forEach(function(k){snapshot.rpg.inv[k]=(snapshot.rpg.inv[k]||0)+pack.items[k];});
       snapshot.rpg.starter.claims.push({day:day,claimedOn:welcomeDay()});
       await commitWelcomeGrant(state.rpg.starter.claims,expected,snapshot);
@@ -3112,6 +3120,7 @@ function defaultState(){
         var debt=Object.assign({id:uid(),borrowedAt:nowMs()},quote);
         book.active=debt;wallet.balance=Math.round(((wallet.balance||0)+quote.principal)*100)/100;
         recordCoinTransaction(wallet,quote.principal,"loan-credit",{label:"Préstamo recibido · "+quote.principal+" + "+quote.interest+" de interés al pagar",loanId:debt.id});
+        collectFollowPenalties(wallet);
       }else{
         if(!book.active||book.active.id!==id||!canRepayLoan(wallet))throw new Error("Tu saldo o préstamo cambió. Revisa los datos antes de pagar.");
         var paid=Object.assign({},book.active,{paidAt:Math.max(nowMs(),book.active.borrowedAt)});
@@ -3339,6 +3348,7 @@ function defaultState(){
     c.balance=Math.round(((c.balance||0)+actual)*100)/100;
     var task=info.taskId&&completionTask(info.taskId);
     recordCoinTransaction(c,actual,kind,Object.assign({label:(why||"Monedas recibidas")+(task&&kind!=="completion"?" · "+task.item.text:""),baseAmount:n,multiplier:mult},info));
+    collectFollowPenalties(c);
     if(!silent)showToast("🪙 +"+actual+" moneda"+(actual===1?"":"s")+(mult>1?" · ×2":"")+(why?" · "+why:""));
     updateCoinBar();return actual;
   }
@@ -3652,16 +3662,22 @@ function defaultState(){
 
     flushTime();
     state.tracking.status    = "task";
+    delete state.tracking.followKey;
     state.tracking.taskId    = id;
     applyTaskDifficultyOnStart(id);
     state.tracking.subtaskId = subId || null;
     state.tracking.taskDs    = ds;
     state.tracking.startTime = nowMs();
     state.tracking.targetLimit = targetSecs;
+    noteFollowManualStart(ds,id,subId);
     persist();
     renderActiveTab();
   }
 
+  function noteFollowManualStart(ds,id,subId){
+    if(!state.follow||!state.follow.enabled||ds!==followToday())return;
+    var day=syncFollowDay();Object.values(day.entries).forEach(function(e){if(e.selected&&e.taskId===id&&(!e.subId||e.subId===subId)&&e.startedAt===null){e.startedAt=nowMs();e.autoStartedAt=nowMs();e.confirmationPending=false;if(followPromptKey===e.key)closeFollowPrompt();}});
+  }
   function pauseTask(){
     if (breakActive()) return;
     flushTime();
@@ -3766,8 +3782,10 @@ function defaultState(){
   /* Refresca los cronómetros visibles y ejecuta viajes en el tiempo */
   function updateLiveTimers(){
     if (!state || window.isImportingBackup) return; /* Bloqueo de seguridad durante restauraciones */
+    settleFollowDays();
     checkDeadlineAlarms();
     tickCoins();
+    followTick();
     expireDifficulty();
     var today = todayStr();      /* hora del dispositivo: tareas, calendario, etc. */
     var now = new Date();
@@ -3829,7 +3847,7 @@ function defaultState(){
     var currentTotalMin = now.getHours() * 60 + now.getMinutes();
     var tasksToday = getTasksForDate(today);
 
-    if (state.tracking && state.tracking.status !== "inactive" && !breakActive()) {
+    if (state.tracking && state.tracking.status !== "inactive" && !breakActive() && !(state.follow&&state.follow.enabled)) {
       for (var i = 0; i < tasksToday.length; i++) {
         var t = tasksToday[i];
         if (getStatus(today, t.id) === "done") continue;
@@ -3942,6 +3960,8 @@ function defaultState(){
     }
   }
 
+  document.addEventListener("visibilitychange",function(){if(!document.hidden&&dataReady){followPromptDue=true;followTick();}});
+  window.addEventListener("pageshow",function(){if(dataReady){followPromptDue=true;followTick();}});
   setInterval(updateLiveTimers, 1000);
 
   /* ===================== Pausas por día ===================== */
@@ -4063,6 +4083,7 @@ function defaultState(){
   }
 
   function markDone(ds, id){
+    settleFollowDays();
     var isProjTask = false;
     state.projects.forEach(function(p){
        var t = p.tasks && p.tasks.find(function(x){ return x.id === id; });
@@ -5412,6 +5433,207 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     );
   }
 
+
+  function validateFollowState(f){
+    if(!isRecord(f)||f.version!==1||typeof f.enabled!=='boolean'||!isRecord(f.days))throw new Error('Seguimiento inválido.');
+    function stamp(v){return v===null||Number.isFinite(v)&&v>=0;}
+    Object.keys(f.days).forEach(function(ds){
+      var day=f.days[ds];
+      if(!validArchiveDate(ds)||!isRecord(day)||!Number.isFinite(day.createdAt)||day.createdAt<0||!stamp(day.settledAt)||!isRecord(day.entries)||!isRecord(day.penalties))throw new Error('Día de seguimiento inválido.');
+      Object.keys(day.entries).forEach(function(key){
+        var e=day.entries[key];
+        if(!isRecord(e)||typeof e.taskId!=='string'||!/^[a-zA-Z0-9_-]+$/.test(e.taskId)||!(e.subId===null||typeof e.subId==='string'&&/^[a-zA-Z0-9_-]+$/.test(e.subId))||key!==followKey(e.taskId,e.subId)||e.key!==key||typeof e.text!=='string'||typeof e.parentText!=='string'||typeof e.selected!=='boolean'||!(e.time===null||followTimeAt(ds,e.time)!==null)||!(e.durationMin===null||Number.isInteger(e.durationMin)&&e.durationMin>=1&&e.durationMin<=1440)||followTimeAt(ds,e.proposal)===null||!stamp(e.startedAt)||!stamp(e.completedAt)||!isRecord(e.notices)||typeof e.confirmationPending!=='boolean'||(e.autoStartedAt!==undefined&&!stamp(e.autoStartedAt)))throw new Error('Tarea de seguimiento inválida.');
+        Object.keys(e.notices).forEach(function(k){if(['30','15','10','5','3','2','1','due'].indexOf(k)<0||!Number.isFinite(e.notices[k])||e.notices[k]<0)throw new Error('Aviso de seguimiento inválido.');});
+      });
+      Object.keys(day.penalties).forEach(function(id){var p=day.penalties[id];if(!/^[a-zA-Z0-9_-]+$/.test(id)||!isRecord(p)||p.amount!==5||!Number.isFinite(p.charged)||p.charged<0||p.charged>5||!Number.isFinite(p.at)||p.at<0||typeof p.label!=='string')throw new Error('Recibo de penalización inválido.');});
+    });
+  }
+
+  /* Seguimiento diario: compromisos explícitos, avisos y recibos de cierre. */
+  var followPromptKey=null,followLastPromptAt=0,followPromptDue=true;
+  function followToday(){return dateToStr(new Date(nowMs()));}
+  function followState(){
+    if(!state.follow)state.follow={version:1,enabled:false,days:{}};
+    return state.follow;
+  }
+  function followKey(id,subId){return subId?'sub:'+id+':'+subId:'task:'+id;}
+  function followTimeAt(ds,time){
+    if(typeof time!=="string"||!/^([01]\d|2[0-3]):[0-5]\d$/.test(time))return null;
+    var d=strToDate(ds),parts=time.split(':');d.setHours(Number(parts[0]),Number(parts[1]),0,0);return d.getTime();
+  }
+  function followProposeTime(ds){
+    var start=Math.max(nowMs()+60000,followTimeAt(ds,'06:00')),end=followTimeAt(ds,'22:30');
+    if(end<start)end=Math.max(start,followTimeAt(ds,'23:59'));
+    var at=Math.min(followTimeAt(ds,'23:59'),start+Math.random()*Math.max(0,end-start));
+    var d=new Date(at);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  }
+  function syncFollowDay(){
+    var f=followState(),ds=followToday();if(!f.enabled)return f.days[ds]||null;
+    var changed=false,day=f.days[ds];
+    if(!day){day=f.days[ds]={createdAt:nowMs(),settledAt:null,entries:{},penalties:{}};changed=true;}
+    getTasksForDate(ds).forEach(function(t){
+      if(t.purchased)return;
+      function add(sub){
+        var key=followKey(t.id,sub&&sub.id);
+        if(!day.entries[key]){day.entries[key]={key:key,taskId:t.id,subId:sub?sub.id:null,text:sub?sub.text:t.text,parentText:t.text,selected:!sub,time:null,durationMin:null,proposal:followProposeTime(ds),startedAt:null,completedAt:null,notices:{},confirmationPending:false};changed=true;}
+      }
+      add(null);(t.subtasks||[]).forEach(add);
+    });
+    if(changed)persist();return day;
+  }
+  function followEntryDone(ds,entry){
+    var meta=completionTask(entry.taskId),item=meta&&meta.item;
+    if(!meta&&entry.completedAt!==null)return true;
+    var parentDone=!!(state.log[ds]&&state.log[ds][entry.taskId]);
+    if(meta&&meta.type==='project')parentDone=!!item.done&&(!item.doneAt||item.doneAt<=ds);
+    if(parentDone)return true;
+    if(!entry.subId)return false;
+    var sub=item&&(item.subtasks||[]).find(function(x){return x.id===entry.subId;});
+    return meta&&!meta.recurring?!!(sub&&sub.done&&(!sub.doneAt||sub.doneAt<=ds)):!!(state.log[ds]&&state.log[ds][entry.subId]);
+  }
+  function followAvailable(ds,entry){
+    return getTasksForDate(ds).some(function(t){return t.id===entry.taskId&&(!entry.subId||(t.subtasks||[]).some(function(sb){return sb.id===entry.subId;}));});
+  }
+  function collectFollowPenalties(c){
+    var due=Number(c.followPenaltyDue)||0,amount=Math.round(Math.min(Math.max(0,c.balance||0),due)*100)/100;
+    if(amount<=0)return 0;
+    c.balance=Math.round((c.balance-amount)*100)/100;c.followPenaltyDue=Math.round((due-amount)*100)/100;
+    recordCoinTransaction(c,-amount,'follow-penalty-collection',{label:'Pago de penalizaciones pendientes de seguimiento'});return amount;
+  }
+  function settleFollowDays(){
+    if(!state.follow||!dataReady||window.isImportingBackup)return false;
+    var today=followToday(),changed=false;
+    Object.keys(state.follow.days).forEach(function(ds){
+      var day=state.follow.days[ds];if(ds>=today||day.settledAt!==null)return;
+      var missed={};
+      Object.values(day.entries).forEach(function(entry){
+        if(entry.startedAt!==null&&!followEntryDone(ds,entry))missed[entry.taskId]=entry;
+      });
+      Object.keys(missed).forEach(function(id){
+        if(day.penalties[id])return;
+        var entry=missed[id],c=coinState(),charged=Math.round(Math.min(5,Math.max(0,c.balance||0))*100)/100;
+        c.balance=Math.round(((c.balance||0)-charged)*100)/100;c.followPenaltyDue=Math.round(((c.followPenaltyDue||0)+5-charged)*100)/100;
+        day.penalties[id]={amount:5,charged:charged,at:nowMs(),label:entry.parentText};
+        recordCoinTransaction(c,-charged,'follow-penalty',{label:'Seguimiento '+ds+': '+entry.parentText+' · penalización 5 🪙'+(charged<5?' · '+coinAmountLabel(5-charged)+' pendientes':''),penaltyDay:ds,penaltyTaskId:id,assessedAmount:5});
+      });
+      day.settledAt=nowMs();changed=true;
+    });
+    if(changed){persist();updateCoinBar();}return changed;
+  }
+  function setFollowEnabled(enabled){
+    var f=followState();f.enabled=!!enabled;
+    if(!enabled)closeFollowPrompt();else{syncFollowDay();followPromptDue=true;}
+    persist();renderActiveTab();if(enabled)showToast('Seguimiento activado. Elige tus compromisos y fija sus horarios.');
+  }
+  function selectFollowEntry(key,selected){
+    var day=syncFollowDay(),entry=day&&day.entries[key];if(!entry)return false;
+    entry.selected=!!selected;if(followPromptKey===key)closeFollowPrompt();
+    persist();renderActiveTab();return true;
+  }
+  function saveFollowPlan(key,time,duration){
+    var day=syncFollowDay(),entry=day&&day.entries[key],at=followTimeAt(followToday(),time);
+    var mins=duration===''||duration===null?null:Number(duration);
+    if(!entry||!entry.selected||at===null||at<nowMs()-60000||(mins!==null&&(!Number.isInteger(mins)||mins<1||mins>1440))){showToast('Elige una hora de hoy que aún no haya pasado y una duración de 1 a 1440 minutos, o déjala vacía.');return false;}
+    entry.time=time;entry.durationMin=mins;entry.notices={};entry.confirmationPending=false;
+    /* Reprogramar una tarea ya iniciada permite retomarla, sin borrar el compromiso. */
+    entry.autoStartedAt=null;
+    if(!state.timeLog[followToday()])state.timeLog[followToday()]={thinking:0,tasks:{},subtasks:{}};
+    if(!state.timeLog[followToday()].autoStarts)state.timeLog[followToday()].autoStarts={};
+    state.timeLog[followToday()].autoStarts[entry.taskId]=true;
+    closeFollowPrompt();persist();renderActiveTab();return true;
+  }
+  function closeFollowPrompt(){
+    var modal=document.getElementById('followPlanModal');modal.classList.remove('open');
+    if(modal.contains(document.activeElement))document.activeElement.blur();
+    followPromptKey=null;followLastPromptAt=nowMs();
+  }
+  function openFollowPrompt(key,confirmTime){
+    var day=syncFollowDay(),entry=day&&day.entries[key];if(!entry||!entry.selected||followEntryDone(followToday(),entry))return;
+    if(document.querySelector('.modal-overlay.open,.ai-preview'))return;
+    if(!entry.time&&followTimeAt(followToday(),entry.proposal)<nowMs()-60000){entry.proposal=followProposeTime(followToday());persist();}
+    followPromptKey=key;followLastPromptAt=nowMs();followPromptDue=false;
+    document.getElementById('followPlanTitle').textContent=confirmTime?'¿Se ejecutará a esta hora?':'¿A qué hora vas a hacer esta tarea?';
+    document.getElementById('followPlanName').textContent=entry.text;
+    document.getElementById('followPlanTime').value=entry.time||entry.proposal;
+    document.getElementById('followPlanDuration').value=entry.durationMin===null?'':entry.durationMin;
+    document.getElementById('followPlanConfirm').hidden=!confirmTime;
+    document.getElementById('followPlanModal').classList.add('open');document.getElementById('followPlanTime').focus();
+  }
+  function confirmFollowTime(){
+    var day=followState().days[followToday()],entry=day&&day.entries[followPromptKey];if(!entry)return;
+    entry.confirmationPending=false;entry.confirmedAt=nowMs();closeFollowPrompt();persist();
+  }
+  function notifyFollow(entry,ds,stage,message){
+    if(entry.notices[stage])return;
+    entry.notices[stage]=nowMs();
+    fireDeadlineAlarm('follow:'+ds+':'+entry.key+':'+entry.time+':'+stage,message+' · '+entry.text);
+    persist();
+  }
+  function startFollowEntry(ds,entry){
+    if(!state.tracking||state.tracking.status==='inactive'||!state.tracking.sessionEndsAt||nowMs()>=state.tracking.sessionEndsAt||breakActive()||state.tracking.status==='task')return false;
+    if(followEntryDone(ds,entry))return false;
+    flushTime();var tr=state.tracking,tl=state.timeLog[ds]||(state.timeLog[ds]={thinking:0,tasks:{},subtasks:{}});
+    var map=entry.subId?(tl.subtasks||(tl.subtasks={})):(tl.tasks||(tl.tasks={})),base=map[entry.subId||entry.taskId]||0;
+    var limit=entry.durationMin===null?null:Math.round(base+entry.durationMin*60);
+    var limits=entry.subId?(tl.subtaskLimits||(tl.subtaskLimits={})):(tl.taskLimits||(tl.taskLimits={}));
+    if(limit===null)delete limits[entry.subId||entry.taskId];else limits[entry.subId||entry.taskId]=limit;
+    tr.status='task';tr.taskId=entry.taskId;tr.subtaskId=entry.subId;tr.taskDs=ds;tr.startTime=nowMs();tr.targetLimit=limit;tr.followKey=entry.key;
+    applyTaskDifficultyOnStart(entry.taskId);
+    if(!tl.autoStarts)tl.autoStarts={};tl.autoStarts[entry.taskId]=true;
+    entry.startedAt=entry.startedAt===null?nowMs():entry.startedAt;entry.autoStartedAt=nowMs();
+    entry.confirmationPending=false;if(followPromptKey===entry.key)closeFollowPrompt();
+    noteFollowManualStart(ds,entry.taskId,entry.subId);
+    persist();safeRerenderActiveTab();showToast('▶ Seguimiento: '+entry.text+(limit===null?' · sin límite de tiempo':''));return true;
+  }
+  function followTick(){
+    if(!state||!dataReady||window.isImportingBackup||!state.follow)return;
+    settleFollowDays();var f=followState();if(!f.enabled)return;
+    var day=syncFollowDay(),ds=followToday(),now=nowMs(),changed=false,tr=state.tracking;
+    var entries=Object.values(day.entries);
+    entries.forEach(function(entry){
+      var done=followEntryDone(ds,entry);
+      if(entry.completedAt===null&&done){entry.completedAt=now;changed=true;}
+      if(entry.completedAt!==null&&!done){entry.completedAt=null;changed=true;}
+      if(entry.selected&&entry.startedAt===null&&tr&&tr.status==='task'&&tr.taskDs===ds&&tr.taskId===entry.taskId&&(!entry.subId||entry.subId===tr.subtaskId)){
+        entry.startedAt=now;entry.autoStartedAt=now;changed=true;
+      }
+    });
+    if(changed)persist();
+    if(tr&&tr.status==='task'&&tr.followKey&&tr.targetLimit){
+      var running=day.entries[tr.followKey],tl=state.timeLog[ds]||{},elapsed=running&&running.subId?((tl.subtasks||{})[running.subId]||0)+(now-tr.startTime)/1000:getTaskLiveSeconds(ds,tr.taskId);
+      if(running&&elapsed>=tr.targetLimit){pauseTask();playNotifAudio();showToast('Terminó la duración planificada. Comprueba la tarea y márcala cumplida cuando corresponda.');return;}
+    }
+    var pending=entries.filter(function(e){return e.selected&&e.completedAt===null&&followAvailable(ds,e);});
+    pending.forEach(function(entry){
+      if(!entry.time||entry.autoStartedAt)return;
+      var left=(followTimeAt(ds,entry.time)-now)/60000;
+      if(left>30)return;
+      var stage=left<=0?'due':[1,2,3,5,10,15,30].find(function(n){return left<=n;});
+      if(stage===30&&!entry.notices[30]){entry.confirmationPending=true;followPromptDue=true;}
+      notifyFollow(entry,ds,String(stage),stage==='due'?'Es la hora programada'+(breakActive()?' · espera a que termine tu descanso':tr.status==='inactive'?' · enciende tu sesión':' · lista para ejecutar'):'Faltan '+stage+' minutos. '+(stage===30?'Confirma o cambia la hora':'Se ejecutará a las '+entry.time));
+    });
+    if(!document.hidden&&!isTypingInField(document.activeElement)&&!document.querySelector('.modal-overlay.open,.ai-preview')){
+      var confirmation=pending.find(function(e){return e.confirmationPending&&!e.autoStartedAt;});
+      var missing=pending.find(function(e){return !e.time&&!e.autoStartedAt;});
+      if(confirmation&&(followPromptDue||now-followLastPromptAt>=5*60000))openFollowPrompt(confirmation.key,true);
+      else if(missing&&(followPromptDue||now-followLastPromptAt>=5*60000))openFollowPrompt(missing.key,false);
+    }
+    if(tr&&tr.status!=='inactive'&&tr.status!=='task'&&!breakActive()){
+      var due=pending.filter(function(e){return e.time&&!e.autoStartedAt&&followTimeAt(ds,e.time)<=now;}).sort(function(a,b){return a.time.localeCompare(b.time)||a.key.localeCompare(b.key);});
+      if(due.length)startFollowEntry(ds,due[0]);
+    }
+  }
+  function renderFollowPanel(){
+    var f=followState(),day=f.enabled?syncFollowDay():f.days[followToday()],entries=day?Object.values(day.entries):[];
+    var selected=entries.filter(function(e){return e.selected&&followAvailable(followToday(),e);});
+    return '<section class="block follow-panel"><div class="block-title">Seguimiento de hoy</div><button type="button" class="btn-secondary" role="switch" aria-checked="'+f.enabled+'" data-action="follow-toggle">'+(f.enabled?'🟢 Desactivar seguimiento':'⚪ Activar seguimiento')+'</button>'+
+      '<p class="archive-help">Tu lista de compromisos dentro de las tareas de hoy. Las tareas principales se incluyen automáticamente; las subtareas solo si las eliges. Avisos a 30, 15, 10, 5, 3, 2 y 1 minutos. La ejecución respeta los descansos y espera si ya estás trabajando en otra tarea.</p>'+
+      '<p class="archive-help">Al cerrar el día (00:00), cada tarea principal iniciada y pendiente cuesta <b>5 🪙</b>, una sola vez. Desactivar o quitarla después de iniciarla no elimina ese compromiso. Si falta saldo, el descuento restante queda pendiente.</p>'+
+      ((coinState().followPenaltyDue||0)>0?'<p style="color:var(--missed)">Penalizaciones pendientes: '+coinState().followPenaltyDue+' 🪙</p>':'')+
+      (f.enabled?'<details class="follow-picker"><summary>Elegir tareas y añadir subtareas</summary>'+entries.filter(function(e){return followAvailable(followToday(),e);}).map(function(e){return '<label><input type="checkbox" data-action="follow-select" data-key="'+escapeHtml(e.key)+'" '+(e.selected?'checked':'')+' /> '+(e.subId?'↳ ':'')+escapeHtml(e.text)+(e.subId?' <small>('+escapeHtml(e.parentText)+')</small>':'')+'</label>';}).join('')+'</details>'+(!selected.length?'<p class="archive-help">No hay tareas en tu lista. Puedes añadir tareas de hoy y seleccionarlas aquí.</p>':'')+
+      selected.map(function(e){var done=followEntryDone(followToday(),e);return '<article class="follow-entry"><strong>'+(done?'✓ ':'')+escapeHtml(e.text)+'</strong>'+(e.subId?'<small>Subtarea de '+escapeHtml(e.parentText)+'</small>':'')+'<p class="archive-help">'+(done?'Cumplida':e.startedAt!==null?'Iniciada · pendiente de completar':e.time?'Programada a las '+e.time:'Falta fijar la hora')+' · '+(e.durationMin===null?'Duración sin límite':e.durationMin+' min')+'</p>'+(!done?'<form data-action="follow-save" data-key="'+escapeHtml(e.key)+'"><label>Hora<input required class="archive-search" type="time" name="time" aria-label="Hora de '+escapeHtml(e.text)+'" value="'+(e.time||'')+'" /></label><label>Duración (min)<input class="archive-search" type="number" name="duration" min="1" max="1440" step="1" placeholder="Sin límite" value="'+(e.durationMin===null?'':e.durationMin)+'" /></label><button type="submit" class="btn-secondary">Guardar horario</button><button type="button" class="btn-secondary" data-action="follow-propose" data-key="'+escapeHtml(e.key)+'">Proponer hora</button></form>':'')+'</article>';}).join(''):'<p class="archive-help">Al activarlo podrás preparar tu lista y sus horarios. Los compromisos ya iniciados conservan su cierre del día.</p>')+'</section>';
+  }
+
   /* ===================== Render: pestaña Hoy ===================== */
   function renderRouletteButton(today){
     var n = getRoulettePool().length;
@@ -5435,7 +5657,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       stampHtml = '<div class="stamp-wrap"><div class="stamp stamp-enter"><div class="stamp-main">CUMPLIDO</div><div class="stamp-sub">Jornada completa</div></div></div>';
     }
     return (
-      '<section class="block"><div class="block-title">Tu sesión de enfoque</div>' + renderMasterSwitch() + renderRouletteButton(today) + '</section>' +
+      '<section class="block"><div class="block-title">Tu sesión de enfoque</div>' + renderMasterSwitch() + renderFollowPanel() + renderRouletteButton(today) + '</section>' +
       '<section class="block"><button class="btn-secondary" data-action="enable-alarm">🔔 Activar y probar alarma</button><p style="font-size:12px;color:var(--text-muted)">Sonido independiente del tren. Permite las notificaciones y comprueba el volumen multimedia. Android puede suspender una web en segundo plano: al volver recuperaremos los avisos pendientes.</p></section>' +
       '<section class="block">' +
         '<div class="progress-hero">' +
@@ -6685,6 +6907,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       selectedCalendarDate = todayStr();
       
       dataReady = true;
+      settleFollowDays();
       var initializeWelcome=!state.rpg||!state.rpg.starter;
       rpgState();
       state.habits.forEach(function(h){ if(habitStreak(h)>=90) rpgState().forged[h.id]=todayStr(); });
@@ -7108,6 +7331,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if (!isRecord(backup) || !isRecord(backup.state)) throw new Error("El archivo no contiene una bitácora válida.");
     if (backup._meta && backup._meta.version > 3) throw new Error("Este respaldo requiere una versión más reciente de Bitácora.");
     var st = backup.state;
+    if(st.coins&&st.coins.followPenaltyDue!==undefined&&(!Number.isFinite(st.coins.followPenaltyDue)||st.coins.followPenaltyDue<0))throw new Error("Penalizaciones pendientes inválidas.");
+    if(st.follow!==undefined)validateFollowState(st.follow);
     if(st.coins&&st.coins.loans!==undefined)validateLoans(st.coins.loans);
     if(st.archiveLinks!==undefined){
       if(!Array.isArray(st.archiveLinks))throw new Error("Archivo de enlaces inválido.");
@@ -7656,6 +7881,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     if(action==="archive-clear-filters"){archiveQuery="";archiveMonth="";archiveLimit=12;document.getElementById("archiveSearch").value="";document.getElementById("evFilterMonth").value="";renderArchiveGallery();return;}
     if(action==="benefits-section"){benefitsSection=el.getAttribute("data-section")==="loan"?"loan":"welcome";activeTab="bonos";render();return;}
     if(action==="loan-repay"){repayLoan(el.getAttribute("data-loan-id"));return;}
+    if(action==="follow-toggle"){setFollowEnabled(!followState().enabled);return;}
+    if(action==="follow-propose"){openFollowPrompt(el.getAttribute("data-key"),false);return;}
+    if(action==="follow-confirm"){confirmFollowTime();return;}
+    if(action==="follow-later"){closeFollowPrompt();return;}
     if (action === "commerce-buy") { if(buyRpgItem(el.getAttribute("data-rpg-buy")))renderActiveTab();return; }
     if (action === "commerce-use") { useRpgItem(el.getAttribute("data-rpg-use"));return; }
     if (action === "open-legacy-shop") { openShop();return; }
@@ -8164,6 +8393,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
 
   /* ===================== Eventos: changes (Inputs y Selects) ===================== */
   document.addEventListener("change", function(e){
+    if(e.target.getAttribute("data-action")==="follow-select"){selectFollowEntry(e.target.getAttribute("data-key"),e.target.checked);return;}
     /* Filtros de la galería de evidencia */
     if (e.target.id === "evFilterType" || e.target.id === "evFilterMonth") {
       if(galleryView==="archivo"){archiveMonth=document.getElementById("evFilterMonth").value;archiveLimit=12;}
@@ -8190,6 +8420,8 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   /* ===================== Eventos: submits ===================== */
   document.addEventListener("submit", function(e){
     if (!dataReady || window.isImportingBackup) { e.preventDefault(); return; }
+    var followForm=e.target.closest('[data-action="follow-save"],[data-action="follow-modal-save"]');
+    if(followForm){e.preventDefault();saveFollowPlan(followForm.getAttribute("data-key")||followPromptKey,followForm.elements.time.value,followForm.elements.duration.value);return;}
     var loanForm=e.target.closest('[data-action="loan-request"]');
     if(loanForm){e.preventDefault();requestLoan(Number(loanForm.elements.amount.value));return;}
     var archiveForm=e.target.closest('[data-action="archive-save"]');

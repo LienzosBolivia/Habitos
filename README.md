@@ -98,3 +98,17 @@ Cada operación guarda saldo, deuda y movimiento juntos en una transacción loca
 
 
 El duplicador de bienvenida se entrega el día 1 para nuevas semanas. Las semanas ya iniciadas con el calendario anterior conservan su duplicador del día 4, sin duplicar ni perder el premio. El precio actual del escudo es 5 monedas; conserva el requisito de nivel 5.
+
+## Modo de seguimiento diario
+
+El habitáculo de Hoy incluye **Seguimiento de hoy**, debajo de la locomotora, con un interruptor propio. Al activarlo incluye las tareas principales de hoy (hábitos, rutinas, tareas puntuales y tareas del proyecto seleccionado) y añade automáticamente las nuevas tareas de ese día. **Elegir tareas y añadir subtareas** permite excluir principales o incluir subtareas explícitamente. Los permisos comprados no entran como trabajo a cumplir. La lista es independiente de las tareas originales: excluir no borra la tarea.
+
+Cada compromiso admite una hora de hoy y una duración opcional de 1 a 1440 minutos. En blanco significa ejecución sin límite, incluso si antes tenía un límite guardado. La propuesta de hora es aleatoria dentro de lo que queda del día (priorizando 06:00–22:30), editable antes de aceptar. Si faltan horarios se vuelve a preguntar al regresar a la app y cada cinco minutos de uso; **Decidir después** evita que el diálogo vuelva a abrirse cada segundo.
+
+A los 30 minutos se pide confirmar o cambiar la hora; a los 15, 10, 5, 3, 2 y 1 minutos se notifica la ejecución. Los recibos de avisos se guardan para evitar repeticiones; si la app estuvo suspendida solo se muestra el umbral actual, sin una ráfaga de avisos vencidos. Se necesita activar/probar la alarma y permitir notificaciones. Como en las alarmas existentes, Android puede suspender una web: no hay garantía de puntualidad con el proceso congelado o cerrado.
+
+Al llegar la hora, comienza cuando hay una sesión activa, no hay descanso pagado y no está corriendo otra tarea. Si coinciden varias, esperan en cola; las vencidas empiezan **al volver a ejecutar**, sin inventar tiempo trabajado durante la ausencia. Una pausa no provoca reinicios continuos; guardar una nueva hora permite programar otra ejecución. La duración finita pausa el trabajo al agotarse, sin marcar cumplimiento ni fabricar evidencia. Las reglas de evidencia y recompensas siguen iguales. Mientras el seguimiento está activo sustituye el auto-inicio antiguo por recordatorios para evitar dos planificadores compitiendo.
+
+El cierre se hace a **medianoche local**, o al regresar si la aplicación estaba cerrada. Cada tarea principal con un compromiso realmente iniciado y todavía sin completar genera **5 monedas de penalización una sola vez por día**; incluir padre y varias subtareas no multiplica la multa. Una subtarea elegida por separado puede cumplir su compromiso sin completar el padre no seleccionado. Los compromisos nunca iniciados no se multan. Desactivar el modo o excluir un compromiso después de iniciarlo pausa los avisos, pero conserva la obligación de ese día.
+
+Saldo, recibo de cierre y descuento se guardan en el mismo estado persistido. Si el saldo no alcanza, queda `coins.followPenaltyDue`: se descuenta de posteriores créditos, incluidos premios y préstamos, y se anota por separado en Galería → Monedas. El saldo no se vuelve negativo ni el multiplicador aumenta las penalizaciones. La lista, sus horarios, avisos, recibos y deuda pendiente se incluyen y validan en los respaldos; los respaldos antiguos siguen siendo válidos.
