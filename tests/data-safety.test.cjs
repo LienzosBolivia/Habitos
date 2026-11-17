@@ -16,7 +16,10 @@ function openApp(){
   w.eval(script.replace('  /* ===================== Arranque ===================== */\n  init();',`
     window.api={
       init,initDB,defaultState,persist,storageGet,storageSet,dbSet,dbGet,dbReadAllWithCursor,
-      setFollowAlarm(fn){fireDeadlineAlarm=fn;},
+      handleAuthClick,ensureToken,requestDriveAuthorization,restoreDriveAuthorization,expireDriveAuthorization,driveTokenValid,silentTokenRenew,saveDriveSession,loadDriveSession,fetchDrive,disconnectDrive,failDriveAuthAttempt,
+    get authAttempt(){return driveAuthAttempt;},get authToken(){return driveAccessToken;},get authExpiry(){return driveTokenExpiry;},get authEmail(){return driveUserEmail;},get identityPending(){return driveIdentityPending;},
+    restoreAuthForTest(){driveSessionLoaded=false;restoreDriveAuthorization();},
+    setFollowAlarm(fn){fireDeadlineAlarm=fn;},
     followToday,followState,followKey,syncFollowDay,setFollowEnabled,selectFollowEntry,saveFollowPlan,followTick,settleFollowDays,followEntryDone,followTimeAt,startFollowEntry,collectFollowPenalties,validateFollowState,openFollowPrompt,closeFollowPrompt,confirmFollowTime,pauseTask,
     loanQuote,loanState,requestLoan,repayLoan,canRepayLoan,validateLoans,commitLoanSnapshot,
       setLoanCommit(fn){commitLoanSnapshot=fn;},
@@ -685,4 +688,79 @@ test('saving a follow plan does not consume the original reminder before any exe
 test('finite follow subtasks get their own limit and pause without completing parent or child',()=>fixture(async({a})=>{
   const {ds,clock,key,subKey}=await followFixture(a);a.selectFollowEntry(key,false);a.selectFollowEntry(subKey,true);a.saveFollowPlan(subKey,'10:01','1');clock.now=a.followTimeAt(ds,'10:01');a.followTick();
   assert.equal(a.state.timeLog[ds].subtaskLimits.fs,60);clock.now+=60000;a.followTick();assert.equal(a.state.tracking.status,'thinking');assert.equal(a.state.oneoff[0].subtasks[0].done,false);assert.equal(a.state.log[ds]?.f1,undefined);
+}));
+
+function mockDriveGoogle(w){
+  const requests=[],configs=[],revokes=[];
+  w.google={accounts:{oauth2:{initTokenClient(config){configs.push(config);return {requestAccessToken(options){requests.push({config,options});}};},hasGrantedAllScopes(){return true;},revoke(token){revokes.push(token);}}}};
+  w.fetch=async(url)=>new Response(JSON.stringify(String(url).includes('/userinfo')?{email:'player@example.test'}:{files:[]}),{status:200,headers:{'Content-Type':'application/json'}});
+  return {requests,configs,revokes};
+}
+
+test('Drive startup and background return never initiate OAuth even for an expired saved session',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w);w.localStorage.setItem('bitacora_drive_session',JSON.stringify({email:'player@example.test',accessToken:'expired-token',tokenExpiry:Date.now()-1000}));
+  a.restoreAuthForTest();a.showStats();w.document.dispatchEvent(new w.Event('visibilitychange'));w.document.querySelector('[data-tab="hoy"]').click();a.silentTokenRenew();
+  assert.equal(mock.requests.length,0);assert.equal(a.authToken,null);assert.equal(a.authEmail,'player@example.test');assert.ok(a.loadDriveSession());
+}));
+
+test('Drive restores the full remaining token lifetime and unrelated clicks do not request renewal',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w),expiry=Date.now()+30000;
+  w.localStorage.setItem('bitacora_drive_session',JSON.stringify({email:'player@example.test',accessToken:'still-valid',tokenExpiry:expiry}));a.restoreAuthForTest();a.showStats();
+  w.document.querySelector('[data-tab="hoy"]').click();a.silentTokenRenew();assert.equal(mock.requests.length,0);assert.equal(a.authToken,'still-valid');assert.equal(a.authExpiry,expiry);
+}));
+
+test('Drive serializes explicit OAuth, skips forced consent and persists the token before profile lookup',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w);let profileResolve;w.fetch=()=>new Promise(resolve=>{profileResolve=resolve;});let calls=0;
+  a.requestDriveAuthorization(()=>{calls++;});assert.equal(a.requestDriveAuthorization(()=>{calls+=100;}),false);assert.equal(mock.requests.length,1);assert.notEqual(mock.requests[0].options.prompt,'consent');
+  mock.configs[0].callback({access_token:'new-token',expires_in:3600});assert.equal(a.loadDriveSession().accessToken,'new-token');assert.ok(a.authExpiry>Date.now()+3590000);assert.equal(calls,0);
+  profileResolve(new Response(JSON.stringify({email:'player@example.test'}),{status:200}));await wait();assert.equal(calls,1);assert.equal(a.identityPending,null);assert.equal(a.authEmail,'player@example.test');
+}));
+
+test('a Drive popup closure never clears an existing valid grant and permits an explicit retry',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w);a.setDrive();a.showStats();
+  a.requestDriveAuthorization();mock.configs[0].error_callback({type:'popup_closed',message:'Popup window closed'});await new Promise(r=>setTimeout(r,650));
+  assert.equal(a.authToken,'test-token');assert.equal(a.authAttempt,null);assert.equal(w.document.getElementById('backupStatus').style.display,'block');assert.match(w.document.getElementById('backupStatus').textContent,/Chrome/);
+  assert.equal(a.requestDriveAuthorization(),true);assert.equal(mock.requests.length,2);
+}));
+
+test('Drive accepts a token delivered just after popup_closed and ignores later stale errors',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w);a.requestDriveAuthorization();const first=mock.configs[0];
+  first.error_callback({type:'popup_closed'});first.callback({access_token:'accepted-token',expires_in:3600});await wait();await new Promise(r=>setTimeout(r,650));
+  assert.equal(a.authToken,'accepted-token');assert.equal(a.authAttempt,null);first.error_callback({type:'popup_closed'});assert.equal(a.authToken,'accepted-token');
+}));
+
+test('a cancelled or denied Drive authorization discards its pending operation and cannot affect a newer request',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w);let old=0,current=0;
+  a.requestDriveAuthorization(()=>old++);const first=mock.configs[0];first.callback({error:'access_denied'});
+  a.requestDriveAuthorization(()=>current++);first.callback({access_token:'stale-token',expires_in:3600});assert.equal(a.authToken,null);
+  mock.configs[1].callback({access_token:'current-token',expires_in:3600});await wait();assert.equal(old,0);assert.equal(current,1);assert.equal(a.authToken,'current-token');
+}));
+
+test('Drive expiry requests reconnection without OAuth, data loss or changing the pending-sync flag',()=>fixture(async({w,a})=>{
+  await a.seed({coins:{balance:73.5}});const mock=mockDriveGoogle(w);a.requestDriveAuthorization();mock.configs[0].callback({access_token:'short-token',expires_in:1});await wait();const before=plain(a.state),dirty=a.dirty;
+  const dateNow=w.Date.now;w.Date.now=()=>dateNow()+2000;a.silentTokenRenew();a.showStats();
+  assert.equal(a.authToken,null);assert.equal(mock.requests.length,1);assert.equal(a.dirty,dirty);assert.deepEqual(plain(a.state),before);assert.match(w.document.getElementById('driveAuthLabel').textContent,/caducado/);assert.equal(a.loadDriveSession().email,'player@example.test');
+}));
+
+test('profile failure leaves Drive authorized and prevents unverified account metadata being reused',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w);a.setDrive('known-version');w.fetch=async()=>{throw new Error('Sin red');};
+  a.requestDriveAuthorization();mock.configs[0].callback({access_token:'valid-without-email',expires_in:3600});await wait();assert.equal(a.authToken,'valid-without-email');assert.equal(a.driveTokenValid(),true);assert.equal(a.authEmail,null);assert.equal(a.identityPending,null);assert.equal(w.localStorage.getItem('bitacora_drive_known_modtime'),null);
+}));
+
+test('Drive 401 invalidates only the matching grant and 403 does not sign out a valid account',()=>fixture(async({w,a})=>{
+  await a.seed({coins:{balance:73.5}});mockDriveGoogle(w);a.setDrive();const dirty=a.dirty;
+  w.fetch=async()=>new Response('{}',{status:403});await a.fetchDrive('https://www.googleapis.com/drive/v3/files',{headers:{Authorization:'Bearer test-token'}});assert.equal(a.authToken,'test-token');
+  w.fetch=async()=>new Response('{}',{status:401});await assert.rejects(a.fetchDrive('https://www.googleapis.com/drive/v3/files',{headers:{Authorization:'Bearer test-token'}}),/caducó/);assert.equal(a.authToken,null);assert.equal(a.state.coins.balance,73.5);assert.equal(a.dirty,dirty);
+}));
+
+test('an old Drive request returning 401 cannot invalidate a newly authorized token',()=>fixture(async({w,a})=>{
+  await a.seed();const mock=mockDriveGoogle(w);a.setDrive();let resolveOld;w.fetch=()=>new Promise(resolve=>{resolveOld=resolve;});
+  const old=a.fetchDrive('https://www.googleapis.com/drive/v3/files',{headers:{Authorization:'Bearer test-token'}});a.requestDriveAuthorization();
+  w.fetch=async()=>new Response(JSON.stringify({email:'player@example.test'}),{status:200});mock.configs[0].callback({access_token:'newer-token',expires_in:3600});await wait();
+  resolveOld(new Response('{}',{status:401}));await assert.rejects(old,/caducó/);assert.equal(a.authToken,'newer-token');
+}));
+
+test('disconnecting Drive is local, revokes no Google consent and preserves photos and game state',()=>fixture(async({w,a})=>{
+  await a.seed({coins:{balance:73.5}});const mock=mockDriveGoogle(w);a.setDrive();await a.dbSet('2026-11-17_photo',JSON.stringify({note:'No perder',image:null}));const before=plain(a.state);
+  a.disconnectDrive();assert.equal(mock.revokes.length,0);assert.deepEqual(plain(a.state),before);assert.ok(await a.dbGet('2026-11-17_photo'));assert.equal(a.loadDriveSession(),null);
 }));

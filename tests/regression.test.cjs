@@ -11,6 +11,9 @@ const source = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const instrumented = source.replace('  /* ===================== Arranque ===================== */\n  init();', `
   window.appTest = {
     init, initDB, defaultState, persist, storageGet, storageSet, dbSet, dbGet, dbReadAllWithCursor,
+    handleAuthClick,ensureToken,requestDriveAuthorization,restoreDriveAuthorization,expireDriveAuthorization,driveTokenValid,silentTokenRenew,saveDriveSession,loadDriveSession,fetchDrive,disconnectDrive,failDriveAuthAttempt,
+    get authAttempt(){return driveAuthAttempt;},get authToken(){return driveAccessToken;},get authExpiry(){return driveTokenExpiry;},get authEmail(){return driveUserEmail;},get identityPending(){return driveIdentityPending;},
+    restoreAuthForTest(){driveSessionLoaded=false;restoreDriveAuthorization();},
     setFollowAlarm(fn){fireDeadlineAlarm=fn;},
     followToday,followState,followKey,syncFollowDay,setFollowEnabled,selectFollowEntry,saveFollowPlan,followTick,settleFollowDays,followEntryDone,followTimeAt,startFollowEntry,collectFollowPenalties,validateFollowState,openFollowPrompt,closeFollowPrompt,confirmFollowTime,pauseTask,
     loanQuote,loanState,requestLoan,repayLoan,canRepayLoan,validateLoans,
@@ -479,4 +482,50 @@ test('follow closes a paused commitment once and displays its five coin penalty 
   assert.equal(await page.evaluate(()=>appTest.state.coins.balance),15);
   await page.locator('[data-tab="evidencias"]').click();await page.locator('[data-view="monedas"]').click();await page.waitForFunction(()=>document.querySelector('#evGalleryContainer').textContent.includes('penalización 5'));
   assert.equal(await page.evaluate(()=>appTest.state.coins.ledger.filter(t=>t.kind==='follow-penalty').length),1);
+}));
+
+async function installBrowserGoogleMock(page,context){
+  await context.route('https://www.googleapis.com/oauth2/v3/userinfo',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({email:'player@example.test'})}));
+  await page.evaluate(()=>{
+    window.googleRequests=[];window.googleConfigs=[];window.googleRevokes=[];
+    window.google={accounts:{oauth2:{initTokenClient(config){window.googleConfigs.push(config);return {requestAccessToken(options){window.googleRequests.push({options,userGesture:navigator.userActivation.isActive});}};},hasGrantedAllScopes(){return true;},revoke(token){window.googleRevokes.push(token);}}}};
+  });
+}
+
+test('Drive reconnect on mobile opens once from the button, survives popup errors and preserves local data',async()=>withPage(async(page,context)=>{
+  await page.evaluate(async()=>{await appTest.seed({coins:{balance:73.5},oneoff:[{id:'keep',text:'No perder mi tarea',date:appTest.todayStr()}]});});await installBrowserGoogleMock(page,context);
+  await page.locator('[data-tab="estadisticas"]').click();await page.locator('#btnDriveAuth').click();
+  assert.equal(await page.evaluate(()=>window.googleRequests.length),1);assert.equal(await page.evaluate(()=>window.googleRequests[0].userGesture),true);assert.equal(await page.locator('#btnDriveAuth').isDisabled(),true);
+  await page.evaluate(()=>{appTest.handleAuthClick(null);window.googleConfigs[0].error_callback({type:'popup_closed'});});
+  await page.waitForFunction(()=>!appTest.authAttempt);assert.equal(await page.locator('#btnDriveAuth').isDisabled(),false);assert.match(await page.locator('#backupStatus').innerText(),/Chrome/);
+  await page.locator('#btnDriveAuth').click();await page.evaluate(()=>window.googleConfigs[1].callback({access_token:'browser-token',expires_in:3600}));
+  await page.waitForFunction(()=>!appTest.identityPending);assert.match(await page.locator('#driveAuthLabel').innerText(),/Conectado/);
+  await page.evaluate(()=>window.googleConfigs[0].error_callback({type:'popup_closed'}));assert.equal(await page.evaluate(()=>appTest.authToken),'browser-token');assert.equal(await page.evaluate(()=>window.googleRequests.length),2);
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),73.5);assert.equal(await page.evaluate(()=>appTest.state.oneoff[0].text),'No perder mi tarea');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+}));
+
+test('expired Drive access stays local and navigation or background events open no Google dialogs',async()=>withPage(async(page,context)=>{
+  await page.evaluate(async()=>{await appTest.seed({coins:{balance:73.5}});});await installBrowserGoogleMock(page,context);
+  await page.evaluate(()=>{localStorage.setItem('bitacora_drive_session',JSON.stringify({email:'player@example.test',accessToken:'expired',tokenExpiry:Date.now()-1000}));appTest.restoreAuthForTest();document.dispatchEvent(new Event('visibilitychange'));appTest.silentTokenRenew();});
+  await page.locator('[data-tab="estadisticas"]').click();assert.match(await page.locator('#driveAuthLabel').innerText(),/caducado/);assert.equal(await page.evaluate(()=>window.googleRequests.length),0);
+  await page.locator('[data-tab="hoy"]').click();await page.locator('[data-tab="estadisticas"]').click();assert.equal(await page.evaluate(()=>window.googleRequests.length),0);
+  await page.locator('#btnDriveAuth').click();assert.equal(await page.evaluate(()=>window.googleRequests.length),1);assert.notEqual(await page.evaluate(()=>window.googleRequests[0].options.prompt),'consent');
+}));
+
+test('Drive upload waits for one successful authorization and resumes the pending operation once',async()=>withPage(async(page,context)=>{
+  let uploads=0;
+  await context.route('https://www.googleapis.com/drive/v3/files?*',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({files:[]})}));
+  await context.route('https://www.googleapis.com/upload/drive/v3/files?*',route=>{uploads++;return route.fulfill({contentType:'application/json',body:JSON.stringify({id:'fake-backup',modifiedTime:'2026-11-17T23:00:00Z'})});});
+  await page.evaluate(async()=>{await appTest.seed({coins:{balance:73.5}});});await installBrowserGoogleMock(page,context);await page.locator('[data-tab="estadisticas"]').click();
+  await page.locator('#btnDriveSync').click();await page.locator('#btnDriveSync').click();assert.equal(await page.evaluate(()=>window.googleRequests.length),1);assert.equal(uploads,0);
+  await page.evaluate(()=>window.googleConfigs[0].callback({access_token:'upload-token',expires_in:3600}));
+  await page.waitForFunction(()=>!appTest.dirty);assert.equal(uploads,1);assert.match(await page.locator('#backupStatus').innerText(),/confirmado/);assert.equal(await page.evaluate(()=>appTest.state.coins.balance),73.5);
+}));
+
+test('Drive authorization persists across reload without opening another consent window',async()=>withPage(async(page,context)=>{
+  await page.evaluate(async()=>{await appTest.seed({coins:{balance:73.5}});});await installBrowserGoogleMock(page,context);
+  await page.locator('[data-tab="estadisticas"]').click();await page.locator('#btnDriveAuth').click();await page.evaluate(()=>window.googleConfigs[0].callback({access_token:'reload-token',expires_in:3600}));await page.waitForFunction(()=>!appTest.identityPending);
+  await page.reload();await installBrowserGoogleMock(page,context);await page.evaluate(()=>appTest.init());await page.waitForFunction(()=>appTest.ready);await page.locator('[data-tab="estadisticas"]').click();
+  assert.equal(await page.evaluate(()=>appTest.authToken),'reload-token');assert.equal(await page.evaluate(()=>window.googleRequests.length),0);assert.match(await page.locator('#driveAuthLabel').innerText(),/Conectado/);
 }));
