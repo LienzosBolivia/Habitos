@@ -5445,7 +5445,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   }
 
   /* Seguimiento diario: compromisos explícitos, avisos y recibos de cierre. */
-  var followPromptKey=null,followLastPromptAt=0,followPromptDue=true;
+  var followPromptKey=null,followLastPromptAt=0,followPromptDue=true,followPickerOpen=false;
   function followToday(){return dateToStr(new Date(nowMs()));}
   function followState(){
     if(!state.follow)state.follow={version:1,enabled:false,days:{}};
@@ -5495,6 +5495,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     c.balance=Math.round((c.balance-amount)*100)/100;c.followPenaltyDue=Math.round((due-amount)*100)/100;
     recordCoinTransaction(c,-amount,'follow-penalty-collection',{label:'Pago de penalizaciones pendientes de seguimiento'});return amount;
   }
+  function followPenaltyEligible(ds,entry){
+    return followTimeAt(ds,entry.time)!==null&&((entry.selected&&followAvailable(ds,entry))||entry.startedAt!==null);
+  }
   function settleFollowDays(){
     if(!state.follow||!dataReady||window.isImportingBackup)return false;
     var today=followToday(),changed=false;
@@ -5502,7 +5505,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
       var day=state.follow.days[ds];if(ds>=today||day.settledAt!==null)return;
       var missed={};
       Object.values(day.entries).forEach(function(entry){
-        if(entry.startedAt!==null&&!followEntryDone(ds,entry))missed[entry.taskId]=entry;
+        if(followPenaltyEligible(ds,entry)&&!followEntryDone(ds,entry))missed[entry.taskId]=entry;
       });
       Object.keys(missed).forEach(function(id){
         if(day.penalties[id])return;
@@ -5523,7 +5526,23 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
   function selectFollowEntry(key,selected){
     var day=syncFollowDay(),entry=day&&day.entries[key];if(!entry)return false;
     entry.selected=!!selected;if(followPromptKey===key)closeFollowPrompt();
-    persist();renderActiveTab();return true;
+    persist();refreshFollowSelection();return true;
+  }
+  /* Conservar el selector y el checkbox enfocado evita cierres y saltos de scroll. */
+  function refreshFollowSelection(){
+    var current=document.getElementById('followSelectedList');if(!current)return;
+    var template=document.createElement('template');template.innerHTML=renderFollowPanel();
+    var updated=template.content.querySelector('#followSelectedList');if(!updated)return;
+    var rows=new Map();current.querySelectorAll('[data-follow-key]').forEach(function(row){rows.set(row.getAttribute('data-follow-key'),row);});
+    var children=Array.from(updated.childNodes).map(function(node){
+      var key=node.nodeType===1&&node.getAttribute('data-follow-key');
+      return key&&rows.has(key)?rows.get(key):node;
+    });
+    /* Reutilizar filas existentes conserva también sus horarios aún en edición. */
+    children.forEach(function(node,index){if(current.childNodes[index]!==node)current.insertBefore(node,current.childNodes[index]||null);});
+    while(current.childNodes.length>children.length)current.lastChild.remove();
+    var day=followState().days[followToday()];
+    document.querySelectorAll('[data-action="follow-select"]').forEach(function(box){var e=day&&day.entries[box.getAttribute('data-key')];if(e)box.checked=e.selected;});
   }
   function saveFollowPlan(key,time,duration){
     var day=syncFollowDay(),entry=day&&day.entries[key],at=followTimeAt(followToday(),time);
@@ -5620,10 +5639,10 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     var selected=entries.filter(function(e){return e.selected&&followAvailable(followToday(),e);});
     return '<section class="block follow-panel"><div class="block-title">Seguimiento de hoy</div><button type="button" class="btn-secondary" role="switch" aria-checked="'+f.enabled+'" data-action="follow-toggle">'+(f.enabled?'🟢 Desactivar seguimiento':'⚪ Activar seguimiento')+'</button>'+
       '<p class="archive-help">Tu lista de compromisos dentro de las tareas de hoy. Las tareas principales se incluyen automáticamente; las subtareas solo si las eliges. Avisos a 30, 15, 10, 5, 3, 2 y 1 minutos. La ejecución respeta los descansos y espera si ya estás trabajando en otra tarea.</p>'+
-      '<p class="archive-help">Al cerrar el día (00:00), cada tarea principal iniciada y pendiente cuesta <b>5 🪙</b>, una sola vez. Desactivar o quitarla después de iniciarla no elimina ese compromiso. Si falta saldo, el descuento restante queda pendiente.</p>'+
+      '<p class="archive-help">Al cerrar el día (00:00), solo los compromisos con una hora guardada y sin completar cuestan <b>5 🪙 por tarea principal</b>, una sola vez. Las tareas sin hora y las subtareas que no elegiste no se cobran. Marcar completada basta: no se exige evidencia para evitar la multa. Puedes quitar un compromiso antes de iniciarlo; desactivarlo o quitarlo después de empezar no cancela esa obligación. Si falta saldo, el resto queda pendiente.</p>'+
       ((coinState().followPenaltyDue||0)>0?'<p style="color:var(--missed)">Penalizaciones pendientes: '+coinState().followPenaltyDue+' 🪙</p>':'')+
-      (f.enabled?'<details class="follow-picker"><summary>Elegir tareas y añadir subtareas</summary>'+entries.filter(function(e){return followAvailable(followToday(),e);}).map(function(e){return '<label><input type="checkbox" data-action="follow-select" data-key="'+escapeHtml(e.key)+'" '+(e.selected?'checked':'')+' /> '+(e.subId?'↳ ':'')+escapeHtml(e.text)+(e.subId?' <small>('+escapeHtml(e.parentText)+')</small>':'')+'</label>';}).join('')+'</details>'+(!selected.length?'<p class="archive-help">No hay tareas en tu lista. Puedes añadir tareas de hoy y seleccionarlas aquí.</p>':'')+
-      selected.map(function(e){var done=followEntryDone(followToday(),e);return '<article class="follow-entry"><strong>'+(done?'✓ ':'')+escapeHtml(e.text)+'</strong>'+(e.subId?'<small>Subtarea de '+escapeHtml(e.parentText)+'</small>':'')+'<p class="archive-help">'+(done?'Cumplida':e.startedAt!==null?'Iniciada · pendiente de completar':e.time?'Programada a las '+e.time:'Falta fijar la hora')+' · '+(e.durationMin===null?'Duración sin límite':e.durationMin+' min')+'</p>'+(!done?'<form data-action="follow-save" data-key="'+escapeHtml(e.key)+'"><label>Hora<input required class="archive-search" type="time" name="time" aria-label="Hora de '+escapeHtml(e.text)+'" value="'+(e.time||'')+'" /></label><label>Duración (min)<input class="archive-search" type="number" name="duration" min="1" max="1440" step="1" placeholder="Sin límite" value="'+(e.durationMin===null?'':e.durationMin)+'" /></label><button type="submit" class="btn-secondary">Guardar horario</button><button type="button" class="btn-secondary" data-action="follow-propose" data-key="'+escapeHtml(e.key)+'">Proponer hora</button></form>':'')+'</article>';}).join(''):'<p class="archive-help">Al activarlo podrás preparar tu lista y sus horarios. Los compromisos ya iniciados conservan su cierre del día.</p>')+'</section>';
+      (f.enabled?'<details class="follow-picker" '+(followPickerOpen?'open':'')+'><summary>Elegir tareas y añadir subtareas</summary>'+entries.filter(function(e){return followAvailable(followToday(),e);}).map(function(e){return '<label><input type="checkbox" data-action="follow-select" data-key="'+escapeHtml(e.key)+'" '+(e.selected?'checked':'')+' /> '+(e.subId?'↳ ':'')+escapeHtml(e.text)+(e.subId?' <small>('+escapeHtml(e.parentText)+')</small>':'')+'</label>';}).join('')+'</details><div id="followSelectedList">'+(!selected.length?'<p class="archive-help">No hay tareas en tu lista. Puedes añadir tareas de hoy y seleccionarlas aquí.</p>':'')+
+      selected.map(function(e){var done=followEntryDone(followToday(),e);return '<article class="follow-entry" data-follow-key="'+escapeHtml(e.key)+'"><strong>'+(done?'✓ ':'')+escapeHtml(e.text)+'</strong>'+(e.subId?'<small>Subtarea de '+escapeHtml(e.parentText)+'</small>':'')+'<p class="archive-help">'+(done?'Cumplida':e.startedAt!==null?'Iniciada · pendiente de completar':e.time?'Programada a las '+e.time:'Falta fijar la hora')+' · '+(e.durationMin===null?'Duración sin límite':e.durationMin+' min')+'</p>'+(!done?'<form data-action="follow-save" data-key="'+escapeHtml(e.key)+'"><label>Hora<input required class="archive-search" type="time" name="time" aria-label="Hora de '+escapeHtml(e.text)+'" value="'+(e.time||'')+'" /></label><label>Duración (min)<input class="archive-search" type="number" name="duration" min="1" max="1440" step="1" placeholder="Sin límite" value="'+(e.durationMin===null?'':e.durationMin)+'" /></label><button type="submit" class="btn-secondary">Guardar horario</button><button type="button" class="btn-secondary" data-action="follow-propose" data-key="'+escapeHtml(e.key)+'">Proponer hora</button></form>':'')+'</article>';}).join('')+'</div>':'<p class="archive-help">Al activarlo podrás preparar tu lista y sus horarios. Los compromisos con hora guardada conservan su cierre del día.</p>')+'</section>';
   }
 
   /* ===================== Render: pestaña Hoy ===================== */
@@ -7538,7 +7557,9 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     renderActiveTab();
   }
 
-  function renderActiveTab(){    var app  = document.getElementById("app");
+  function renderActiveTab(){
+    var picker=document.querySelector(".follow-picker");if(picker)followPickerOpen=picker.open;
+    var app  = document.getElementById("app");
     var html = "";
     if      (activeTab === "hoy")          html = renderHoy();
     else if (activeTab === "calendario")   html = renderCalendario();
@@ -8241,6 +8262,7 @@ document.getElementById("projectNoteSaveBtn").addEventListener("click", function
     }
   });
 
+  document.addEventListener("toggle",function(e){if(e.target.matches&&e.target.matches('.follow-picker'))followPickerOpen=e.target.open;},true);
   document.addEventListener("input",function(e){
     if(e.target.id==="loanAmount"){
       loanAmountDraft=Number(e.target.value);var q=loanQuote(loanAmountDraft);

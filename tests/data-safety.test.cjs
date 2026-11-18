@@ -636,7 +636,7 @@ test('five coin follow penalty is once per started principal at midnight, includ
   await a.persist();const backup=await a.buildMasterBackupJSON();assert.doesNotThrow(()=>a.validateBackup(backup));await a.seed(plain(backup.state));a.settleFollowDays();assert.equal(a.state.coins.balance,15);
 }));
 
-test('follow does not fine unstarted or fulfilled commitments and unmarking before midnight restores pending status',()=>fixture(async({a})=>{
+test('follow does not fine unscheduled or fulfilled commitments',()=>fixture(async({a})=>{
   const {ds,clock,key}=await followFixture(a);a.state.oneoff.push({id:'unstarted',text:'Sin iniciar',date:ds});a.syncFollowDay();a.saveFollowPlan(key,'10:01','');clock.now=a.followTimeAt(ds,'10:01');a.followTick();a.pauseTask();a.markDone(ds,'f1');a.followTick();
   clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,20);assert.equal(Object.keys(a.followState().days[ds].penalties).length,0);
 }));
@@ -763,4 +763,46 @@ test('an old Drive request returning 401 cannot invalidate a newly authorized to
 test('disconnecting Drive is local, revokes no Google consent and preserves photos and game state',()=>fixture(async({w,a})=>{
   await a.seed({coins:{balance:73.5}});const mock=mockDriveGoogle(w);a.setDrive();await a.dbSet('2026-11-17_photo',JSON.stringify({note:'No perder',image:null}));const before=plain(a.state);
   a.disconnectDrive();assert.equal(mock.revokes.length,0);assert.deepEqual(plain(a.state),before);assert.ok(await a.dbGet('2026-11-17_photo'));assert.equal(a.loadDriveSession(),null);
+}));
+
+test('follow multi-selection keeps the same open picker and focused checkbox without discarding schedule drafts',()=>fixture(async({w,a})=>{
+  const {ds,key,subKey}=await followFixture(a),picker=w.document.querySelector('.follow-picker');picker.open=true;
+  const parentBox=w.document.querySelector('[data-key="task:f1"][data-action="follow-select"]'),subBox=w.document.querySelector('[data-key="sub:f1:fs"][data-action="follow-select"]');
+  const originalRow=w.document.querySelector('[data-follow-key="task:f1"]'),time=originalRow.querySelector('[name="time"]');time.value='15:30';
+  subBox.focus();subBox.checked=true;subBox.dispatchEvent(new w.Event('change',{bubbles:true}));
+  assert.equal(w.document.querySelector('.follow-picker'),picker);assert.equal(picker.open,true);assert.equal(w.document.activeElement,subBox);assert.equal(time.value,'15:30');assert.equal(w.document.querySelector('[data-follow-key="task:f1"]'),originalRow);
+  parentBox.checked=false;parentBox.dispatchEvent(new w.Event('change',{bubbles:true}));assert.equal(picker.open,true);assert.equal(w.document.querySelectorAll('.follow-entry').length,1);assert.equal(a.followState().days[ds].entries[key].selected,false);
+  subBox.checked=false;subBox.dispatchEvent(new w.Event('change',{bubbles:true}));assert.equal(picker.open,true);assert.equal(w.document.querySelectorAll('.follow-entry').length,0);
+}));
+
+test('a selected scheduled follow commitment is fined if unfinished even when it never started',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);a.saveFollowPlan(key,'10:30','');assert.equal(day.entries[key].startedAt,null);
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,15);assert.equal(Object.keys(day.penalties).length,1);
+}));
+
+test('manually starting a follow task without a saved clock time creates no penalty',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);day.entries[key].startedAt=clock.now;day.entries[key].autoStartedAt=clock.now;
+  assert.equal(day.entries[key].time,null);clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,20);assert.equal(Object.keys(day.penalties).length,0);
+}));
+
+test('forty unchosen unscheduled subtasks cannot multiply a scheduled parent penalty',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);a.state.oneoff[0].subtasks=Array.from({length:40},(_,i)=>({id:'many_'+i,text:'Parte '+i,done:false}));a.syncFollowDay();
+  a.saveFollowPlan(key,'11:00','');assert.equal(Object.values(day.entries).filter(e=>e.subId&&e.selected).length,0);
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,15);assert.equal(Object.keys(day.penalties).length,1);
+}));
+
+test('marking a programmed follow commitment completed avoids its penalty without any evidence',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);a.saveFollowPlan(key,'11:00','');a.markDone(ds,'f1');assert.equal(await a.dbGet(ds+'_f1'),null);
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,20);assert.equal(Object.keys(day.penalties).length,0);
+}));
+
+test('deselecting a scheduled follow commitment before starting cancels its day obligation',()=>fixture(async({a})=>{
+  const {ds,clock,key,day}=await followFixture(a);a.saveFollowPlan(key,'11:00','');a.selectFollowEntry(key,false);
+  clock.now=a.followTimeAt(a.addDays(ds,1),'00:01');a.settleFollowDays();assert.equal(a.state.coins.balance,20);assert.equal(Object.keys(day.penalties).length,0);
+}));
+
+test('an active duplicator never doubles the welcome pack but does double a work bonus',()=>fixture(async({a})=>{
+  await a.seed({coins:{balance:0}});a.rpgState().inv.booster=1;assert.equal(a.useBooster(),true);await a.persist();
+  assert.equal(await a.claimWelcomePack(1),true);assert.equal(a.state.coins.balance,5);assert.equal(a.state.coins.ledger.find(t=>t.kind==='welcome').amount,5);
+  assert.equal(a.addCoins(1,'Tarea con evidencia',true,{kind:'completion'}),2);assert.equal(a.state.coins.balance,7);
 }));

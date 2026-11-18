@@ -452,7 +452,7 @@ test('follow mobile checklist opts into subtasks, schedules an indefinite run an
   await seedFollowPage(page);await page.locator('.follow-picker summary').click();
   assert.equal(await page.locator('[data-action="follow-select"][data-key="task:ft"]').isChecked(),true);assert.equal(await page.locator('[data-action="follow-select"][data-key="sub:ft:fsub"]').isChecked(),false);
   await page.locator('[data-action="follow-select"][data-key="task:ft"]').uncheck();
-  await page.locator('.follow-picker summary').click();await page.locator('[data-action="follow-select"][data-key="sub:ft:fsub"]').check();
+  assert.equal(await page.locator('.follow-picker').evaluate(el=>el.open),true);await page.locator('[data-action="follow-select"][data-key="sub:ft:fsub"]').check();
   const form=page.locator('[data-action="follow-save"][data-key="sub:ft:fsub"]');await form.locator('[name="time"]').fill('10:01');await form.locator('button[type="submit"]').click();
   assert.match(await page.locator('.follow-entry').innerText(),/sin límite/);
   await page.evaluate(()=>{window.followClock=appTest.followTimeAt(appTest.todayStr(),'10:01');appTest.followTick();});
@@ -528,4 +528,28 @@ test('Drive authorization persists across reload without opening another consent
   await page.locator('[data-tab="estadisticas"]').click();await page.locator('#btnDriveAuth').click();await page.evaluate(()=>window.googleConfigs[0].callback({access_token:'reload-token',expires_in:3600}));await page.waitForFunction(()=>!appTest.identityPending);
   await page.reload();await installBrowserGoogleMock(page,context);await page.evaluate(()=>appTest.init());await page.waitForFunction(()=>appTest.ready);await page.locator('[data-tab="estadisticas"]').click();
   assert.equal(await page.evaluate(()=>appTest.authToken),'reload-token');assert.equal(await page.evaluate(()=>window.googleRequests.length),0);assert.match(await page.locator('#driveAuthLabel').innerText(),/Conectado/);
+}));
+
+test('follow picker supports repeated selections without closing, replacing checkboxes or jumping scroll',async()=>withPage(async page=>{
+  await seedFollowPage(page);await page.evaluate(()=>{appTest.state.oneoff[0].subtasks=Array.from({length:40},(_,i)=>({id:'part_'+i,text:'Subtarea '+i,done:false}));appTest.syncFollowDay();appTest.render();});
+  await page.locator('.follow-picker summary').click();
+  const box=page.locator('[data-action="follow-select"][data-key="sub:ft:part_20"]');await box.scrollIntoViewIfNeeded();
+  await page.evaluate(()=>{window.keptPicker=document.querySelector('.follow-picker');window.keptCheckbox=document.querySelector('[data-key="sub:ft:part_20"]');window.oldScroll=scrollY;});
+  await box.check();
+  assert.equal(await page.evaluate(()=>document.querySelector('.follow-picker')===window.keptPicker),true);assert.equal(await page.evaluate(()=>document.querySelector('[data-key="sub:ft:part_20"]')===window.keptCheckbox),true);
+  assert.equal(await page.locator('.follow-picker').evaluate(el=>el.open),true);assert.ok(await page.evaluate(()=>Math.abs(scrollY-window.oldScroll)<3));
+  await page.locator('[data-action="follow-select"][data-key="sub:ft:part_21"]').check();await box.uncheck();assert.equal(await page.locator('.follow-picker').evaluate(el=>el.open),true);
+  assert.equal(await page.locator('[data-action="follow-select"][data-key="sub:ft:part_21"]').isChecked(),true);
+  const parent=page.locator('[data-follow-key="task:ft"] [name="time"]');await parent.fill('15:30');
+  await page.locator('[data-action="follow-select"][data-key="sub:ft:part_22"]').check();assert.equal(await parent.inputValue(),'15:30');
+}));
+
+test('scheduled parent with forty subtasks costs five once, while a completion needs no evidence to avoid it',async()=>withPage(async page=>{
+  await seedFollowPage(page);await page.evaluate(()=>{
+    const ds=appTest.followToday();appTest.state.oneoff[0].subtasks=Array.from({length:40},(_,i)=>({id:'bulk_'+i,text:'Paso '+i,done:false}));appTest.syncFollowDay();appTest.saveFollowPlan('task:ft','11:00','');
+    window.followClock=appTest.followTimeAt(appTest.addDays(ds,1),'00:01');appTest.settleFollowDays();
+  });
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),15);assert.equal(await page.evaluate(()=>appTest.state.coins.ledger.filter(t=>t.kind==='follow-penalty').length),1);
+  await seedFollowPage(page);await page.evaluate(()=>{const ds=appTest.followToday();appTest.saveFollowPlan('task:ft','11:00','');appTest.markDone(ds,'ft');window.followClock=appTest.followTimeAt(appTest.addDays(ds,1),'00:01');appTest.settleFollowDays();});
+  assert.equal(await page.evaluate(()=>appTest.state.coins.balance),20);assert.equal(await page.evaluate(()=>appTest.dbGet(appTest.todayStr()+'_ft')),null);
 }));
